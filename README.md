@@ -24,3 +24,21 @@
 
 - 版本控制：Git
 - 文档：Markdown
+
+## 本地开发环境
+
+推荐使用 Miniconda 创建独立 Python 环境：
+
+```powershell
+conda env create -f environment.yml
+conda activate ai-employee
+python -m pip install -e ".[dev]"
+python -m pytest
+```
+
+启动知识库 API 的开发服务：
+
+```powershell
+conda activate ai-employee
+uvicorn ai_employee.knowledge_api.app:app --reload --app-dir services/knowledge-api/src
+```
