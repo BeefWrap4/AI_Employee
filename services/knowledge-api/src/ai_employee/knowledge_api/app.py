@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import re
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
@@ -100,11 +101,24 @@ class InMemoryKnowledgeStore:
         record.parse_status = "published"
         return record
 
-    def first_published_document(self) -> DocumentRecord | None:
-        for record in self.documents.values():
-            if record.parse_status == "published":
-                return record
-        return None
+    def find_best_document(self, query: str, knowledge_scopes: list[str]) -> DocumentRecord | None:
+        candidates = [
+            record
+            for record in self.documents.values()
+            if record.parse_status == "published"
+            and _is_visible_in_scope(record, knowledge_scopes)
+        ]
+        if not candidates:
+            return None
+
+        query_tokens = _tokenize(query)
+        return max(
+            candidates,
+            key=lambda record: (
+                _relevance_score(record, query_tokens),
+                record.doc_id,
+            ),
+        )
 
     def create_feedback(self, payload: FeedbackCreate) -> FeedbackResponse:
         self.feedback_count += 1
@@ -124,6 +138,34 @@ def _document_response(record: DocumentRecord, trace_id: str) -> DocumentRespons
         metadata=record.metadata,
         acl_tags=record.acl_tags,
     )
+
+
+def _is_visible_in_scope(record: DocumentRecord, knowledge_scopes: list[str]) -> bool:
+    if not knowledge_scopes:
+        return True
+    visible_scopes = set(record.acl_tags)
+    visible_scopes.update(str(value) for value in record.metadata.values())
+    return bool(visible_scopes.intersection(knowledge_scopes))
+
+
+def _tokenize(text: str) -> set[str]:
+    ascii_tokens = set(re.findall(r"[a-zA-Z0-9]+", text.lower()))
+    cjk_tokens = {text[index : index + 2] for index in range(max(len(text) - 1, 0))}
+    cjk_tokens.update(text[index : index + 3] for index in range(max(len(text) - 2, 0)))
+    return {token.strip() for token in ascii_tokens.union(cjk_tokens) if token.strip()}
+
+
+def _relevance_score(record: DocumentRecord, query_tokens: set[str]) -> int:
+    searchable_text = " ".join(
+        [
+            record.title,
+            record.content,
+            " ".join(str(value) for value in record.metadata.values()),
+            " ".join(record.acl_tags),
+        ]
+    )
+    document_tokens = _tokenize(searchable_text)
+    return len(query_tokens.intersection(document_tokens))
 
 
 def create_app() -> FastAPI:
@@ -159,11 +201,11 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/chat/query", response_model=QueryResponse)
     def query(payload: QueryRequest) -> QueryResponse:
-        record = store.first_published_document()
+        record = store.find_best_document(payload.question, payload.knowledge_scopes)
         if record is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="no published knowledge documents available",
+                detail="no published knowledge documents available for requested scope",
             )
 
         trace_id = f"trace_{payload.session_id}_query"
