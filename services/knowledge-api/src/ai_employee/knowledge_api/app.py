@@ -41,12 +41,19 @@ from ai_employee.knowledge_api.schemas import (
 from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.worker_client import WorkerClient
 
+_LLM_GATEWAY_ENABLED = os.getenv("LLM_GATEWAY_ENABLED", "false").strip().lower() in (
+    "true", "1", "yes"
+)
+
 SERVICE_VERSION = "0.1.0"
 
 _MIME_EXT = {
     "text/markdown": "md",
     "text/html": "html",
     "text/plain": "txt",
+    "application/pdf": "pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 }
 _MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", "10485760"))
 
@@ -275,11 +282,42 @@ def create_app(
             scope_or=payload.knowledge_scopes_or,
         )
         top = hits[0]
-        answer = (
-            f"根据《{top.doc_title}》，{top.content} "
-            "该回答基于已发布知识片段生成，需结合现场数据人工确认。"
-        )
         trace_id = f"trace_{payload.session_id}_query"
+
+        if _LLM_GATEWAY_ENABLED:
+            from ai_employee.llm_gateway.client import LlmClient, LlmClientError
+            from ai_employee.llm_gateway.prompt import RAG_ANSWER_TEMPLATE
+
+            evidence_parts: list[str] = []
+            for idx, h in enumerate(hits, start=1):
+                evidence_parts.append(f"[{idx}] (《{h.doc_title}》) {h.content}")
+            evidence = "\n\n".join(evidence_parts)
+
+            prompts = RAG_ANSWER_TEMPLATE.to_messages(
+                evidence=evidence,
+                question=payload.question,
+            )
+            try:
+                client = LlmClient()
+                response = client.chat(prompts)
+                answer = response.content
+                model_name = response.model
+                prompt_version = "rag-template-v1"
+            except LlmClientError:
+                answer = (
+                    f"根据《{top.doc_title}》，{top.content} "
+                    "该回答基于已发布知识片段生成，需结合现场数据人工确认。"
+                )
+                model_name = "template-v1-fallback"
+                prompt_version = "m1-template"
+        else:
+            answer = (
+                f"根据《{top.doc_title}》，{top.content} "
+                "该回答基于已发布知识片段生成，需结合现场数据人工确认。"
+            )
+            model_name = "template-v1"
+            prompt_version = "m1-template"
+
         try:
             store.write_qa_log(
                 qa_log_id=trace_id.replace("trace_", "qa_"),
@@ -288,8 +326,8 @@ def create_app(
                 knowledge_scopes=payload.knowledge_scopes,
                 retrieved_chunks=[{"chunk_id": h.chunk_id, "doc_id": h.doc_id} for h in hits],
                 answer=answer,
-                model_name="template-v1",
-                prompt_version="m1-template",
+                model_name=model_name,
+                prompt_version=prompt_version,
                 confidence=top.confidence,
                 latency_ms=0,
                 trace_id=trace_id,
