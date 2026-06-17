@@ -13,3 +13,4 @@ dependencies:
       - aiosqlite>=0.20
       - markdown-it-py>=3.0
       - beautifulsoup4>=4.12
+      - python-multipart>=0.0.9

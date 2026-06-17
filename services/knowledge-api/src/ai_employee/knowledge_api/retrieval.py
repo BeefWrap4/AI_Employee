@@ -5,6 +5,10 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 
+from ai_employee.common_schemas.embedding import (
+    EmbeddingProvider,
+    StubEmbeddingProvider,
+)
 from ai_employee.knowledge_api.store import SQLiteStore
 
 
@@ -20,8 +24,14 @@ class RetrievalHit:
 
 
 class RetrievalService:
-    def __init__(self, store: SQLiteStore, top_k: int = 3) -> None:
+    def __init__(
+        self,
+        store: SQLiteStore,
+        query_provider: EmbeddingProvider | None = None,
+        top_k: int = 3,
+    ) -> None:
         self.store = store
+        self.query_provider = query_provider or StubEmbeddingProvider(dim=8)
         self.top_k = top_k
 
     def search(self, question: str, scopes: list[str], top_k: int | None = None) -> list[RetrievalHit]:
@@ -45,8 +55,8 @@ class RetrievalService:
             scores[cid] = scores.get(cid, 0.0) + 0.5
             meta[cid] = r
 
-        # 向量召回
-        question_vec = _embed_question(question)
+        # 向量召回（查询侧 embedding 与 worker 侧共享同一 provider，维度一致）
+        question_vec = _embed_question(self.query_provider, question)
         best_vec: dict[str, float] = {}
         for r in vec_rows:
             sim = _cosine(question_vec, r["embedding"])
@@ -85,23 +95,17 @@ class RetrievalService:
         return hits
 
 
-def _embed_question(question: str) -> list[float]:
-    """M1 问题侧 embedding：复用 StubEmbeddingProvider 的确定性映射。
+def _embed_question(provider: EmbeddingProvider, question: str) -> list[float]:
+    """用注入的 query provider 生成问题向量。
 
-    与 worker 的 StubEmbeddingProvider 保持一致，保证相同文本产生相同向量，
-    使问题与同文本 chunk 在向量召回中相似度为 1.0。
+    与 worker 侧 chunk embedding 共享同一 provider 实现，保证维度一致、
+    相同文本相似度为 1.0。stub 走纯函数确定性映射；远程 provider 走其 embed。
     """
-    import hashlib
-
-    dim = 8
-    digest = hashlib.sha256(question.encode("utf-8")).digest()
-    values: list[float] = []
-    for i in range(dim):
-        lo = digest[(i * 2) % len(digest)]
-        hi = digest[(i * 2 + 1) % len(digest)]
-        raw = (lo << 8) | hi
-        values.append((raw / 32768.0) - 1.0)
-    return values
+    vectors = provider.embed([question])
+    if not vectors:
+        # provider 在空输入时返回空；这里兜底返回零向量，触发拒答
+        return [0.0] * getattr(provider, "dim", 8)
+    return vectors[0]
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

@@ -19,7 +19,10 @@
 ## EmbeddingProvider
 
 - `stub`（默认，零依赖，确定性 hash 向量，dim=8）
-- `openai_compat`（OpenAI-compatible 远程接口；配置缺失自动降级 stub）
+- `qwen`（阿里云 DashScope OpenAI-compatible；读 `QWEN_API_KEY`，默认 `text-embedding-v3`/1024 维，批量 ≤10 自动分批，429/5xx 自动重试；缺 key 自动降级 stub 并标 `degraded`）
+- `openai_compat`（通用 OpenAI-compatible 接口；配置缺失自动降级 stub）
+
+查询侧（knowledge-api 检索）与 chunk 侧共享同一 provider，保证向量维度一致。
 
 ## 本地启动
 

@@ -6,43 +6,31 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 
+from ai_employee.common_schemas.embedding import build_provider
 from ai_employee.common_schemas.knowledge import (
     ParseRequest,
     ParseResponse,
 )
 from ai_employee.ingestion_worker.chunker import chunk_sections
-from ai_employee.ingestion_worker.embedding import (
-    EmbeddingProvider,
-    StubEmbeddingProvider,
-)
+from ai_employee.ingestion_worker.embedding import EmbeddingProvider
 from ai_employee.ingestion_worker.parsers import get_parser
 
 
 SERVICE_VERSION = "0.1.0"
 
 
-def _build_provider() -> EmbeddingProvider:
-    provider = os.getenv("EMBEDDING_PROVIDER", "stub")
-    if provider == "openai_compat":
-        base_url = os.getenv("EMBEDDING_BASE_URL", "")
-        api_key = os.getenv("EMBEDDING_API_KEY", "")
-        model = os.getenv("EMBEDDING_MODEL", "")
-        if not (base_url and api_key and model):
-            return StubEmbeddingProvider(dim=int(os.getenv("EMBEDDING_DIM", "8")))
-        try:
-            from ai_employee.ingestion_worker.embedding import (
-                OpenAICompatEmbeddingProvider,
-            )
-
-            return OpenAICompatEmbeddingProvider(base_url, api_key, model)
-        except Exception:
-            return StubEmbeddingProvider(dim=int(os.getenv("EMBEDDING_DIM", "8")))
-    return StubEmbeddingProvider(dim=int(os.getenv("EMBEDDING_DIM", "8")))
-
-
-def create_app(provider: EmbeddingProvider | None = None) -> FastAPI:
+def create_app(
+    provider: EmbeddingProvider | None = None,
+    degraded: bool | None = None,
+) -> FastAPI:
     app = FastAPI(title="AI Employee Ingestion Worker", version=SERVICE_VERSION)
-    embed_provider = provider or _build_provider()
+    if provider is None:
+        embed_provider, built_degraded = build_provider()
+        embed_degraded = built_degraded
+    else:
+        embed_provider = provider
+        embed_degraded = bool(degraded) if degraded is not None else False
+    state = {"last_call_ok": True}
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -51,6 +39,8 @@ def create_app(provider: EmbeddingProvider | None = None) -> FastAPI:
             "status": "ok",
             "version": SERVICE_VERSION,
             "embedding_provider": embed_provider.name,
+            "embedding_provider_degraded": embed_degraded,
+            "last_call_ok": state["last_call_ok"],
         }
 
     @app.post("/internal/parse", response_model=ParseResponse)
@@ -100,7 +90,15 @@ def create_app(provider: EmbeddingProvider | None = None) -> FastAPI:
                 },
             )
 
-        embeddings = embed_provider.embed([c.content for c in parsed_chunks])
+        try:
+            embeddings = embed_provider.embed([c.content for c in parsed_chunks])
+            state["last_call_ok"] = True
+        except Exception as exc:
+            state["last_call_ok"] = False
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"error_code": "embed_unavailable", "message": str(exc)},
+            ) from exc
         if len(embeddings) != len(parsed_chunks):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

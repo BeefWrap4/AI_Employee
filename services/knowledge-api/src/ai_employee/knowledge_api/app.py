@@ -15,6 +15,7 @@ from fastapi import (
     status,
 )
 
+from ai_employee.common_schemas.embedding import build_provider
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.knowledge_api.internal_auth import require_internal_token
 from ai_employee.knowledge_api.retrieval import RetrievalService
@@ -69,7 +70,9 @@ def create_app(
             internal_token=cfg["internal_token"],
             timeout_s=cfg["worker_timeout_s"],
         )
-    retrieval = RetrievalService(store)
+    # 查询侧 embedding 与 worker 侧共享同一 provider，保证维度一致
+    query_provider, query_degraded = build_provider()
+    retrieval = RetrievalService(store, query_provider=query_provider)
     auth = require_internal_token(cfg["internal_token"])
 
     @app.get("/health")
@@ -80,6 +83,8 @@ def create_app(
             "version": SERVICE_VERSION,
             "storage": "sqlite",
             "ingestion_worker_reachable": worker_client.health(),
+            "embedding_provider": query_provider.name,
+            "embedding_provider_degraded": query_degraded,
         }
 
     @app.post(
