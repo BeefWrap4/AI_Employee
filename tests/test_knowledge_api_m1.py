@@ -194,3 +194,38 @@ def test_document_content_is_split_into_paragraph_chunks_and_query_cites_best_ch
     assert answer.status_code == 200
     assert "光功率" in answer.json()["answer"]
     assert answer.json()["citations"][0]["chunk_id"] == f"chunk_{doc_id}_002"
+
+
+def test_document_chunks_can_be_listed_for_source_location() -> None:
+    client = TestClient(create_app())
+    doc_id = _create_and_publish_document(
+        client,
+        title="5G 接入排障 SOP",
+        content=(
+            "第一步检查 RRC 建立失败相关告警。\n\n"
+            "第二步检查接入 KPI 和近期参数变更。"
+        ),
+        metadata={"network_type": "5g", "domain": "wireless"},
+        acl_tags=["wireless", "noc"],
+    )
+
+    chunks = client.get(f"/api/v1/documents/{doc_id}/chunks")
+
+    assert chunks.status_code == 200
+    assert chunks.json() == {
+        "doc_id": doc_id,
+        "chunks": [
+            {
+                "chunk_id": f"chunk_{doc_id}_001",
+                "content": "第一步检查 RRC 建立失败相关告警。",
+                "page_no": 1,
+                "section_path": "root",
+            },
+            {
+                "chunk_id": f"chunk_{doc_id}_002",
+                "content": "第二步检查接入 KPI 和近期参数变更。",
+                "page_no": 1,
+                "section_path": "root",
+            },
+        ],
+    }

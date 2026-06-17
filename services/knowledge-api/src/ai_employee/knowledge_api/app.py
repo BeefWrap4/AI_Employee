@@ -61,6 +61,18 @@ class FeedbackResponse(BaseModel):
     feedback_type: str
 
 
+class ChunkResponse(BaseModel):
+    chunk_id: str
+    content: str
+    page_no: int
+    section_path: str
+
+
+class DocumentChunksResponse(BaseModel):
+    doc_id: str
+    chunks: list[ChunkResponse]
+
+
 @dataclass
 class ChunkRecord:
     chunk_id: str
@@ -155,6 +167,15 @@ def _document_response(record: DocumentRecord, trace_id: str) -> DocumentRespons
     )
 
 
+def _chunk_response(chunk: ChunkRecord) -> ChunkResponse:
+    return ChunkResponse(
+        chunk_id=chunk.chunk_id,
+        content=chunk.content,
+        page_no=chunk.page_no,
+        section_path=chunk.section_path,
+    )
+
+
 def _build_chunks(doc_id: str, content: str) -> list[ChunkRecord]:
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
     if not paragraphs:
@@ -231,6 +252,17 @@ def create_app() -> FastAPI:
     def get_document(doc_id: str) -> DocumentResponse:
         record = store.get_document(doc_id)
         return _document_response(record, trace_id=f"trace_{doc_id}_get")
+
+    @app.get(
+        "/api/v1/documents/{doc_id}/chunks",
+        response_model=DocumentChunksResponse,
+    )
+    def list_document_chunks(doc_id: str) -> DocumentChunksResponse:
+        record = store.get_document(doc_id)
+        return DocumentChunksResponse(
+            doc_id=record.doc_id,
+            chunks=[_chunk_response(chunk) for chunk in record.chunks],
+        )
 
     @app.post("/api/v1/documents/{doc_id}/publish", response_model=DocumentResponse)
     def publish_document(doc_id: str) -> DocumentResponse:
