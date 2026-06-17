@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from fastapi import FastAPI, HTTPException, status
+
+from ai_employee.rca_agent.runtime import (
+    RcaStore,
+    build_incident,
+    normalize_alarm,
+    run_rca,
+)
+from ai_employee.rca_agent.schemas import (
+    AlarmEvent,
+    IncidentBuildRequest,
+    IncidentResponse,
+    RawAlarmEvent,
+    ReportReviewRequest,
+    ReportReviewResponse,
+    RcaReportResponse,
+    RcaRunCreate,
+    RcaRunResponse,
+)
+
+SERVICE_VERSION = "0.1.0"
+
+
+def create_app(store: RcaStore | None = None) -> FastAPI:
+    app = FastAPI(title="AI Employee RCA Agent", version=SERVICE_VERSION)
+    state = store or RcaStore()
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {
+            "service": "rca-agent",
+            "status": "ok",
+            "version": SERVICE_VERSION,
+            "runtime": "in_memory_dag",
+        }
+
+    @app.post(
+        "/api/v1/alarms/events",
+        response_model=AlarmEvent,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_alarm_event(payload: RawAlarmEvent) -> AlarmEvent:
+        return normalize_alarm(state, payload)
+
+    @app.post(
+        "/api/v1/incidents/build",
+        response_model=IncidentResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_incident(payload: IncidentBuildRequest) -> IncidentResponse:
+        return build_incident(state, payload.alarms, payload.time_window_minutes)
+
+    @app.post(
+        "/api/v1/rca/runs",
+        response_model=RcaRunResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_rca_run(payload: RcaRunCreate) -> RcaRunResponse:
+        if not payload.incident_id and not payload.alarms:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "incident_or_alarms_required"},
+            )
+        if payload.incident_id and payload.incident_id not in state.incidents and not payload.alarms:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "incident_not_found", "incident_id": payload.incident_id},
+            )
+        return run_rca(
+            state,
+            raw_alarms=payload.alarms,
+            incident_id=payload.incident_id,
+            require_human_review=payload.require_human_review,
+        )
+
+    @app.get("/api/v1/rca/runs/{run_id}", response_model=RcaRunResponse)
+    def get_rca_run(run_id: str) -> RcaRunResponse:
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "rca_run_not_found", "run_id": run_id},
+            )
+        return run
+
+    @app.get("/api/v1/rca/reports/{report_id}", response_model=RcaReportResponse)
+    def get_rca_report(report_id: str) -> RcaReportResponse:
+        report = state.reports.get(report_id)
+        if report is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "rca_report_not_found", "report_id": report_id},
+            )
+        return report
+
+    @app.post(
+        "/api/v1/rca/reports/{report_id}/review",
+        response_model=ReportReviewResponse,
+    )
+    def review_report(report_id: str, payload: ReportReviewRequest) -> ReportReviewResponse:
+        report = state.reports.get(report_id)
+        if report is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "rca_report_not_found", "report_id": report_id},
+            )
+        updated = report.model_copy(
+            update={
+                "review_status": payload.decision,
+                "final_root_cause": payload.final_root_cause,
+            }
+        )
+        state.reports[report_id] = updated
+        run = state.runs.get(report.run_id)
+        if run is not None and payload.decision in {"accepted", "rejected"}:
+            state.runs[run.run_id] = run.model_copy(update={"status": payload.decision})
+        return ReportReviewResponse(
+            report_id=report_id,
+            review_status=payload.decision,
+            final_root_cause=payload.final_root_cause,
+            reviewer=payload.reviewer,
+            comment=payload.comment,
+        )
+
+    return app
+
+
+app = create_app()

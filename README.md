@@ -56,3 +56,10 @@ uvicorn ai_employee.knowledge_api.app:app --port 8010 --app-dir services/knowled
 conda activate ai-employee
 python scripts/m1_smoke.py --json
 ```
+
+启动 M3 RCA Agent 原型服务：
+
+```powershell
+conda activate ai-employee
+uvicorn ai_employee.rca_agent.app:app --port 8020 --app-dir services/rca-agent/src
+```
