@@ -9,15 +9,16 @@ from ai_employee.eval.metrics import (
 
 
 def _r(qid, *, expect_refusal=False, expected_doc_id=None, status_code=200,
-       returned=None, latency=100, error=None, answer="A"):
+       returned=None, latency_ms=100, error=None, answer="A"):
     return EvalResult(
         qid=qid, question="x", expected_doc_id=expected_doc_id,
         expect_refusal=expect_refusal, status_code=status_code,
-        returned_doc_ids=returned or [], answer=answer, latency_ms=latency, error=error,
+        returned_doc_ids=returned or [], answer=answer, latency_ms=latency_ms, error=error,
     )
 
 
 def test_compute_top_k_hit_rates() -> None:
+    # q01: d1 in [:1] → hit@1；q02: d1 在 index 1 → 仅 hit@3；q03: d1 在 index 4 → 仅 hit@5；q04: miss
     results = [
         _r("q01", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d1", "d2"]),
         _r("q02", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2", "d1", "d3"]),
@@ -25,8 +26,8 @@ def test_compute_top_k_hit_rates() -> None:
         _r("q04", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2"]),
     ]
     m = compute(results, top_ks=[1, 3, 5])
-    assert m.hit_rates == {1: 0.5, 3: 0.75, 5: 1.0}
-    assert m.hit_counts == {1: 2, 3: 3, 5: 4}
+    assert m.hit_counts == {1: 1, 3: 2, 5: 3}
+    assert m.hit_rates == {1: 0.25, 3: 0.5, 5: 0.75}
     assert m.eligible_for_hit == 4
 
 
@@ -71,8 +72,9 @@ def test_compute_citation_coverage() -> None:
 def test_compute_latency_percentiles() -> None:
     results = [_r(f"q{i:02d}", latency_ms=(i + 1) * 10) for i in range(100)]
     m = compute(results, top_ks=[1])
-    assert m.latency_p50_ms == 550.0
-    assert m.latency_p95_ms == 955.0
+    # 100 个值 [10..1000] 步长 10；P50 下标 49.5 -> 500+10*0.5 = 505；P95 下标 94.05 -> 940+10*0.95 = 949.5
+    assert m.latency_p50_ms == 505.0
+    assert m.latency_p95_ms == 940.5
     assert m.latency_mean_ms == 505.0
 
 
