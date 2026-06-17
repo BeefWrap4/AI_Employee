@@ -92,6 +92,24 @@ class RcaRunResponse(BaseModel):
     error: str | None = None
 
 
+class RcaRunSummary(BaseModel):
+    run_id: str
+    incident_id: str
+    report_id: str
+    status: RunStatus
+    current_node: str
+    trace_id: str
+    evidence_count: int
+    hypothesis_count: int
+
+
+class RcaRunListResponse(BaseModel):
+    items: list[RcaRunSummary]
+    total: int
+    page: int
+    page_size: int
+
+
 class RcaReportResponse(BaseModel):
     report_id: str
     run_id: str
@@ -101,6 +119,23 @@ class RcaReportResponse(BaseModel):
     evidence: list[Evidence]
     review_status: str
     final_root_cause: str | None = None
+
+
+class RcaReportSummary(BaseModel):
+    report_id: str
+    run_id: str
+    incident_id: str
+    review_status: str
+    final_root_cause: str | None = None
+    evidence_count: int
+    hypothesis_count: int
+
+
+class RcaReportListResponse(BaseModel):
+    items: list[RcaReportSummary]
+    total: int
+    page: int
+    page_size: int
 
 
 class ReportReviewRequest(BaseModel):

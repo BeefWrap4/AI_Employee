@@ -19,8 +19,12 @@ from ai_employee.rca_agent.schemas import (
     ReportReviewRequest,
     ReportReviewResponse,
     RcaReportResponse,
+    RcaReportListResponse,
+    RcaReportSummary,
     RcaRunCreate,
+    RcaRunListResponse,
     RcaRunResponse,
+    RcaRunSummary,
 )
 from ai_employee.rca_agent.store import SQLiteRcaStore
 
@@ -71,12 +75,42 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "incident_not_found", "incident_id": payload.incident_id},
-            )
+        )
         return run_rca(
             state,
             raw_alarms=payload.alarms,
             incident_id=payload.incident_id,
             require_human_review=payload.require_human_review,
+        )
+
+    @app.get("/api/v1/rca/runs", response_model=RcaRunListResponse)
+    def list_rca_runs(
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> RcaRunListResponse:
+        runs = list(state.runs.values())
+        if status is not None:
+            runs = [run for run in runs if run.status == status]
+        total = len(runs)
+        page, page_size, start, end = _page_bounds(page, page_size)
+        return RcaRunListResponse(
+            items=[
+                RcaRunSummary(
+                    run_id=run.run_id,
+                    incident_id=run.incident_id,
+                    report_id=run.report_id,
+                    status=run.status,
+                    current_node=run.current_node,
+                    trace_id=run.trace_id,
+                    evidence_count=run.evidence_count,
+                    hypothesis_count=len(run.hypotheses),
+                )
+                for run in runs[start:end]
+            ],
+            total=total,
+            page=page,
+            page_size=page_size,
         )
 
     @app.get("/api/v1/rca/runs/{run_id}", response_model=RcaRunResponse)
@@ -104,8 +138,39 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
                     "error_code": "run_not_waiting_for_more_evidence",
                     "current_status": run.status,
                 },
-            )
+        )
         return resume_with_more_evidence(state, run_id)
+
+    @app.get("/api/v1/rca/reports", response_model=RcaReportListResponse)
+    def list_rca_reports(
+        review_status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> RcaReportListResponse:
+        reports = list(state.reports.values())
+        if review_status is not None:
+            reports = [
+                report for report in reports if report.review_status == review_status
+            ]
+        total = len(reports)
+        page, page_size, start, end = _page_bounds(page, page_size)
+        return RcaReportListResponse(
+            items=[
+                RcaReportSummary(
+                    report_id=report.report_id,
+                    run_id=report.run_id,
+                    incident_id=report.incident_id,
+                    review_status=report.review_status,
+                    final_root_cause=report.final_root_cause,
+                    evidence_count=len(report.evidence),
+                    hypothesis_count=len(report.hypotheses),
+                )
+                for report in reports[start:end]
+            ],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
 
     @app.get("/api/v1/rca/reports/{report_id}", response_model=RcaReportResponse)
     def get_rca_report(report_id: str) -> RcaReportResponse:
@@ -176,6 +241,14 @@ def _default_store() -> RcaStore:
     if sqlite_path:
         return SQLiteRcaStore(sqlite_path)
     return RcaStore()
+
+
+def _page_bounds(page: int, page_size: int) -> tuple[int, int, int, int]:
+    page = max(1, int(page))
+    page_size = max(1, min(200, int(page_size)))
+    start = (page - 1) * page_size
+    end = start + page_size
+    return page, page_size, start, end
 
 
 app = create_app()
