@@ -41,6 +41,10 @@ from ai_employee.agent_platform_api.schemas import (
     ToolRegistration,
     ToolResponse,
 )
+from ai_employee.common_schemas.tool_registry import (
+    ToolRegistry as _McpToolRegistry,
+    ToolSpec as _McpToolSpec,
+)
 from ai_employee.observability import render_prometheus_text
 from ai_employee.common_schemas.eval import (
     UnifiedReport,
@@ -417,6 +421,31 @@ def create_app(
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics() -> str:
         return render_prometheus_text()
+
+    # ------------------------------------------------------------------ #
+    # MCP-compatible tool registry (spec §3.3 / MCP tools/list)
+    # ------------------------------------------------------------------ #
+
+    @app.get("/api/v1/mcp/tools")
+    def list_mcp_tools() -> dict[str, object]:
+        """Return the agent-platform tools in MCP ``tools/list`` shape.
+
+        Built from the in-memory ``state.tools`` plus a curated set of
+        well-known downstream tool names. The result is JSON-serialisable
+        and follows the lightweight schema in
+        ``ai_employee.common_schemas.tool_registry``.
+        """
+        registry = _McpToolRegistry()
+        for tool in state.tools.values():
+            registry.register(_McpToolSpec(
+                name=tool.tool_name,
+                description=tool.description,
+                input_schema=tool.input_schema,
+                output_schema=tool.output_schema,
+                risk_level=tool.risk_level,
+                service_name=tool.service_name,
+            ))
+        return registry.to_mcp_list()
 
     return app
 
