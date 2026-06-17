@@ -127,6 +127,54 @@ def run_rca(
     return run
 
 
+def resume_with_more_evidence(store: RcaStore, run_id: str) -> RcaRunResponse:
+    run = store.runs[run_id]
+    report = store.reports[run.report_id]
+    next_evidence_no = len(report.evidence) + 1
+    supplemental = Evidence(
+        evidence_id=f"e_{next_evidence_no:03d}",
+        source_type="ticket",
+        source_ref=f"supplemental-review:{run_id}",
+        content="Supplemental expert-requested evidence was collected after human review.",
+        confidence=0.64,
+    )
+    evidence = [*report.evidence, supplemental]
+    incident = store.incidents.get(run.incident_id)
+    report_markdown = (
+        generate_report_markdown(incident, evidence, report.hypotheses)
+        if incident is not None
+        else report.report_markdown
+        + f"\n- `{supplemental.evidence_id}` [{supplemental.source_type}] {supplemental.content}\n"
+    )
+    updated_run = run.model_copy(
+        update={
+            "status": "waiting_review",
+            "current_node": "HumanReview",
+            "state_history": [
+                *run.state_history,
+                "CollectEvidence",
+                "GenerateReport",
+                "HumanReview",
+            ],
+            "evidence_count": len(evidence),
+            "evidence": evidence,
+        }
+    )
+    updated_report = report.model_copy(
+        update={
+            "report_markdown": report_markdown,
+            "evidence": evidence,
+            "review_status": "pending",
+            "final_root_cause": None,
+        }
+    )
+    store.runs[run_id] = updated_run
+    store.reports[run.report_id] = updated_report
+    if hasattr(store, "save_run_and_report"):
+        store.save_run_and_report(updated_run, updated_report)
+    return updated_run
+
+
 def collect_evidence(incident: IncidentResponse) -> list[Evidence]:
     primary = incident.primary_alarm
     return [

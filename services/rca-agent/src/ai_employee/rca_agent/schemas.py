@@ -6,7 +6,14 @@ from pydantic import BaseModel, Field
 
 
 Severity = Literal["critical", "major", "minor", "warning", "info"]
-RunStatus = Literal["running", "waiting_review", "failed", "accepted", "rejected"]
+RunStatus = Literal[
+    "running",
+    "waiting_review",
+    "need_more_evidence",
+    "failed",
+    "accepted",
+    "rejected",
+]
 ReviewDecision = Literal["accepted", "rejected", "need_more_evidence"]
 
 

@@ -8,6 +8,7 @@ from ai_employee.rca_agent.runtime import (
     RcaStore,
     build_incident,
     normalize_alarm,
+    resume_with_more_evidence,
     run_rca,
 )
 from ai_employee.rca_agent.schemas import (
@@ -88,6 +89,24 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             )
         return run
 
+    @app.post("/api/v1/rca/runs/{run_id}/resume", response_model=RcaRunResponse)
+    def resume_rca_run(run_id: str) -> RcaRunResponse:
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "rca_run_not_found", "run_id": run_id},
+            )
+        if run.status != "need_more_evidence":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "run_not_waiting_for_more_evidence",
+                    "current_status": run.status,
+                },
+            )
+        return resume_with_more_evidence(state, run_id)
+
     @app.get("/api/v1/rca/reports/{report_id}", response_model=RcaReportResponse)
     def get_rca_report(report_id: str) -> RcaReportResponse:
         report = state.reports.get(report_id)
@@ -117,11 +136,28 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         )
         state.reports[report_id] = updated
         run = state.runs.get(report.run_id)
-        if run is not None and payload.decision in {"accepted", "rejected"}:
-            run = run.model_copy(update={"status": payload.decision})
-            state.runs[run.run_id] = run
-            if hasattr(state, "save_run"):
-                state.save_run(run)
+        if run is not None:
+            run_update = None
+            if payload.decision == "need_more_evidence":
+                run_update = {
+                    "status": "need_more_evidence",
+                    "current_node": "NeedMoreEvidence",
+                    "state_history": [*run.state_history, "NeedMoreEvidence"],
+                }
+            elif payload.decision in {"accepted", "rejected"}:
+                run_update = {
+                    "status": payload.decision,
+                    "current_node": "Accepted" if payload.decision == "accepted" else "Rejected",
+                    "state_history": [
+                        *run.state_history,
+                        "Accepted" if payload.decision == "accepted" else "Rejected",
+                    ],
+                }
+            if run_update is not None:
+                run = run.model_copy(update=run_update)
+                state.runs[run.run_id] = run
+                if hasattr(state, "save_run"):
+                    state.save_run(run)
         if hasattr(state, "save_report"):
             state.save_report(updated)
         return ReportReviewResponse(

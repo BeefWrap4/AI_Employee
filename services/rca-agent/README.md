@@ -9,8 +9,15 @@ FastAPI service for the M3 RCA Agent MVP. It normalizes alarm events, builds inc
 - `POST /api/v1/incidents/build` - group replayed alarms into one incident.
 - `POST /api/v1/rca/runs` - create a synchronous RCA run from `incident_id` or replayed `alarms`.
 - `GET /api/v1/rca/runs/{run_id}` - fetch run status, state history, evidence, and hypotheses.
+- `POST /api/v1/rca/runs/{run_id}/resume` - collect supplemental evidence after an expert requests more evidence.
 - `GET /api/v1/rca/reports/{report_id}` - fetch Markdown report, evidence, hypotheses, and review status.
 - `POST /api/v1/rca/reports/{report_id}/review` - record an expert review decision.
+
+Review decisions drive the run state:
+
+- `accepted` -> run status `accepted`
+- `rejected` -> run status `rejected`
+- `need_more_evidence` -> run status `need_more_evidence`, then `/resume` can return it to `waiting_review`
 
 ## Local Run
 
