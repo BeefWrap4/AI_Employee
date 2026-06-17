@@ -1,0 +1,26 @@
+# AI Employee
+
+本仓库用于存放与 AI Agent 工程师工作相关的项目材料与设计文档。
+
+## 项目背景
+
+围绕基站运维场景，从内部知识库智能问答，到告警根因分析 Agent，再到智能运维 Agent 平台，递进建设三个内部 AI 项目。
+
+## 文档结构
+
+`Docs/` 目录包含项目的设计与规划文档：
+
+- **ai-agent-telecom-projects-development-timeline.md** — 三项目总体开发时间线与简历叙事
+- **project-1-rag-knowledge-base-design-spec.md** — 项目一：基于 RAG 的内部知识库智能问答系统设计规格
+- **project-2-base-station-alarm-rca-agent-design-spec.md** — 项目二：基站告警根因分析 Agent 设计规格
+- **project-3-intelligent-ops-agent-platform-design-spec.md** — 项目三：智能运维 Agent 平台设计规格
+
+## 目录约定
+
+- `Docs/` — 项目设计文档与规划材料
+- 后续业务代码、脚本、配置等将按需新增子目录
+
+## 工具链
+
+- 版本控制：Git
+- 文档：Markdown
