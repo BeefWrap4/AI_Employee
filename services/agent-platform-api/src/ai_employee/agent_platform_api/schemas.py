@@ -13,6 +13,8 @@ ApprovalDecision = Literal["approved", "rejected"]
 ToolRiskLevel = Literal["read_only", "approval_required", "high_risk"]
 ToolStatus = Literal["active", "disabled"]
 ToolHealthStatus = Literal["unknown", "healthy", "unhealthy"]
+EvalType = Literal["rag", "rca"]
+EvalRunStatus = Literal["pending", "running", "completed", "failed"]
 
 
 class AgentTemplate(BaseModel):
@@ -135,3 +137,49 @@ class AgentRunTraceResponse(BaseModel):
     tool_calls: list[ToolCallSummary]
     approval_tasks: list[ApprovalTask]
     registered_tools: list[ToolResponse]
+
+
+# --------------------------------------------------------------------------- #
+# Eval center (spec §7)
+# --------------------------------------------------------------------------- #
+
+
+class EvalRunRequest(BaseModel):
+    eval_type: EvalType
+    template_id: str
+    golden_path: str
+    api_base: str | None = None
+
+
+class EvalRunResponse(BaseModel):
+    eval_run_id: str
+    eval_type: EvalType
+    template_id: str
+    golden_path: str
+    status: EvalRunStatus
+    trace_id: str
+    created_at: str
+    completed_at: str | None = None
+    report: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] | None = None
+    error: str | None = None
+
+
+class EvalRunListItem(BaseModel):
+    eval_run_id: str
+    eval_type: EvalType
+    template_id: str
+    golden_path: str
+    status: EvalRunStatus
+    trace_id: str
+    created_at: str
+    completed_at: str | None = None
+    summary: dict[str, Any] | None = None
+    error: str | None = None
+
+
+class EvalRunListResponse(BaseModel):
+    items: list[EvalRunListItem]
+    total: int
+    page: int
+    page_size: int
