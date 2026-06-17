@@ -25,26 +25,28 @@ def _publish(store: SQLiteStore, title: str, metadata: dict, acl_tags: list[str]
     return doc_id
 
 
-def test_empty_scopes_returns_all_published(store: SQLiteStore) -> None:
-    d1 = _publish(store, "无线 SOP", {"network_type": "5g"}, ["wireless"])
-    d2 = _publish(store, "传输 SOP", {"network_type": "transport"}, ["transport"])
-    assert set(store.list_published_doc_ids_in_scope([])) == {d1, d2}
+def test_empty_scopes_only_returns_public_documents(store: SQLiteStore) -> None:
+    public_doc = _publish(store, "Public SOP", {"network_type": "5g"}, [])
+    _publish(store, "Wireless SOP", {"network_type": "5g"}, ["wireless"])
+    assert store.list_published_doc_ids_in_scope([]) == [public_doc]
 
 
 def test_scope_filters_by_acl_tags(store: SQLiteStore) -> None:
-    d1 = _publish(store, "无线 SOP", {"network_type": "5g"}, ["wireless"])
-    _publish(store, "传输 SOP", {"network_type": "transport"}, ["transport"])
-    assert store.list_published_doc_ids_in_scope(["wireless"]) == [d1]
+    wireless_doc = _publish(store, "Wireless SOP", {"network_type": "5g"}, ["wireless"])
+    _publish(store, "Transport SOP", {"network_type": "transport"}, ["transport"])
+    assert store.list_published_doc_ids_in_scope(["wireless"]) == [wireless_doc]
 
 
 def test_scope_filters_by_metadata_value(store: SQLiteStore) -> None:
-    d1 = _publish(store, "5G SOP", {"network_type": "5g"}, ["wireless"])
+    five_g_doc = _publish(store, "5G SOP", {"network_type": "5g"}, ["wireless"])
     _publish(store, "4G SOP", {"network_type": "4g"}, ["wireless"])
-    assert store.list_published_doc_ids_in_scope(["5g"]) == [d1]
+    assert store.list_published_doc_ids_in_scope(["5g"]) == [five_g_doc]
 
 
 def test_non_published_excluded(store: SQLiteStore) -> None:
-    doc_id = store.create_document("未发布", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1")
+    doc_id = store.create_document(
+        "Unpublished SOP", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1"
+    )
     store.transition_status(doc_id, "parsing")
     store.write_chunks(
         doc_id,

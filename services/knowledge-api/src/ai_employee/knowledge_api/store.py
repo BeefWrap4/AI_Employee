@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS qa_logs (
     session_id TEXT NOT NULL,
     user_id TEXT,
     question TEXT NOT NULL,
+    knowledge_scopes_json TEXT NOT NULL DEFAULT '[]',
     rewritten_query TEXT,
     retrieved_chunks_json TEXT NOT NULL,
     answer TEXT NOT NULL,
@@ -131,6 +132,12 @@ class SQLiteStore:
     def init_schema(self) -> None:
         with self._lock, self._connect() as conn:
             conn.executescript(_SCHEMA)
+            _ensure_column(
+                conn,
+                "qa_logs",
+                "knowledge_scopes_json",
+                "TEXT NOT NULL DEFAULT '[]'",
+            )
             conn.commit()
 
     def list_tables(self) -> list[str]:
@@ -342,15 +349,16 @@ class SQLiteStore:
             conn.execute(
                 """INSERT INTO qa_logs
                    (qa_log_id, session_id, user_id, question, rewritten_query,
-                    retrieved_chunks_json, answer, model_name, prompt_version,
+                    knowledge_scopes_json, retrieved_chunks_json, answer, model_name, prompt_version,
                     confidence, latency_ms, trace_id, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?, ?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, ?)""",
                 (
                     fields["qa_log_id"],
                     fields["session_id"],
                     fields.get("user_id"),
                     fields["question"],
                     fields.get("rewritten_query"),
+                    json.dumps(fields.get("knowledge_scopes", []), ensure_ascii=False),
                     json.dumps(fields["retrieved_chunks"], ensure_ascii=False),
                     fields["answer"],
                     fields["model_name"],
@@ -412,7 +420,7 @@ class SQLiteStore:
             ).fetchone()["c"]
             rows = conn.execute(
                 f"SELECT qa_log_id, trace_id, session_id, user_id, question, answer, "
-                f"confidence, latency_ms, model_name, prompt_version, trace_id, created_at "
+                f"knowledge_scopes_json, confidence, latency_ms, model_name, prompt_version, trace_id, created_at "
                 f"FROM qa_logs{where_sql} ORDER BY created_at DESC, qa_log_id DESC "
                 f"LIMIT ? OFFSET ?",
                 [*params, page_size, offset],
@@ -505,6 +513,7 @@ def _qa_log_summary_row(row: sqlite3.Row) -> dict[str, Any]:
         "session_id": row["session_id"],
         "user_id": row["user_id"],
         "question": row["question"],
+        "knowledge_scopes": json.loads(row["knowledge_scopes_json"] or "[]"),
         "answer": row["answer"],
         "confidence": row["confidence"],
         "latency_ms": row["latency_ms"],
@@ -545,12 +554,26 @@ def _chunk_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _is_visible(metadata_json: str, acl_tags_json: str, scopes: list[str]) -> bool:
+    acl_tags = set(json.loads(acl_tags_json))
     if not scopes:
+        return not acl_tags
+    if not acl_tags:
         return True
-    visible = set(json.loads(acl_tags_json))
+    visible = set(acl_tags)
     for value in json.loads(metadata_json).values():
         visible.add(str(value))
     return bool(visible.intersection(scopes))
+
+
+def _ensure_column(
+    conn: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")}
+    if column_name not in columns:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
 def _to_fts_query(query: str) -> str:

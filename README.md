@@ -48,6 +48,8 @@ uvicorn ai_employee.knowledge_api.app:app --port 8010 --app-dir services/knowled
 
 环境变量样例见 `.env.example`。M1 用 SQLite + Stub Embedding 零外部依赖即可运行；`EMBEDDING_PROVIDER=openai_compat` 可切换到真实 OpenAI-compatible 接口。
 
+知识检索使用 `knowledge_scopes` 做 MVP 级权限过滤：`acl_tags` 为空的文档视为 public；`acl_tags` 非空的文档必须与请求中的 scope 或文档 metadata 值命中后才会进入召回和引用。
+
 运行本地 M1 冒烟流程（上传、解析、发布、问答、反馈、审计查询）：
 
 ```powershell

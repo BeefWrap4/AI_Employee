@@ -277,6 +277,7 @@ def create_app(
                 qa_log_id=trace_id.replace("trace_", "qa_"),
                 session_id=payload.session_id,
                 question=payload.question,
+                knowledge_scopes=payload.knowledge_scopes,
                 retrieved_chunks=[{"chunk_id": h.chunk_id, "doc_id": h.doc_id} for h in hits],
                 answer=answer,
                 model_name="template-v1",

@@ -155,3 +155,23 @@ def test_list_qa_logs_since_filter(client: TestClient) -> None:
     # 一个晚的 since，应返回 1
     r2 = client.get("/api/v1/qa-logs?since=2000-01-01T00:00:00%2B00:00")
     assert r2.json()["total"] >= 1
+
+
+def test_qa_log_records_knowledge_scopes(client: TestClient) -> None:
+    _upload_and_publish(
+        client,
+        title="Public SOP",
+        content="public rrc troubleshooting evidence",
+        metadata={"network_type": "5g"},
+        acl_tags=[],
+    )
+    answer = _query(
+        client,
+        session="sess_scope_audit",
+        question="public rrc troubleshooting evidence",
+        scopes=["wireless", "5g"],
+    )
+
+    r = client.get(f"/api/v1/qa-logs/{answer['trace_id']}")
+    assert r.status_code == 200
+    assert r.json()["knowledge_scopes"] == ["wireless", "5g"]

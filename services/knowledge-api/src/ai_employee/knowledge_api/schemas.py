@@ -89,6 +89,7 @@ class QaLogSummary(BaseModel):
     session_id: str
     user_id: str | None
     question: str
+    knowledge_scopes: list[str] = Field(default_factory=list)
     answer: str
     confidence: float
     latency_ms: int
