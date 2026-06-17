@@ -22,6 +22,7 @@ class DocumentResponse(BaseModel):
     doc_id: str
     title: str
     parse_status: str
+    chunk_count: int
     trace_id: str
     metadata: dict[str, Any]
     acl_tags: list[str]
@@ -61,12 +62,22 @@ class FeedbackResponse(BaseModel):
 
 
 @dataclass
+class ChunkRecord:
+    chunk_id: str
+    doc_id: str
+    content: str
+    page_no: int = 1
+    section_path: str = "root"
+
+
+@dataclass
 class DocumentRecord:
     doc_id: str
     title: str
     content: str
     metadata: dict[str, Any]
     acl_tags: list[str]
+    chunks: list[ChunkRecord]
     parse_status: str = "uploaded"
 
 
@@ -77,12 +88,18 @@ class InMemoryKnowledgeStore:
 
     def create_document(self, payload: DocumentCreate) -> DocumentRecord:
         doc_id = f"doc_{len(self.documents) + 1:03d}"
+        chunk = ChunkRecord(
+            chunk_id=f"chunk_{doc_id}_001",
+            doc_id=doc_id,
+            content=payload.content,
+        )
         record = DocumentRecord(
             doc_id=doc_id,
             title=payload.title,
             content=payload.content,
             metadata=payload.metadata,
             acl_tags=payload.acl_tags,
+            chunks=[chunk],
         )
         self.documents[doc_id] = record
         return record
@@ -134,6 +151,7 @@ def _document_response(record: DocumentRecord, trace_id: str) -> DocumentRespons
         doc_id=record.doc_id,
         title=record.title,
         parse_status=record.parse_status,
+        chunk_count=len(record.chunks),
         trace_id=trace_id,
         metadata=record.metadata,
         acl_tags=record.acl_tags,
@@ -209,17 +227,18 @@ def create_app() -> FastAPI:
             )
 
         trace_id = f"trace_{payload.session_id}_query"
+        chunk = record.chunks[0]
         return QueryResponse(
             answer=(
-                f"根据《{record.title}》，{record.content} "
+                f"根据《{record.title}》，{chunk.content} "
                 "该回答基于已发布知识片段生成，需结合现场数据人工确认。"
             ),
             citations=[
                 Citation(
-                    chunk_id=f"chunk_{record.doc_id}_001",
+                    chunk_id=chunk.chunk_id,
                     doc_title=record.title,
-                    page_no=1,
-                    section_path="root",
+                    page_no=chunk.page_no,
+                    section_path=chunk.section_path,
                 )
             ],
             confidence=0.72,

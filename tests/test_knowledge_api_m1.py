@@ -52,16 +52,19 @@ def test_knowledge_api_document_query_and_feedback_flow() -> None:
     assert created.status_code == 201
     created_body = created.json()
     assert created_body["parse_status"] == "uploaded"
+    assert created_body["chunk_count"] == 1
     assert created_body["trace_id"].startswith("trace_")
 
     doc_id = created_body["doc_id"]
     document = client.get(f"/api/v1/documents/{doc_id}")
     assert document.status_code == 200
     assert document.json()["title"] == "5G RRC 建立失败处理 SOP"
+    assert document.json()["chunk_count"] == 1
 
     published = client.post(f"/api/v1/documents/{doc_id}/publish")
     assert published.status_code == 200
     assert published.json()["parse_status"] == "published"
+    assert published.json()["chunk_count"] == 1
 
     answer = client.post(
         "/api/v1/chat/query",
