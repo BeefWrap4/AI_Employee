@@ -112,10 +112,14 @@ def test_fts_search_returns_matching_chunk(store: SQLiteStore) -> None:
     assert hits[0]["chunk_id"] == "c1"
 
 
-def test_set_source_uri_updates_path(store: SQLiteStore) -> None:
-    doc_id = store.create_document("SOP", "/tmp/x", "text/plain", {}, [], "v1")
-    store.set_source_uri(doc_id, "/tmp/final.md")
-    assert store.get_document(doc_id)["source_uri"] == "/tmp/final.md"
+def test_set_source_uri_updates_path(store: SQLiteStore, tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir(exist_ok=True)
+    target = raw / "final.md"
+    target.write_text("x", encoding="utf-8")
+    doc_id = store.create_document("SOP", str(raw / "x.md"), "text/plain", {}, [], "v1")
+    store.set_source_uri(doc_id, str(target))
+    assert store.get_document(doc_id)["source_uri"] == str(target.resolve())
 
 
 def _make_qa_log(store: SQLiteStore, trace_id: str, session: str, question: str,

@@ -57,6 +57,22 @@ class StubEmbeddingProvider:
         return results
 
 
+class EmbeddingUnavailableError(RuntimeError):
+    """远程 embedding provider 调用失败且重试用尽（检索降级候选）。
+
+    cause 取值：
+      - "network":  连接错误（DNS / refused / etc.）
+      - "timeout":  请求超时
+      - "4xx":       客户端错误（401/403/400），不可重试
+      - "5xx":       服务端错误，重试耗尽
+      - "dim_mismatch":  返回维度与构造 dim 不一致
+    """
+
+    def __init__(self, message: str, cause: str = "provider_error") -> None:
+        super().__init__(message)
+        self.cause = cause
+
+
 class _RemoteEmbeddingMixin:
     """共享：批量分批 + 瞬时错误重试 + OpenAI-compatible 响应解析。"""
 
@@ -85,29 +101,52 @@ class _RemoteEmbeddingMixin:
     def _post_with_retry(
         self, post_fn, url, headers, model, batch, max_retries, timeout
     ) -> list[list[float]]:
+        import httpx
+
         last_status: int | None = None
         last_text: str = ""
         for attempt in range(max_retries + 1):
-            resp = post_fn(
-                url,
-                headers=headers,
-                json={"model": model, "input": batch},
-                timeout=timeout,
-            )
+            try:
+                resp = post_fn(
+                    url,
+                    headers=headers,
+                    json={"model": model, "input": batch},
+                    timeout=timeout,
+                )
+            except httpx.TimeoutException as exc:
+                if attempt < max_retries:
+                    time.sleep(0.2 * (2 ** attempt))
+                    continue
+                raise EmbeddingUnavailableError(
+                    f"embedding api timeout: {exc}", cause="timeout"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise EmbeddingUnavailableError(
+                    f"embedding api network error: {exc}", cause="network"
+                ) from exc
             if resp.status_code == 200:
                 data = resp.json()
                 return [item["embedding"] for item in data["data"]]
             last_status = resp.status_code
             last_text = getattr(resp, "text", "")
-            # 429 / 5xx 视为瞬时错误，可重试；4xx 其他立即失败
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt < max_retries:
                     time.sleep(0.2 * (2 ** attempt))
                     continue
-            # 不可重试或重试耗尽
-            break
-        raise RuntimeError(
-            f"embedding api returned {last_status}: {last_text[:200]}"
+                # 重试耗尽
+                raise EmbeddingUnavailableError(
+                    f"embedding api returned {last_status}: {last_text[:200]}",
+                    cause="5xx" if resp.status_code >= 500 else "5xx",
+                )
+            # 4xx（除 429）不可重试
+            raise EmbeddingUnavailableError(
+                f"embedding api returned {last_status}: {last_text[:200]}",
+                cause="4xx",
+            )
+        # 不可达：网络错误兜底
+        raise EmbeddingUnavailableError(
+            f"embedding api unavailable (last status {last_status})",
+            cause="network",
         )
 
 
@@ -146,10 +185,13 @@ class OpenAICompatEmbeddingProvider(_RemoteEmbeddingMixin):
 
         url = f"{self.base_url}/v1/embeddings"
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        vectors = self._embed_batches(
-            texts, httpx.post, url, headers, self.model,
-            self.max_batch, self.max_retries, self.timeout,
-        )
+        try:
+            vectors = self._embed_batches(
+                texts, httpx.post, url, headers, self.model,
+                self.max_batch, self.max_retries, self.timeout,
+            )
+        except EmbeddingUnavailableError:
+            raise
         if self._dim is None and vectors:  # type: ignore[comparison-overlap]
             self._dim = len(vectors[0])
         return vectors
@@ -238,6 +280,7 @@ def build_provider(
 
 __all__ = [
     "EmbeddingProvider",
+    "EmbeddingUnavailableError",
     "StubEmbeddingProvider",
     "OpenAICompatEmbeddingProvider",
     "QwenEmbeddingProvider",

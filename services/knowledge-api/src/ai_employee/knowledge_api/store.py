@@ -10,6 +10,10 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from ai_employee.common_schemas.knowledge import DocumentStatus
+from ai_employee.common_schemas.security import (
+    UnsafeSourceUriError,
+    assert_safe_source_uri,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -194,6 +198,13 @@ class SQLiteStore:
         return _document_row_to_dict(row)
 
     def set_source_uri(self, doc_id: str, source_uri: str) -> None:
+        try:
+            assert_safe_source_uri(source_uri, self.data_dir)
+        except UnsafeSourceUriError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error_code": "path_not_allowed", "message": str(exc)},
+            ) from exc
         with self._lock, self._connect() as conn:
             conn.execute(
                 "UPDATE documents SET source_uri = ?, updated_at = ? WHERE doc_id = ?",
