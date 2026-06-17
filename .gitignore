@@ -39,3 +39,6 @@ desktop.ini
 .env
 .env.local
 .env.*.local
+
+# 本地运行数据（SQLite、原始文件）
+var/

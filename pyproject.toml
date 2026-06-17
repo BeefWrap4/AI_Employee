@@ -7,6 +7,10 @@ dependencies = [
   "fastapi>=0.115",
   "pydantic>=2.8",
   "uvicorn[standard]>=0.30",
+  "aiosqlite>=0.20",
+  "markdown-it-py>=3.0",
+  "beautifulsoup4>=4.12",
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -19,8 +23,17 @@ dev = [
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["services/knowledge-api/src"]
+[tool.setuptools]
+packages = [
+  "ai_employee.knowledge_api",
+  "ai_employee.ingestion_worker",
+  "ai_employee.common_schemas",
+]
+
+[tool.setuptools.package-dir]
+"ai_employee.knowledge_api" = "services/knowledge-api/src/ai_employee/knowledge_api"
+"ai_employee.ingestion_worker" = "services/ingestion-worker/src/ai_employee/ingestion_worker"
+"ai_employee.common_schemas" = "packages/common-schemas/src/ai_employee/common_schemas"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
