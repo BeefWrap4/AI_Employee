@@ -14,6 +14,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.common_schemas.eval import (
     UnifiedReport,
     to_unified_rca,
@@ -132,3 +133,82 @@ def test_unified_report_to_dict_is_json_serialisable() -> None:
     # Must round-trip through JSON (used for SQLite report_json persistence).
     encoded = json.dumps(payload, ensure_ascii=False)
     assert json.loads(encoded)["eval_type"] == "rca"
+
+
+# --------------------------------------------------------------------------- #
+# eval_store SQLite persistence
+# --------------------------------------------------------------------------- #
+
+
+def test_eval_store_create_get_complete_round_trip(tmp_path) -> None:
+    store = EvalStore(db_path=str(tmp_path / "eval.sqlite3"))
+
+    eval_run_id = store.create_eval_run(
+        eval_type="rag",
+        template_id="knowledge_query",
+        golden_path="tests/rag-eval/golden.jsonl",
+    )
+
+    assert eval_run_id == "eval_001"
+    record = store.get_eval_run(eval_run_id)
+    assert record is not None
+    assert record["eval_type"] == "rag"
+    assert record["status"] == "running"
+    assert record["report_json"] is None
+    assert record["trace_id"] == "trace_eval_001"
+    assert record["completed_at"] is None
+
+    unified = to_unified_rag(_fake_rag_metrics(), _fake_rag_report(_fake_rag_metrics()))
+    store.complete_eval_run(
+        eval_run_id,
+        report=unified.to_dict(),
+        summary={
+            "total": unified.total,
+            "top1_coverage": unified.top1_coverage,
+            "top3_coverage": unified.top3_coverage,
+            "evidence_coverage": unified.evidence_coverage,
+        },
+    )
+
+    completed = store.get_eval_run(eval_run_id)
+    assert completed["status"] == "completed"
+    assert completed["report_json"]["eval_type"] == "rag"
+    assert completed["summary"]["total"] == 4
+    assert completed["completed_at"] is not None
+
+
+def test_eval_store_list_filters_and_paginates(tmp_path) -> None:
+    store = EvalStore(db_path=str(tmp_path / "eval.sqlite3"))
+    store.create_eval_run(eval_type="rag", template_id="knowledge_query", golden_path="a")
+    store.create_eval_run(eval_type="rca", template_id="rca", golden_path="b")
+    store.create_eval_run(eval_type="rag", template_id="knowledge_query", golden_path="c")
+
+    rag_rows, rag_total = store.list_eval_runs(eval_type="rag")
+    assert rag_total == 2
+    assert [r["eval_type"] for r in rag_rows] == ["rag", "rag"]
+
+    rca_rows, rca_total = store.list_eval_runs(eval_type="rca")
+    assert rca_total == 1
+    assert rca_rows[0]["golden_path"] == "b"
+
+    # status filter
+    store.complete_eval_run(
+        rag_rows[0]["eval_run_id"],
+        report={"eval_type": "rag"},
+        summary={"total": 0},
+    )
+    done_rows, done_total = store.list_eval_runs(status="completed")
+    assert done_total == 1
+    assert done_rows[0]["status"] == "completed"
+
+    # pagination
+    page1, _ = store.list_eval_runs(page=1, page_size=2)
+    page2, _ = store.list_eval_runs(page=2, page_size=2)
+    assert len(page1) == 2
+    assert len(page2) == 1
+    assert page2[0]["eval_run_id"] == "eval_003"
+
+
+def test_eval_store_get_missing_returns_none(tmp_path) -> None:
+    store = EvalStore(db_path=str(tmp_path / "eval.sqlite3"))
+    assert store.get_eval_run("eval_999") is None
