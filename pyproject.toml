@@ -42,6 +42,7 @@ packages = [
   "ai_employee.rca_agent",
   "ai_employee.agent_platform_api",
   "ai_employee.llm_gateway",
+  "ai_employee.observability",
 ]
 
 [tool.setuptools.package-dir]
@@ -52,6 +53,7 @@ packages = [
 "ai_employee.rca_agent" = "services/rca-agent/src/ai_employee/rca_agent"
 "ai_employee.agent_platform_api" = "services/agent-platform-api/src/ai_employee/agent_platform_api"
 "ai_employee.llm_gateway" = "packages/llm-gateway/src/ai_employee/llm_gateway"
+"ai_employee.observability" = "packages/observability/src/ai_employee/observability"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -64,4 +66,5 @@ pythonpath = [
   "services/rca-agent/src",
   "services/agent-platform-api/src",
   "packages/llm-gateway/src",
+  "packages/observability/src",
 ]

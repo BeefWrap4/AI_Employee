@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import PlainTextResponse
 
 from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.agent_platform_api.eval_compare import compare_reports
@@ -40,6 +41,7 @@ from ai_employee.agent_platform_api.schemas import (
     ToolRegistration,
     ToolResponse,
 )
+from ai_employee.observability import render_prometheus_text
 from ai_employee.common_schemas.eval import (
     UnifiedReport,
     to_unified_rag,
@@ -411,6 +413,10 @@ def create_app(
         payload = run_inspection(service_name, check_items=items)
         write_inspection_log(payload)
         return payload
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    def metrics() -> str:
+        return render_prometheus_text()
 
     return app
 
