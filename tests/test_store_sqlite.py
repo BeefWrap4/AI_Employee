@@ -116,3 +116,86 @@ def test_set_source_uri_updates_path(store: SQLiteStore) -> None:
     doc_id = store.create_document("SOP", "/tmp/x", "text/plain", {}, [], "v1")
     store.set_source_uri(doc_id, "/tmp/final.md")
     assert store.get_document(doc_id)["source_uri"] == "/tmp/final.md"
+
+
+def _make_qa_log(store: SQLiteStore, trace_id: str, session: str, question: str,
+                  chunks: list, answer: str = "A") -> None:
+    store.write_qa_log(
+        qa_log_id=f"qa_{trace_id}",
+        session_id=session,
+        question=question,
+        retrieved_chunks=chunks,
+        answer=answer,
+        model_name="m1-template",
+        prompt_version="v1",
+        confidence=0.7,
+        latency_ms=100,
+        trace_id=trace_id,
+    )
+
+
+def test_list_qa_logs_filters_by_session(store: SQLiteStore) -> None:
+    _make_qa_log(store, "t_001", "sA", "q1", [{"chunk_id": "c1", "doc_id": "d1"}])
+    _make_qa_log(store, "t_002", "sB", "q2", [{"chunk_id": "c2", "doc_id": "d2"}])
+    _make_qa_log(store, "t_003", "sA", "q3", [])
+    items, total = store.list_qa_logs(session_id="sA")
+    assert total == 2
+    assert {i["trace_id"] for i in items} == {"t_001", "t_003"}
+
+
+def test_list_qa_logs_pagination(store: SQLiteStore) -> None:
+    for i in range(5):
+        _make_qa_log(store, f"t_{i:03d}", "sX", f"q{i}", [])
+    items, total = store.list_qa_logs(page=1, page_size=2)
+    assert total == 5
+    assert len(items) == 2
+    items, total = store.list_qa_logs(page=2, page_size=2)
+    assert total == 5
+    assert len(items) == 2
+    items, total = store.list_qa_logs(page=3, page_size=2)
+    assert len(items) == 1
+
+
+def test_get_qa_log_returns_full_with_retrieved_chunks(store: SQLiteStore) -> None:
+    _make_qa_log(store, "t_xyz", "sA", "Q", [{"chunk_id": "c1", "doc_id": "d1"}])
+    log = store.get_qa_log("t_xyz")
+    assert log is not None
+    assert log["trace_id"] == "t_xyz"
+    assert log["retrieved_chunks"] == [{"chunk_id": "c1", "doc_id": "d1"}]
+    assert log["question"] == "Q"
+
+
+def test_get_qa_log_returns_none_for_missing(store: SQLiteStore) -> None:
+    assert store.get_qa_log("nonexistent") is None
+
+
+def test_list_feedbacks_filters_by_trace_id(store: SQLiteStore) -> None:
+    fid1 = store.write_feedback("t_a", "useful", "ok")
+    fid2 = store.write_feedback("t_b", "useless", "nope")
+    items, total = store.list_feedbacks(trace_id="t_a")
+    assert total == 1
+    assert items[0]["feedback_id"] == fid1
+    assert items[0]["feedback_type"] == "useful"
+    assert items[0]["comment"] == "ok"
+
+
+def test_list_feedbacks_pagination_and_filter(store: SQLiteStore) -> None:
+    for i in range(5):
+        store.write_feedback("t_x", "useful", f"c{i}")
+    items, total = store.list_feedbacks(trace_id="t_x", page=1, page_size=2)
+    assert total == 5
+    assert len(items) == 2
+
+
+def test_list_documents_filters_by_status(store: SQLiteStore) -> None:
+    d1 = store.create_document("Pub", "/tmp/p", "text/plain", {}, ["a"], "v1")
+    store.transition_status(d1, "parsing")
+    store.write_chunks(d1, [{"chunk_id": f"c_{d1}", "chunk_no": 1, "content": "x", "section_path": "root"}], [[0.0] * 8], "stub")
+    store.transition_status(d1, "ready")
+    store.transition_status(d1, "published")
+    d2 = store.create_document("Up", "/tmp/u", "text/plain", {}, ["a"], "v1")
+    items, total = store.list_documents(status="published")
+    assert total == 1
+    assert items[0]["doc_id"] == d1
+    items, total = store.list_documents()
+    assert total == 2

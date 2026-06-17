@@ -378,6 +378,141 @@ class SQLiteStore:
             conn.commit()
             return feedback_id
 
+    def list_qa_logs(
+        self,
+        *,
+        session_id: str | None = None,
+        user_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        where: list[str] = []
+        params: list[Any] = []
+        if session_id is not None:
+            where.append("session_id = ?")
+            params.append(session_id)
+        if user_id is not None:
+            where.append("user_id = ?")
+            params.append(user_id)
+        if since is not None:
+            where.append("created_at >= ?")
+            params.append(since)
+        if until is not None:
+            where.append("created_at < ?")
+            params.append(until)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+        with self._lock, self._connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) AS c FROM qa_logs{where_sql}", params
+            ).fetchone()["c"]
+            rows = conn.execute(
+                f"SELECT qa_log_id, trace_id, session_id, user_id, question, answer, "
+                f"confidence, latency_ms, model_name, prompt_version, trace_id, created_at "
+                f"FROM qa_logs{where_sql} ORDER BY created_at DESC, qa_log_id DESC "
+                f"LIMIT ? OFFSET ?",
+                [*params, page_size, offset],
+            ).fetchall()
+        return [_qa_log_summary_row(r) for r in rows], total
+
+    def get_qa_log(self, trace_id: str) -> dict[str, Any] | None:
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM qa_logs WHERE trace_id = ?", (trace_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        d = _qa_log_summary_row(row)
+        d["retrieved_chunks"] = json.loads(row["retrieved_chunks_json"])
+        return d
+
+    def list_feedbacks(
+        self,
+        *,
+        trace_id: str | None = None,
+        feedback_type: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        where: list[str] = []
+        params: list[Any] = []
+        if trace_id is not None:
+            where.append("trace_id = ?")
+            params.append(trace_id)
+        if feedback_type is not None:
+            where.append("feedback_type = ?")
+            params.append(feedback_type)
+        if since is not None:
+            where.append("created_at >= ?")
+            params.append(since)
+        if until is not None:
+            where.append("created_at < ?")
+            params.append(until)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+        with self._lock, self._connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) AS c FROM feedbacks{where_sql}", params
+            ).fetchone()["c"]
+            rows = conn.execute(
+                f"SELECT feedback_id, qa_log_id, trace_id, feedback_type, comment, user_id, created_at "
+                f"FROM feedbacks{where_sql} ORDER BY created_at DESC, feedback_id DESC "
+                f"LIMIT ? OFFSET ?",
+                [*params, page_size, offset],
+            ).fetchall()
+        return [dict(r) for r in rows], total
+
+    def list_documents(
+        self,
+        *,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        where: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            where.append("parse_status = ?")
+            params.append(status)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+        with self._lock, self._connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) AS c FROM documents{where_sql}", params
+            ).fetchone()["c"]
+            rows = conn.execute(
+                f"SELECT * FROM documents{where_sql} "
+                f"ORDER BY created_at DESC, doc_id DESC LIMIT ? OFFSET ?",
+                [*params, page_size, offset],
+            ).fetchall()
+        return [_document_row_to_dict(r) for r in rows], total
+
+
+def _qa_log_summary_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "qa_log_id": row["qa_log_id"],
+        "trace_id": row["trace_id"],
+        "session_id": row["session_id"],
+        "user_id": row["user_id"],
+        "question": row["question"],
+        "answer": row["answer"],
+        "confidence": row["confidence"],
+        "latency_ms": row["latency_ms"],
+        "model_name": row["model_name"],
+        "prompt_version": row["prompt_version"],
+        "created_at": row["created_at"],
+    }
+
 
 def _document_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {
