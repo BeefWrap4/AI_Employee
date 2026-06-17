@@ -16,6 +16,9 @@ dependencies = [
   "celery>=5.3",
   "psycopg[binary]>=3.1",
   "redis>=5.0",
+  "PyMuPDF>=1.24",
+  "python-docx>=1.1",
+  "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +39,7 @@ packages = [
   "ai_employee.eval",
   "ai_employee.rca_agent",
   "ai_employee.agent_platform_api",
+  "ai_employee.llm_gateway",
 ]
 
 [tool.setuptools.package-dir]
@@ -45,7 +49,17 @@ packages = [
 "ai_employee.eval" = "services/eval-service/src/ai_employee/eval"
 "ai_employee.rca_agent" = "services/rca-agent/src/ai_employee/rca_agent"
 "ai_employee.agent_platform_api" = "services/agent-platform-api/src/ai_employee/agent_platform_api"
+"ai_employee.llm_gateway" = "packages/llm-gateway/src/ai_employee/llm_gateway"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = [
+  "services/knowledge-api/src",
+  "services/ingestion-worker/src",
+  "packages/common-schemas/src",
+  "services/eval-service/src",
+  "services/rca-agent/src",
+  "services/agent-platform-api/src",
+  "packages/llm-gateway/src",
+]
