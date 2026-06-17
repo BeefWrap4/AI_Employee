@@ -71,7 +71,8 @@ def test_build_report_fail_on_refusal_violation() -> None:
 
 def test_render_json_is_valid_json() -> None:
     metrics = compute(_sample_results(), top_ks=[1])
-    rpt = build_report(metrics, "g", "a", [1], "t", {"top1": 0, "top3": 0, "refusal": 0})
+    rpt = build_report(metrics, golden_path="g", api_base="a", top_ks=[1],
+                       ts="t", thresholds={"top1": 0, "top3": 0, "refusal": 0})
     s = render_json(rpt)
     parsed = json.loads(s)
     assert parsed["ts"] == "t"
@@ -80,7 +81,7 @@ def test_render_json_is_valid_json() -> None:
 def test_render_markdown_contains_table() -> None:
     metrics = compute(_sample_results(), top_ks=[1, 3])
     rpt = build_report(
-        metrics, "g", "a", [1, 3], "t",
+        metrics, golden_path="g", api_base="a", top_ks=[1, 3], ts="t",
         thresholds={"top1": 0.6, "top3": 0.8, "refusal": 0.9},
     )
     md = render_markdown(rpt)
@@ -94,7 +95,7 @@ def test_render_markdown_contains_table() -> None:
 def test_render_markdown_emoji_under_threshold() -> None:
     metrics = compute(_sample_results(), top_ks=[1])
     rpt = build_report(
-        metrics, "g", "a", [1], "t",
+        metrics, golden_path="g", api_base="a", top_ks=[1], ts="t",
         thresholds={"top1": 0.99, "top3": 0.99, "refusal": 0.0},
     )
     md = render_markdown(rpt)
