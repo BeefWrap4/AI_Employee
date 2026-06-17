@@ -83,6 +83,11 @@ class AgentRunListResponse(BaseModel):
     page_size: int
 
 
+class AgentRunResumeResponse(BaseModel):
+    run: AgentRunResponse
+    resumed_from_node: str
+
+
 class ApprovalTask(BaseModel):
     task_id: str
     run_id: str

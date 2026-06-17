@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, status
 
 from ai_employee.agent_platform_api.eval_store import EvalStore
+from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     AgentPlatformStore,
     TEMPLATES,
@@ -12,10 +13,13 @@ from ai_employee.agent_platform_api.runtime import (
     decide_approval_task,
     list_templates,
     register_tool,
+    resume_run_from_node,
+    run_to_persist_dict,
 )
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
     AgentRunListResponse,
+    AgentRunResumeResponse,
     AgentRunResponse,
     AgentRunSummary,
     AgentRunTraceResponse,
@@ -44,10 +48,12 @@ EVAL_TOP_KS = [1, 3, 5]
 def create_app(
     store: AgentPlatformStore | None = None,
     eval_store: EvalStore | None = None,
+    run_store: AgentRunStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Agent Platform API", version=SERVICE_VERSION)
     state = store or AgentPlatformStore()
     eval_state = eval_store or EvalStore()
+    run_state = run_store or AgentRunStore()
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -77,7 +83,47 @@ def create_app(
                     "template_id": payload.template_id,
                 },
             )
-        return create_run(state, payload)
+        run = create_run(state, payload)
+        run_state.upsert_run(run_to_persist_dict(run))
+        return run
+
+    @app.post(
+        "/api/v1/agent-runs/{run_id}/resume",
+        response_model=AgentRunResumeResponse,
+    )
+    def resume_agent_run(run_id: str) -> AgentRunResumeResponse:
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "agent_run_not_found", "run_id": run_id},
+            )
+        if run.status == "completed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "agent_run_already_completed",
+                    "run_id": run_id,
+                },
+            )
+        previous_node = (
+            run.node_trace[-1].node_name if run.node_trace else "TemplateLoaded"
+        )
+        updated = resume_run_from_node(state, run_id)
+        persisted = run_to_persist_dict(updated)
+        persisted["new_events"] = [
+            {
+                "node_name": "ResumeNode",
+                "status": "completed",
+                "detail": f"Resumed after {previous_node}",
+            }
+        ]
+        run_state.upsert_run(persisted)
+        run_state.mark_resumed(run_id, resume_from_node=previous_node)
+        return AgentRunResumeResponse(
+            run=updated,
+            resumed_from_node=previous_node,
+        )
 
     @app.get("/api/v1/agent-runs", response_model=AgentRunListResponse)
     def list_agent_runs(
@@ -190,13 +236,17 @@ def create_app(
                     "current_status": task.status,
                 },
             )
-        return decide_approval_task(
+        updated_task = decide_approval_task(
             state,
             task_id=task_id,
             decision=payload.decision,
             decided_by=payload.decided_by,
             comment=payload.comment,
         )
+        run = state.runs.get(task.run_id)
+        if run is not None:
+            run_state.upsert_run(run_to_persist_dict(run))
+        return updated_task
 
     @app.post(
         "/api/v1/tools",

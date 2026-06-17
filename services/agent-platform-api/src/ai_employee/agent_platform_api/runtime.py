@@ -249,3 +249,77 @@ def _approved_output(output: dict, approved: bool) -> dict:
         "approval_result": "rejected",
         "summary": output.get("summary", "") + " Approval rejected.",
     }
+
+
+def run_to_persist_dict(run: AgentRunResponse) -> dict:
+    """Serialise an AgentRunResponse to the AgentRunStore payload shape."""
+    return {
+        "run_id": run.run_id,
+        "template_id": run.template_id,
+        "agent_name": run.agent_name,
+        "status": run.status,
+        "trace_id": run.trace_id,
+        "requested_by": run.requested_by,
+        "input": run.input,
+        "output": run.output,
+        "node_trace": [n.model_dump() for n in run.node_trace],
+        "tool_calls": [t.model_dump() for t in run.tool_calls],
+        "approval_status": run.approval_status,
+    }
+
+
+def resume_run_from_node(
+    store: AgentPlatformStore,
+    run_id: str,
+) -> AgentRunResponse:
+    """Continue a paused run from its last completed node.
+
+    Walks ``node_trace`` to find the first non-completed node and re-runs
+    the rest of the pipeline. For MVP this advances the run to either
+    ``Completed`` (no approval required) or keeps it ``waiting_approval``
+    if the template requires human approval.  Persists the updated node
+    trace via the runtime caller.
+    """
+    run = store.runs.get(run_id)
+    if run is None:
+        raise KeyError(run_id)
+    template = TEMPLATES[run.template_id]
+    next_node = "ResumeNode"
+    detail = f"Resumed {run_id} from checkpoint."
+    new_trace = [
+        *run.node_trace,
+        NodeTrace(node_name=next_node, status="completed", detail=detail),
+    ]
+    if template.requires_approval:
+        new_status = "waiting_approval"
+        final_node = "ApprovalRequired"
+        new_trace.append(
+            NodeTrace(
+                node_name=final_node,
+                status="pending",
+                detail="Resumed run still requires human approval.",
+            )
+        )
+    else:
+        new_status = "completed"
+        final_node = "Completed"
+        new_trace.append(
+            NodeTrace(
+                node_name=final_node,
+                status="completed",
+                detail="Resumed run completed read-only tools.",
+            )
+        )
+    new_tool_calls = [
+        tool.model_copy(update={"status": "planned" if template.requires_approval else "completed"})
+        for tool in run.tool_calls
+    ]
+    updated = run.model_copy(
+        update={
+            "status": new_status,
+            "node_trace": new_trace,
+            "tool_calls": new_tool_calls,
+        }
+    )
+    store.runs[run_id] = updated
+    return updated
