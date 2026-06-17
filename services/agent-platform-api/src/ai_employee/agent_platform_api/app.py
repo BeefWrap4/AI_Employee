@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, status
 
 from ai_employee.agent_platform_api.eval_store import EvalStore
+from ai_employee.agent_platform_api.eval_compare import compare_reports
 from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     AgentPlatformStore,
@@ -378,6 +379,21 @@ def create_app(
                 },
             )
         return _record_to_response(record)
+
+    @app.get("/api/v1/evaluations/compare")
+    def compare_eval_runs(run_a: str, run_b: str) -> dict[str, object]:
+        record_a = eval_state.get_eval_run(run_a)
+        record_b = eval_state.get_eval_run(run_b)
+        if record_a is None or record_b is None:
+            missing = run_a if record_a is None else run_b
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error_code": "eval_run_not_found",
+                    "eval_run_id": missing,
+                },
+            )
+        return compare_reports(record_a, record_b)
 
     return app
 
