@@ -6,6 +6,7 @@ from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
     AgentRunResponse,
     AgentTemplate,
+    ApprovalTask,
     NodeTrace,
     ToolCallSummary,
 )
@@ -89,7 +90,9 @@ TEMPLATES: dict[str, AgentTemplate] = {
 @dataclass
 class AgentPlatformStore:
     run_count: int = 0
+    approval_task_count: int = 0
     runs: dict[str, AgentRunResponse] = field(default_factory=dict)
+    approval_tasks: dict[str, ApprovalTask] = field(default_factory=dict)
 
 
 def list_templates() -> list[AgentTemplate]:
@@ -150,7 +153,61 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
         approval_status=approval_status,
     )
     store.runs[run_id] = run
+    if requires_approval:
+        store.approval_task_count += 1
+        task_id = f"approval_task_{store.approval_task_count:03d}"
+        store.approval_tasks[task_id] = ApprovalTask(
+            task_id=task_id,
+            run_id=run_id,
+            template_id=template.template_id,
+            requested_by=payload.requested_by,
+            status="pending",
+            risk_level="approval_required",
+            reason="Human approval required before final write-back.",
+        )
     return run
+
+
+def decide_approval_task(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    decision: str,
+    decided_by: str,
+    comment: str | None,
+) -> ApprovalTask:
+    task = store.approval_tasks[task_id]
+    updated_task = task.model_copy(
+        update={
+            "status": decision,
+            "decided_by": decided_by,
+            "comment": comment,
+        }
+    )
+    store.approval_tasks[task_id] = updated_task
+    run = store.runs[task.run_id]
+    approved = decision == "approved"
+    updated_run = run.model_copy(
+        update={
+            "status": "completed" if approved else "failed",
+            "approval_status": decision,
+            "node_trace": [
+                *run.node_trace,
+                NodeTrace(
+                    node_name="ApprovalApproved" if approved else "ApprovalRejected",
+                    status="completed" if approved else "failed",
+                    detail=comment or f"Approval {decision} by {decided_by}.",
+                ),
+            ],
+            "tool_calls": [
+                tool.model_copy(update={"status": "completed" if approved else "skipped"})
+                for tool in run.tool_calls
+            ],
+            "output": _approved_output(run.output, approved),
+        }
+    )
+    store.runs[run.run_id] = updated_run
+    return updated_task
 
 
 def _output_for_template(template_id: str, payload: dict) -> dict:
@@ -168,4 +225,18 @@ def _output_for_template(template_id: str, payload: dict) -> dict:
     return {
         "summary": "Inspection run completed read-only checks.",
         "findings": [],
+    }
+
+
+def _approved_output(output: dict, approved: bool) -> dict:
+    if approved:
+        return {
+            **output,
+            "approval_result": "approved",
+            "summary": output.get("summary", "") + " Approval completed.",
+        }
+    return {
+        **output,
+        "approval_result": "rejected",
+        "summary": output.get("summary", "") + " Approval rejected.",
     }

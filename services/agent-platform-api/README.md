@@ -17,6 +17,10 @@ This M5 slice provides an in-memory Agent Runtime API with three published templ
 - `POST /api/v1/agent-runs`
 - `GET /api/v1/agent-runs?template_id=...&status=...&page=1&page_size=50`
 - `GET /api/v1/agent-runs/{run_id}`
+- `GET /api/v1/approval-tasks?status=...&page=1&page_size=50`
+- `POST /api/v1/approval-tasks/{task_id}/decision`
+
+RCA runs create a pending approval task. `approved` decisions complete the run; `rejected` decisions fail the run. Decided tasks cannot be changed.
 
 ## Local Run
 

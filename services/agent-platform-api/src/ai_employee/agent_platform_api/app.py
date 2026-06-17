@@ -6,6 +6,7 @@ from ai_employee.agent_platform_api.runtime import (
     AgentPlatformStore,
     TEMPLATES,
     create_run,
+    decide_approval_task,
     list_templates,
 )
 from ai_employee.agent_platform_api.schemas import (
@@ -14,6 +15,9 @@ from ai_employee.agent_platform_api.schemas import (
     AgentRunResponse,
     AgentRunSummary,
     AgentTemplateListResponse,
+    ApprovalDecisionRequest,
+    ApprovalTask,
+    ApprovalTaskListResponse,
 )
 
 SERVICE_VERSION = "0.1.0"
@@ -94,6 +98,54 @@ def create_app(store: AgentPlatformStore | None = None) -> FastAPI:
                 detail={"error_code": "agent_run_not_found", "run_id": run_id},
             )
         return run
+
+    @app.get("/api/v1/approval-tasks", response_model=ApprovalTaskListResponse)
+    def list_approval_tasks(
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> ApprovalTaskListResponse:
+        tasks = list(state.approval_tasks.values())
+        if status is not None:
+            tasks = [task for task in tasks if task.status == status]
+        total = len(tasks)
+        page, page_size, start, end = _page_bounds(page, page_size)
+        return ApprovalTaskListResponse(
+            items=tasks[start:end],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.post(
+        "/api/v1/approval-tasks/{task_id}/decision",
+        response_model=ApprovalTask,
+    )
+    def decide_approval(
+        task_id: str, payload: ApprovalDecisionRequest
+    ) -> ApprovalTask:
+        task = state.approval_tasks.get(task_id)
+        if task is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        if task.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_already_decided",
+                    "task_id": task_id,
+                    "current_status": task.status,
+                },
+            )
+        return decide_approval_task(
+            state,
+            task_id=task_id,
+            decision=payload.decision,
+            decided_by=payload.decided_by,
+            comment=payload.comment,
+        )
 
     return app
 

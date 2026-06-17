@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 RunStatus = Literal["running", "completed", "waiting_approval", "failed"]
 ApprovalStatus = Literal["not_required", "pending", "approved", "rejected"]
 TemplateStatus = Literal["published", "disabled"]
+ApprovalTaskStatus = Literal["pending", "approved", "rejected"]
+ApprovalDecision = Literal["approved", "rejected"]
 
 
 class AgentTemplate(BaseModel):
@@ -74,3 +76,28 @@ class AgentRunListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ApprovalTask(BaseModel):
+    task_id: str
+    run_id: str
+    template_id: str
+    requested_by: str
+    status: ApprovalTaskStatus
+    risk_level: Literal["approval_required"]
+    reason: str
+    decided_by: str | None = None
+    comment: str | None = None
+
+
+class ApprovalTaskListResponse(BaseModel):
+    items: list[ApprovalTask]
+    total: int
+    page: int
+    page_size: int
+
+
+class ApprovalDecisionRequest(BaseModel):
+    decision: ApprovalDecision
+    decided_by: str
+    comment: str | None = None
