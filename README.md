@@ -36,9 +36,14 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-启动知识库 API 的开发服务：
+启动知识库 M1 双服务（需两个进程）：
 
 ```powershell
 conda activate ai-employee
-uvicorn ai_employee.knowledge_api.app:app --reload --app-dir services/knowledge-api/src
+# 终端 1：ingestion-worker
+uvicorn ai_employee.ingestion_worker.app:app --port 8001 --app-dir services/ingestion-worker/src
+# 终端 2：knowledge-api
+uvicorn ai_employee.knowledge_api.app:app --port 8010 --app-dir services/knowledge-api/src
 ```
+
+环境变量样例见 `.env.example`。M1 用 SQLite + Stub Embedding 零外部依赖即可运行；`EMBEDDING_PROVIDER=openai_compat` 可切换到真实 OpenAI-compatible 接口。

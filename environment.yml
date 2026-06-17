@@ -10,3 +10,6 @@ dependencies:
       - pydantic>=2.8
       - pytest>=8.0
       - uvicorn[standard]>=0.30
+      - aiosqlite>=0.20
+      - markdown-it-py>=3.0
+      - beautifulsoup4>=4.12
