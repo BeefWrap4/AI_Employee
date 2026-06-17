@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from ai_employee.rca_agent.schemas import (
     AlarmEvent,
+    CandidateKnowledge,
     Evidence,
     Hypothesis,
     IncidentResponse,
@@ -34,10 +35,12 @@ class RcaStore:
     incident_count: int = 0
     run_count: int = 0
     report_count: int = 0
+    candidate_count: int = 0
     alarms: dict[str, AlarmEvent] = field(default_factory=dict)
     incidents: dict[str, IncidentResponse] = field(default_factory=dict)
     runs: dict[str, RcaRunResponse] = field(default_factory=dict)
     reports: dict[str, RcaReportResponse] = field(default_factory=dict)
+    candidates: dict[str, CandidateKnowledge] = field(default_factory=dict)
 
 
 def normalize_alarm(store: RcaStore, raw: RawAlarmEvent) -> AlarmEvent:

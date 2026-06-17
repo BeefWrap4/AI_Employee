@@ -151,3 +151,45 @@ class ReportReviewResponse(BaseModel):
     final_root_cause: str | None = None
     reviewer: str | None = None
     comment: str | None = None
+
+
+CandidateReviewStatus = Literal["pending", "approved", "rejected"]
+CandidateReviewDecision = Literal["approved", "rejected"]
+
+
+class CandidateKnowledge(BaseModel):
+    candidate_id: str
+    source_report_id: str
+    source_incident_id: str
+    hypothesis_id: str
+    root_cause_type: str
+    title: str
+    content: str
+    evidence_summary: str
+    review_status: CandidateReviewStatus = "pending"
+    reviewer: str | None = None
+    review_comment: str | None = None
+    imported_doc_id: str | None = None
+    created_at: str
+    reviewed_at: str | None = None
+
+
+class CandidateListResponse(BaseModel):
+    items: list[CandidateKnowledge]
+    total: int
+    page: int
+    page_size: int
+
+
+class CandidateReviewRequest(BaseModel):
+    decision: CandidateReviewDecision
+    reviewer: str | None = None
+    comment: str | None = None
+
+
+class CandidateReviewResponse(BaseModel):
+    candidate_id: str
+    review_status: CandidateReviewStatus
+    reviewer: str | None = None
+    review_comment: str | None = None
+    reviewed_at: str | None = None

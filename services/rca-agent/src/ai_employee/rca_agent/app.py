@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, status
 
+from ai_employee.rca_agent.knowledge_feedback import (
+    KnowledgeApiError,
+    KnowledgeApiUnavailable,
+    generate_candidates_from_report,
+    import_candidate_to_knowledge_api,
+)
 from ai_employee.rca_agent.runtime import (
     RcaStore,
     build_incident,
@@ -13,6 +20,10 @@ from ai_employee.rca_agent.runtime import (
 )
 from ai_employee.rca_agent.schemas import (
     AlarmEvent,
+    CandidateKnowledge,
+    CandidateListResponse,
+    CandidateReviewRequest,
+    CandidateReviewResponse,
     IncidentBuildRequest,
     IncidentResponse,
     RawAlarmEvent,
@@ -225,6 +236,8 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
                     state.save_run(run)
         if hasattr(state, "save_report"):
             state.save_report(updated)
+        if payload.decision == "accepted" and payload.final_root_cause:
+            _generate_and_persist_candidates(state, updated)
         return ReportReviewResponse(
             report_id=report_id,
             review_status=payload.decision,
@@ -232,6 +245,134 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             reviewer=payload.reviewer,
             comment=payload.comment,
         )
+
+    @app.get("/api/v1/candidate-knowledge", response_model=CandidateListResponse)
+    def list_candidate_knowledge(
+        review_status: str | None = None,
+        incident_id: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> CandidateListResponse:
+        items = list(state.candidates.values())
+        if review_status is not None:
+            items = [c for c in items if c.review_status == review_status]
+        if incident_id is not None:
+            items = [c for c in items if c.source_incident_id == incident_id]
+        items.sort(key=lambda c: c.candidate_id)
+        total = len(items)
+        page, page_size, start, end = _page_bounds(page, page_size)
+        return CandidateListResponse(
+            items=items[start:end],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.get(
+        "/api/v1/candidate-knowledge/{candidate_id}",
+        response_model=CandidateKnowledge,
+    )
+    def get_candidate_knowledge(candidate_id: str) -> CandidateKnowledge:
+        candidate = state.candidates.get(candidate_id)
+        if candidate is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "candidate_not_found", "candidate_id": candidate_id},
+            )
+        return candidate
+
+    @app.post(
+        "/api/v1/candidate-knowledge/{candidate_id}/review",
+        response_model=CandidateReviewResponse,
+    )
+    def review_candidate(
+        candidate_id: str, payload: CandidateReviewRequest
+    ) -> CandidateReviewResponse:
+        candidate = state.candidates.get(candidate_id)
+        if candidate is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "candidate_not_found", "candidate_id": candidate_id},
+            )
+        if candidate.review_status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "already_reviewed",
+                    "current_status": candidate.review_status,
+                },
+            )
+        reviewed_at = datetime.now(timezone.utc).isoformat()
+        updated = candidate.model_copy(
+            update={
+                "review_status": payload.decision,
+                "reviewer": payload.reviewer,
+                "review_comment": payload.comment,
+                "reviewed_at": reviewed_at,
+            }
+        )
+        state.candidates[candidate_id] = updated
+        if hasattr(state, "save_candidate"):
+            state.save_candidate(updated)
+        return CandidateReviewResponse(
+            candidate_id=candidate_id,
+            review_status=updated.review_status,
+            reviewer=updated.reviewer,
+            review_comment=updated.review_comment,
+            reviewed_at=updated.reviewed_at,
+        )
+
+    @app.post(
+        "/api/v1/candidate-knowledge/{candidate_id}/import",
+        response_model=CandidateKnowledge,
+    )
+    def import_candidate(candidate_id: str) -> CandidateKnowledge:
+        candidate = state.candidates.get(candidate_id)
+        if candidate is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "candidate_not_found", "candidate_id": candidate_id},
+            )
+        if candidate.review_status != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "not_approved",
+                    "current_status": candidate.review_status,
+                },
+            )
+        if candidate.imported_doc_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "already_imported",
+                    "imported_doc_id": candidate.imported_doc_id,
+                },
+            )
+        try:
+            doc_id = import_candidate_to_knowledge_api(candidate)
+        except KnowledgeApiUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error_code": "knowledge_api_unavailable",
+                    "message": str(exc),
+                },
+            ) from exc
+        except KnowledgeApiError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error_code": "knowledge_api_error",
+                    "status_code": exc.status_code,
+                    "message": exc.body,
+                },
+            ) from exc
+        updated = candidate.model_copy(update={"imported_doc_id": doc_id})
+        state.candidates[candidate_id] = updated
+        if hasattr(state, "save_candidate"):
+            state.save_candidate(updated)
+        return updated
 
     return app
 
@@ -249,6 +390,27 @@ def _page_bounds(page: int, page_size: int) -> tuple[int, int, int, int]:
     start = (page - 1) * page_size
     end = start + page_size
     return page, page_size, start, end
+
+
+def _generate_and_persist_candidates(
+    store: RcaStore, report: RcaReportResponse
+) -> None:
+    incident = store.incidents.get(report.incident_id)
+    if incident is None:
+        return
+    candidates = generate_candidates_from_report(report, incident, report.evidence)
+    if not candidates:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    for candidate in candidates:
+        store.candidate_count += 1
+        candidate_id = f"ck_{store.candidate_count:03d}"
+        persisted = candidate.model_copy(
+            update={"candidate_id": candidate_id, "created_at": now}
+        )
+        store.candidates[candidate_id] = persisted
+        if hasattr(store, "save_candidate"):
+            store.save_candidate(persisted)
 
 
 app = create_app()
