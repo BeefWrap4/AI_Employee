@@ -11,6 +11,7 @@ from ai_employee.rca_agent.knowledge_feedback import (
     generate_candidates_from_report,
     import_candidate_to_knowledge_api,
 )
+from ai_employee.rca_agent.metrics import compute_metrics
 from ai_employee.rca_agent.runtime import (
     RcaStore,
     build_incident,
@@ -223,6 +224,12 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             }
         )
         state.reports[report_id] = updated
+        # Operational metrics: count this review and the verdict.
+        state.reviewed_reports += 1
+        if payload.decision == "accepted":
+            state.accepted_reports += 1
+        elif payload.decision == "rejected":
+            state.rejected_reports += 1
         run = state.runs.get(report.run_id)
         if run is not None:
             run_update = None
@@ -491,6 +498,17 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
                 for a in attempts
             ],
             "total": len(attempts),
+        }
+
+    @app.get("/api/v1/metrics/operations")
+    def operational_metrics() -> dict[str, object]:
+        metrics = compute_metrics(state)
+        return {
+            "tool_call_success_rate": metrics.tool_call_success_rate,
+            "human_acceptance_rate": metrics.human_acceptance_rate,
+            "alert_compression_ratio": metrics.alert_compression_ratio,
+            "report_gen_seconds_avg": metrics.report_gen_seconds_avg,
+            "raw": metrics.raw,
         }
 
     return app
