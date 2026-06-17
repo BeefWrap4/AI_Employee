@@ -191,7 +191,7 @@ def test_list_documents_filters_by_status(store: SQLiteStore) -> None:
     d1 = store.create_document("Pub", "/tmp/p", "text/plain", {}, ["a"], "v1")
     store.transition_status(d1, "parsing")
     store.write_chunks(d1, [{"chunk_id": f"c_{d1}", "chunk_no": 1, "content": "x", "section_path": "root"}], [[0.0] * 8], "stub")
-    store.transition_status(d1, "ready")
+    # write_chunks 已将状态置为 ready
     store.transition_status(d1, "published")
     d2 = store.create_document("Up", "/tmp/u", "text/plain", {}, ["a"], "v1")
     items, total = store.list_documents(status="published")
