@@ -1,299 +1,293 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import os
+import tempfile
 from typing import Any
-import re
 
-from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 
+from ai_employee.common_schemas.knowledge import DocumentStatus
+from ai_employee.knowledge_api.internal_auth import require_internal_token
+from ai_employee.knowledge_api.retrieval import RetrievalService
+from ai_employee.knowledge_api.schemas import (
+    ChunkResponse,
+    Citation,
+    DocumentChunksResponse,
+    DocumentResponse,
+    FeedbackCreate,
+    FeedbackResponse,
+    InternalChunksRequest,
+    InternalParseFailedRequest,
+    QueryRequest,
+    QueryResponse,
+)
+from ai_employee.knowledge_api.store import SQLiteStore
+from ai_employee.knowledge_api.worker_client import WorkerClient
 
 SERVICE_VERSION = "0.1.0"
 
-
-class DocumentCreate(BaseModel):
-    title: str = Field(min_length=1)
-    content: str = Field(min_length=1)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    acl_tags: list[str] = Field(default_factory=list)
-
-
-class DocumentResponse(BaseModel):
-    doc_id: str
-    title: str
-    parse_status: str
-    chunk_count: int
-    trace_id: str
-    metadata: dict[str, Any]
-    acl_tags: list[str]
+_MIME_EXT = {
+    "text/markdown": "md",
+    "text/html": "html",
+    "text/plain": "txt",
+}
+_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", "10485760"))
 
 
-class QueryRequest(BaseModel):
-    session_id: str
-    question: str = Field(min_length=1)
-    knowledge_scopes: list[str] = Field(default_factory=list)
-    stream: bool = False
+def _config() -> dict[str, Any]:
+    data_dir = os.getenv("KNOWLEDGE_DATA_DIR", "./var/data")
+    return {
+        "data_dir": data_dir,
+        "db_path": os.getenv("KNOWLEDGE_SQLITE_PATH", f"{data_dir}/knowledge.sqlite3"),
+        "worker_url": os.getenv("INGESTION_WORKER_URL", "http://127.0.0.1:8001"),
+        "worker_timeout_s": float(os.getenv("INGESTION_WORKER_TIMEOUT_S", "30")),
+        "internal_token": os.getenv("KNOWLEDGE_API_INTERNAL_TOKEN", "change-me"),
+    }
 
 
-class Citation(BaseModel):
-    chunk_id: str
-    doc_title: str
-    page_no: int
-    section_path: str
-
-
-class QueryResponse(BaseModel):
-    answer: str
-    citations: list[Citation]
-    confidence: float
-    trace_id: str
-
-
-class FeedbackCreate(BaseModel):
-    trace_id: str
-    feedback_type: str
-    comment: str | None = None
-
-
-class FeedbackResponse(BaseModel):
-    feedback_id: str
-    trace_id: str
-    feedback_type: str
-
-
-class ChunkResponse(BaseModel):
-    chunk_id: str
-    content: str
-    page_no: int
-    section_path: str
-
-
-class DocumentChunksResponse(BaseModel):
-    doc_id: str
-    chunks: list[ChunkResponse]
-
-
-@dataclass
-class ChunkRecord:
-    chunk_id: str
-    doc_id: str
-    content: str
-    page_no: int = 1
-    section_path: str = "root"
-
-
-@dataclass
-class DocumentRecord:
-    doc_id: str
-    title: str
-    content: str
-    metadata: dict[str, Any]
-    acl_tags: list[str]
-    chunks: list[ChunkRecord]
-    parse_status: str = "uploaded"
-
-
-@dataclass
-class InMemoryKnowledgeStore:
-    documents: dict[str, DocumentRecord] = field(default_factory=dict)
-    feedback_count: int = 0
-
-    def create_document(self, payload: DocumentCreate) -> DocumentRecord:
-        doc_id = f"doc_{len(self.documents) + 1:03d}"
-        chunks = _build_chunks(doc_id, payload.content)
-        record = DocumentRecord(
-            doc_id=doc_id,
-            title=payload.title,
-            content=payload.content,
-            metadata=payload.metadata,
-            acl_tags=payload.acl_tags,
-            chunks=chunks,
-        )
-        self.documents[doc_id] = record
-        return record
-
-    def get_document(self, doc_id: str) -> DocumentRecord:
-        try:
-            return self.documents[doc_id]
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"document {doc_id} not found",
-            ) from exc
-
-    def publish_document(self, doc_id: str) -> DocumentRecord:
-        record = self.get_document(doc_id)
-        record.parse_status = "published"
-        return record
-
-    def find_best_match(
-        self, query: str, knowledge_scopes: list[str]
-    ) -> tuple[DocumentRecord, ChunkRecord] | None:
-        candidates = [
-            record
-            for record in self.documents.values()
-            if record.parse_status == "published"
-            and _is_visible_in_scope(record, knowledge_scopes)
-        ]
-        if not candidates:
-            return None
-
-        query_tokens = _tokenize(query)
-        matches = [
-            (record, chunk)
-            for record in candidates
-            for chunk in record.chunks
-        ]
-        return max(matches, key=lambda match: _match_sort_key(match, query_tokens))
-
-    def create_feedback(self, payload: FeedbackCreate) -> FeedbackResponse:
-        self.feedback_count += 1
-        return FeedbackResponse(
-            feedback_id=f"fb_{self.feedback_count:03d}",
-            trace_id=payload.trace_id,
-            feedback_type=payload.feedback_type,
-        )
-
-
-def _document_response(record: DocumentRecord, trace_id: str) -> DocumentResponse:
-    return DocumentResponse(
-        doc_id=record.doc_id,
-        title=record.title,
-        parse_status=record.parse_status,
-        chunk_count=len(record.chunks),
-        trace_id=trace_id,
-        metadata=record.metadata,
-        acl_tags=record.acl_tags,
-    )
-
-
-def _chunk_response(chunk: ChunkRecord) -> ChunkResponse:
-    return ChunkResponse(
-        chunk_id=chunk.chunk_id,
-        content=chunk.content,
-        page_no=chunk.page_no,
-        section_path=chunk.section_path,
-    )
-
-
-def _build_chunks(doc_id: str, content: str) -> list[ChunkRecord]:
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
-    if not paragraphs:
-        paragraphs = [content]
-    return [
-        ChunkRecord(
-            chunk_id=f"chunk_{doc_id}_{index:03d}",
-            doc_id=doc_id,
-            content=paragraph,
-        )
-        for index, paragraph in enumerate(paragraphs, start=1)
-    ]
-
-
-def _is_visible_in_scope(record: DocumentRecord, knowledge_scopes: list[str]) -> bool:
-    if not knowledge_scopes:
-        return True
-    visible_scopes = set(record.acl_tags)
-    visible_scopes.update(str(value) for value in record.metadata.values())
-    return bool(visible_scopes.intersection(knowledge_scopes))
-
-
-def _tokenize(text: str) -> set[str]:
-    ascii_tokens = set(re.findall(r"[a-zA-Z0-9]+", text.lower()))
-    cjk_tokens = {text[index : index + 2] for index in range(max(len(text) - 1, 0))}
-    cjk_tokens.update(text[index : index + 3] for index in range(max(len(text) - 2, 0)))
-    return {token.strip() for token in ascii_tokens.union(cjk_tokens) if token.strip()}
-
-
-def _match_sort_key(
-    match: tuple[DocumentRecord, ChunkRecord], query_tokens: set[str]
-) -> tuple[int, str, str]:
-    record, chunk = match
-    return (_relevance_score(record, chunk, query_tokens), record.doc_id, chunk.chunk_id)
-
-
-def _relevance_score(
-    record: DocumentRecord, chunk: ChunkRecord, query_tokens: set[str]
-) -> int:
-    searchable_text = " ".join(
-        [
-            record.title,
-            chunk.content,
-            " ".join(str(value) for value in record.metadata.values()),
-            " ".join(record.acl_tags),
-        ]
-    )
-    document_tokens = _tokenize(searchable_text)
-    return len(query_tokens.intersection(document_tokens))
-
-
-def create_app() -> FastAPI:
+def create_app(
+    store: SQLiteStore | None = None,
+    worker_client: WorkerClient | None = None,
+) -> FastAPI:
     app = FastAPI(title="AI Employee Knowledge API", version=SERVICE_VERSION)
-    store = InMemoryKnowledgeStore()
+    cfg = _config()
+    if store is None:
+        store = SQLiteStore(db_path=cfg["db_path"], data_dir=cfg["data_dir"])
+        store.init_schema()
+    if worker_client is None:
+        worker_client = WorkerClient(
+            base_url=cfg["worker_url"],
+            internal_token=cfg["internal_token"],
+            timeout_s=cfg["worker_timeout_s"],
+        )
+    retrieval = RetrievalService(store)
+    auth = require_internal_token(cfg["internal_token"])
 
     @app.get("/health")
-    def health() -> dict[str, str]:
+    def health() -> dict[str, Any]:
         return {
             "service": "knowledge-api",
             "status": "ok",
             "version": SERVICE_VERSION,
+            "storage": "sqlite",
+            "ingestion_worker_reachable": worker_client.health(),
         }
 
     @app.post(
         "/api/v1/documents",
         response_model=DocumentResponse,
-        status_code=status.HTTP_201_CREATED,
+        status_code=status.HTTP_202_ACCEPTED,
     )
-    def create_document(payload: DocumentCreate) -> DocumentResponse:
-        record = store.create_document(payload)
-        return _document_response(record, trace_id=f"trace_{record.doc_id}_upload")
+    async def create_document(
+        file: UploadFile = File(...),
+        title: str = Form(...),
+        metadata_json: str = Form("{}"),
+        acl_tags_json: str = Form("[]"),
+        version: str = Form("v1"),
+        mime_type: str | None = Form(None),
+    ) -> DocumentResponse:
+        content = await file.read()
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail={"error_code": "payload_too_large"},
+            )
+        declared_mime = mime_type or file.content_type or "text/plain"
+        if declared_mime not in _MIME_EXT:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail={
+                    "error_code": "mime_unsupported",
+                    "mime_type": declared_mime,
+                    "supported": list(_MIME_EXT),
+                },
+            )
+        try:
+            metadata = json.loads(metadata_json)
+            acl_tags = json.loads(acl_tags_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "invalid_json", "message": str(exc)},
+            ) from exc
+
+        ext = _MIME_EXT[declared_mime]
+        raw_dir = os.path.join(store.data_dir, "raw")
+        os.makedirs(raw_dir, exist_ok=True)
+        try:
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=f".{ext}", dir=raw_dir)
+            with os.fdopen(tmp_fd, "wb") as fh:
+                fh.write(content)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error_code": "storage_write_failed", "message": str(exc)},
+            ) from exc
+
+        doc_id = store.create_document(
+            title=title,
+            source_uri=tmp_path,
+            mime_type=declared_mime,
+            metadata=metadata,
+            acl_tags=acl_tags,
+            version=version,
+        )
+        final_path = os.path.join(raw_dir, f"{doc_id}.{ext}")
+        try:
+            os.replace(tmp_path, final_path)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error_code": "storage_write_failed", "message": str(exc)},
+            ) from exc
+        store.set_source_uri(doc_id, final_path)
+
+        trace_id = f"trace_{doc_id}_upload"
+        result = worker_client.parse(
+            doc_id=doc_id,
+            file_path=final_path,
+            mime_type=declared_mime,
+            metadata=metadata,
+        )
+        if result.dispatched and result.response is not None:
+            store.transition_status(doc_id, DocumentStatus.PARSING.value)
+            _apply_parse_response(store, doc_id, result.response)
+            doc = store.get_document(doc_id)
+            return _document_response(doc, trace_id, "accepted")
+        if result.dispatch_status == "worker_error":
+            store.transition_status(doc_id, DocumentStatus.PARSING.value)
+            store.mark_parse_failed(doc_id, result.error or "worker_error", "parse")
+            doc = store.get_document(doc_id)
+            return _document_response(doc, trace_id, "worker_error")
+        # 未接受（unreachable / timeout）：文档保持 uploaded，保留文件供 /reparse
+        doc = store.get_document(doc_id)
+        return _document_response(doc, trace_id, result.dispatch_status)
 
     @app.get("/api/v1/documents/{doc_id}", response_model=DocumentResponse)
     def get_document(doc_id: str) -> DocumentResponse:
-        record = store.get_document(doc_id)
-        return _document_response(record, trace_id=f"trace_{doc_id}_get")
+        doc = store.get_document(doc_id)
+        return _document_response(doc, f"trace_{doc_id}_get", None)
 
     @app.get(
         "/api/v1/documents/{doc_id}/chunks",
         response_model=DocumentChunksResponse,
     )
     def list_document_chunks(doc_id: str) -> DocumentChunksResponse:
-        record = store.get_document(doc_id)
+        store.get_document(doc_id)  # 404 if missing
+        chunks = store.list_chunks(doc_id)
         return DocumentChunksResponse(
-            doc_id=record.doc_id,
-            chunks=[_chunk_response(chunk) for chunk in record.chunks],
+            doc_id=doc_id,
+            chunks=[
+                ChunkResponse(
+                    chunk_id=c["chunk_id"],
+                    content=c["content"],
+                    page_no=c["page_no"],
+                    section_path=c["section_path"],
+                )
+                for c in chunks
+            ],
         )
 
     @app.post("/api/v1/documents/{doc_id}/publish", response_model=DocumentResponse)
     def publish_document(doc_id: str) -> DocumentResponse:
-        record = store.publish_document(doc_id)
-        return _document_response(record, trace_id=f"trace_{doc_id}_publish")
+        doc = store.get_document(doc_id)
+        if doc["parse_status"] != DocumentStatus.READY.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "not_ready",
+                    "current_status": doc["parse_status"],
+                },
+            )
+        updated = store.transition_status(doc_id, DocumentStatus.PUBLISHED.value)
+        return _document_response(updated, f"trace_{doc_id}_publish", None)
+
+    @app.post("/api/v1/documents/{doc_id}/reparse", response_model=DocumentResponse)
+    def reparse_document(doc_id: str) -> DocumentResponse:
+        doc = store.get_document(doc_id)
+        if doc["parse_status"] != DocumentStatus.PARSE_FAILED.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "not_parse_failed",
+                    "current_status": doc["parse_status"],
+                },
+            )
+        store.transition_status(doc_id, DocumentStatus.UPLOADED.value)
+        result = worker_client.parse(
+            doc_id=doc_id,
+            file_path=doc["source_uri"],
+            mime_type=doc["mime_type"],
+            metadata=doc["metadata"],
+        )
+        if result.dispatched and result.response is not None:
+            store.transition_status(doc_id, DocumentStatus.PARSING.value)
+            _apply_parse_response(store, doc_id, result.response)
+        elif result.dispatch_status == "worker_error":
+            store.transition_status(doc_id, DocumentStatus.PARSING.value)
+            store.mark_parse_failed(doc_id, result.error or "worker_error", "parse")
+        else:
+            store.transition_status(doc_id, DocumentStatus.PARSING.value)
+            store.mark_parse_failed(doc_id, result.error or "worker_unreachable", "dispatch")
+        updated = store.get_document(doc_id)
+        return _document_response(updated, f"trace_{doc_id}_reparse", result.dispatch_status)
+
+    @app.post("/api/v1/documents/{doc_id}/archive", response_model=DocumentResponse)
+    def archive_document(doc_id: str) -> DocumentResponse:
+        updated = store.transition_status(doc_id, DocumentStatus.ARCHIVED.value)
+        return _document_response(updated, f"trace_{doc_id}_archive", None)
+
+    @app.post("/api/v1/documents/{doc_id}/restore", response_model=DocumentResponse)
+    def restore_document(doc_id: str) -> DocumentResponse:
+        updated = store.transition_status(doc_id, DocumentStatus.PUBLISHED.value)
+        return _document_response(updated, f"trace_{doc_id}_restore", None)
 
     @app.post("/api/v1/chat/query", response_model=QueryResponse)
     def query(payload: QueryRequest) -> QueryResponse:
-        match = store.find_best_match(payload.question, payload.knowledge_scopes)
-        if match is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="no published knowledge documents available for requested scope",
-            )
-
-        record, chunk = match
+        hits = retrieval.search(payload.question, payload.knowledge_scopes)
+        top = hits[0]
+        answer = (
+            f"根据《{top.doc_title}》，{top.content} "
+            "该回答基于已发布知识片段生成，需结合现场数据人工确认。"
+        )
         trace_id = f"trace_{payload.session_id}_query"
+        try:
+            store.write_qa_log(
+                qa_log_id=trace_id.replace("trace_", "qa_"),
+                session_id=payload.session_id,
+                question=payload.question,
+                retrieved_chunks=[{"chunk_id": h.chunk_id, "doc_id": h.doc_id} for h in hits],
+                answer=answer,
+                model_name="template-v1",
+                prompt_version="m1-template",
+                confidence=top.confidence,
+                latency_ms=0,
+                trace_id=trace_id,
+            )
+        except Exception:
+            # qa_log 写入失败不应阻断回答（trace_id 唯一约束冲突等）
+            pass
         return QueryResponse(
-            answer=(
-                f"根据《{record.title}》，{chunk.content} "
-                "该回答基于已发布知识片段生成，需结合现场数据人工确认。"
-            ),
+            answer=answer,
             citations=[
                 Citation(
-                    chunk_id=chunk.chunk_id,
-                    doc_title=record.title,
-                    page_no=chunk.page_no,
-                    section_path=chunk.section_path,
+                    chunk_id=h.chunk_id,
+                    doc_title=h.doc_title,
+                    page_no=h.page_no,
+                    section_path=h.section_path,
                 )
+                for h in hits
             ],
-            confidence=0.72,
+            confidence=top.confidence,
             trace_id=trace_id,
         )
 
@@ -303,9 +297,66 @@ def create_app() -> FastAPI:
         status_code=status.HTTP_201_CREATED,
     )
     def create_feedback(payload: FeedbackCreate) -> FeedbackResponse:
-        return store.create_feedback(payload)
+        feedback_id = store.write_feedback(
+            trace_id=payload.trace_id,
+            feedback_type=payload.feedback_type,
+            comment=payload.comment,
+        )
+        return FeedbackResponse(
+            feedback_id=feedback_id,
+            trace_id=payload.trace_id,
+            feedback_type=payload.feedback_type,
+        )
+
+    @app.post("/internal/chunks")
+    def internal_chunks(payload: InternalChunksRequest, _: None = Depends(auth)) -> dict:
+        store.write_chunks(
+            doc_id=payload.doc_id,
+            chunks=[
+                c.model_dump() if hasattr(c, "model_dump") else c for c in payload.chunks
+            ],
+            embeddings=payload.embeddings,
+            embedding_model=payload.embedding_model,
+        )
+        return {"doc_id": payload.doc_id, "status": "ready"}
+
+    @app.post("/internal/documents/{doc_id}/parse-failed")
+    def internal_parse_failed(
+        doc_id: str, payload: InternalParseFailedRequest, _: None = Depends(auth)
+    ) -> dict:
+        store.mark_parse_failed(doc_id, payload.parse_error, payload.stage)
+        return {"doc_id": doc_id, "status": "parse_failed"}
 
     return app
+
+
+def _apply_parse_response(store: SQLiteStore, doc_id: str, response: Any) -> None:
+    chunks = [c.model_dump() if hasattr(c, "model_dump") else c for c in response.chunks]
+    store.write_chunks(
+        doc_id=doc_id,
+        chunks=chunks,
+        embeddings=response.embeddings,
+        embedding_model=response.embedding_model or "stub",
+    )
+
+
+def _document_response(
+    doc: dict, trace_id: str, worker_dispatch: str | None
+) -> DocumentResponse:
+    return DocumentResponse(
+        doc_id=doc["doc_id"],
+        title=doc["title"],
+        mime_type=doc["mime_type"],
+        parse_status=doc["parse_status"],
+        parse_error=doc["parse_error"],
+        chunk_count=doc["chunk_count"],
+        version=doc["version"],
+        trace_id=trace_id,
+        metadata=doc["metadata"],
+        acl_tags=doc["acl_tags"],
+        worker_dispatch=worker_dispatch,
+        updated_at=doc["updated_at"],
+    )
 
 
 app = create_app()
