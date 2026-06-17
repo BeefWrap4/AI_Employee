@@ -47,3 +47,10 @@ uvicorn ai_employee.knowledge_api.app:app --port 8010 --app-dir services/knowled
 ```
 
 环境变量样例见 `.env.example`。M1 用 SQLite + Stub Embedding 零外部依赖即可运行；`EMBEDDING_PROVIDER=openai_compat` 可切换到真实 OpenAI-compatible 接口。
+
+运行本地 M1 冒烟流程（上传、解析、发布、问答、反馈、审计查询）：
+
+```powershell
+conda activate ai-employee
+python scripts/m1_smoke.py --json
+```
