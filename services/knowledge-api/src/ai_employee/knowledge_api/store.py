@@ -419,8 +419,11 @@ def _is_visible(metadata_json: str, acl_tags_json: str, scopes: list[str]) -> bo
 
 
 def _to_fts_query(query: str) -> str:
-    """把自然语言转成 FTS5 AND 查询，避免特殊字符报错。"""
+    """把自然语言转成 FTS5 OR 查询，任一 token 命中即召回。
+
+    unicode61 把连续 CJK 作为单 token，ASCII 按单词切分；用 OR 提高召回。
+    """
     tokens = [t for t in query.replace('"', " ").split() if t]
     if not tokens:
         return query
-    return " ".join(f'"{t}"' for t in tokens)
+    return " OR ".join(f'"{t}"' for t in tokens)

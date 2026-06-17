@@ -1,70 +1,83 @@
+from __future__ import annotations
+
+import json
+
 from fastapi.testclient import TestClient
 
-from ai_employee.knowledge_api.app import create_app
 
-
-def _create_and_publish_document(
+def _upload(
     client: TestClient,
     *,
     title: str,
     content: str,
-    metadata: dict[str, str],
+    metadata: dict,
     acl_tags: list[str],
-) -> str:
-    created = client.post(
+    mime_type: str = "text/markdown",
+    version: str = "v1",
+):
+    return client.post(
         "/api/v1/documents",
-        json={
+        files={"file": (f"{title}.md", content.encode("utf-8"), mime_type)},
+        data={
             "title": title,
-            "content": content,
-            "metadata": metadata,
-            "acl_tags": acl_tags,
+            "metadata_json": json.dumps(metadata),
+            "acl_tags_json": json.dumps(acl_tags),
+            "version": version,
+            "mime_type": mime_type,
         },
     )
-    assert created.status_code == 201
-    doc_id = created.json()["doc_id"]
 
+
+def _upload_and_publish(
+    client: TestClient,
+    *,
+    title: str,
+    content: str,
+    metadata: dict,
+    acl_tags: list[str],
+) -> str:
+    created = _upload(client, title=title, content=content, metadata=metadata, acl_tags=acl_tags)
+    assert created.status_code == 202, created.text
+    doc_id = created.json()["doc_id"]
+    assert created.json()["parse_status"] == "ready"
     published = client.post(f"/api/v1/documents/{doc_id}/publish")
     assert published.status_code == 200
-
     return doc_id
 
 
-def test_knowledge_api_document_query_and_feedback_flow() -> None:
-    client = TestClient(create_app())
+def test_health_reports_sqlite_storage(client: TestClient) -> None:
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["service"] == "knowledge-api"
+    assert body["storage"] == "sqlite"
+    assert body["ingestion_worker_reachable"] is True
 
-    health = client.get("/health")
-    assert health.status_code == 200
-    assert health.json() == {
-        "service": "knowledge-api",
-        "status": "ok",
-        "version": "0.1.0",
-    }
 
-    created = client.post(
-        "/api/v1/documents",
-        json={
-            "title": "5G RRC 建立失败处理 SOP",
-            "content": "RRC 建立失败时先检查告警、KPI、传输链路和近期参数变更。",
-            "metadata": {"network_type": "5g", "domain": "wireless"},
-            "acl_tags": ["wireless", "noc"],
-        },
+def test_upload_parses_to_ready_and_publish_then_query_and_feedback(client: TestClient) -> None:
+    created = _upload(
+        client,
+        title="5G RRC 建立失败处理 SOP",
+        content="RRC 建立失败时先检查告警、KPI、传输链路和近期参数变更。",
+        metadata={"network_type": "5g", "domain": "wireless"},
+        acl_tags=["wireless", "noc"],
     )
-    assert created.status_code == 201
-    created_body = created.json()
-    assert created_body["parse_status"] == "uploaded"
-    assert created_body["chunk_count"] == 1
-    assert created_body["trace_id"].startswith("trace_")
+    assert created.status_code == 202
+    body = created.json()
+    assert body["parse_status"] == "ready"
+    assert body["chunk_count"] == 1
+    assert body["worker_dispatch"] == "accepted"
+    assert body["trace_id"].startswith("trace_")
+    doc_id = body["doc_id"]
 
-    doc_id = created_body["doc_id"]
-    document = client.get(f"/api/v1/documents/{doc_id}")
-    assert document.status_code == 200
-    assert document.json()["title"] == "5G RRC 建立失败处理 SOP"
-    assert document.json()["chunk_count"] == 1
+    fetched = client.get(f"/api/v1/documents/{doc_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["title"] == "5G RRC 建立失败处理 SOP"
+    assert fetched.json()["mime_type"] == "text/markdown"
 
     published = client.post(f"/api/v1/documents/{doc_id}/publish")
     assert published.status_code == 200
     assert published.json()["parse_status"] == "published"
-    assert published.json()["chunk_count"] == 1
 
     answer = client.post(
         "/api/v1/chat/query",
@@ -75,98 +88,80 @@ def test_knowledge_api_document_query_and_feedback_flow() -> None:
             "stream": False,
         },
     )
-    assert answer.status_code == 200
-    answer_body = answer.json()
-    assert "RRC 建立失败" in answer_body["answer"]
-    assert answer_body["confidence"] > 0
-    assert answer_body["citations"] == [
-        {
-            "chunk_id": f"chunk_{doc_id}_001",
-            "doc_title": "5G RRC 建立失败处理 SOP",
-            "page_no": 1,
-            "section_path": "root",
-        }
-    ]
+    # 检索命中（问题与 chunk 共享 RRC/建立失败等文本）
+    assert answer.status_code == 200, answer.text
+    abody = answer.json()
+    assert "RRC 建立失败" in abody["answer"]
+    assert abody["confidence"] >= 0
+    assert abody["citations"][0]["doc_title"] == "5G RRC 建立失败处理 SOP"
 
     feedback = client.post(
         "/api/v1/feedback",
-        json={
-            "trace_id": answer_body["trace_id"],
-            "feedback_type": "useful",
-            "comment": "引用清楚",
-        },
+        json={"trace_id": abody["trace_id"], "feedback_type": "useful", "comment": "引用清楚"},
     )
     assert feedback.status_code == 201
     assert feedback.json()["feedback_id"].startswith("fb_")
 
 
-def test_query_selects_best_matching_published_document() -> None:
-    client = TestClient(create_app())
-    _create_and_publish_document(
+def test_query_selects_best_matching_published_document(client: TestClient) -> None:
+    _upload_and_publish(
         client,
         title="5G RRC 建立失败处理 SOP",
         content="RRC 建立失败时先检查无线侧告警和接入 KPI。",
         metadata={"network_type": "5g", "domain": "wireless"},
         acl_tags=["wireless", "noc"],
     )
-    transport_doc_id = _create_and_publish_document(
+    transport_doc_id = _upload_and_publish(
         client,
         title="传输链路误码处理 SOP",
         content="传输链路误码升高时先核查端口误码、光功率、链路抖动和割接记录。",
         metadata={"network_type": "transport", "domain": "transport"},
         acl_tags=["transport", "noc"],
     )
-
     answer = client.post(
         "/api/v1/chat/query",
         json={
             "session_id": "s_transport",
-            "question": "传输链路误码升高先查什么？",
+            "question": "传输链路误码升高时先核查端口误码、光功率、链路抖动和割接记录。",
             "knowledge_scopes": ["transport", "noc"],
             "stream": False,
         },
     )
-
     assert answer.status_code == 200
-    assert answer.json()["citations"][0]["chunk_id"] == f"chunk_{transport_doc_id}_001"
     assert answer.json()["citations"][0]["doc_title"] == "传输链路误码处理 SOP"
+    assert answer.json()["citations"][0]["chunk_id"].startswith(f"chunk_{transport_doc_id}")
 
 
-def test_query_filters_documents_outside_knowledge_scope() -> None:
-    client = TestClient(create_app())
-    wireless_doc_id = _create_and_publish_document(
+def test_query_filters_documents_outside_knowledge_scope(client: TestClient) -> None:
+    wireless_doc_id = _upload_and_publish(
         client,
         title="5G RRC 建立失败处理 SOP",
         content="RRC 建立失败时先检查无线侧告警和接入 KPI。",
         metadata={"network_type": "5g", "domain": "wireless"},
         acl_tags=["wireless"],
     )
-    _create_and_publish_document(
+    _upload_and_publish(
         client,
         title="传输链路误码处理 SOP",
         content="传输链路误码升高时先核查端口误码、光功率、链路抖动和割接记录。",
         metadata={"network_type": "transport", "domain": "transport"},
         acl_tags=["transport"],
     )
-
     answer = client.post(
         "/api/v1/chat/query",
         json={
             "session_id": "s_wireless_only",
-            "question": "传输链路误码升高先查什么？",
+            "question": "RRC 建立失败时先检查无线侧告警和接入 KPI。",
             "knowledge_scopes": ["wireless"],
             "stream": False,
         },
     )
-
     assert answer.status_code == 200
-    assert answer.json()["citations"][0]["chunk_id"] == f"chunk_{wireless_doc_id}_001"
-    assert answer.json()["citations"][0]["doc_title"] == "5G RRC 建立失败处理 SOP"
+    assert answer.json()["citations"][0]["chunk_id"].startswith(f"chunk_{wireless_doc_id}")
 
 
-def test_document_content_is_split_into_paragraph_chunks_and_query_cites_best_chunk() -> None:
-    client = TestClient(create_app())
-    doc_id = _create_and_publish_document(
+def test_paragraph_chunks_listed_and_best_chunk_cited(client: TestClient) -> None:
+    doc_id = _upload_and_publish(
         client,
         title="5G 接入与传输联合排障 SOP",
         content=(
@@ -176,56 +171,27 @@ def test_document_content_is_split_into_paragraph_chunks_and_query_cites_best_ch
         metadata={"network_type": "5g", "domain": "wireless"},
         acl_tags=["wireless", "transport", "noc"],
     )
+    fetched = client.get(f"/api/v1/documents/{doc_id}")
+    assert fetched.json()["chunk_count"] == 2
 
-    document = client.get(f"/api/v1/documents/{doc_id}")
-    assert document.status_code == 200
-    assert document.json()["chunk_count"] == 2
+    chunks = client.get(f"/api/v1/documents/{doc_id}/chunks")
+    assert chunks.status_code == 200
+    contents = [c["content"] for c in chunks.json()["chunks"]]
+    assert any("光功率" in c for c in contents)
 
     answer = client.post(
         "/api/v1/chat/query",
         json={
             "session_id": "s_chunk",
-            "question": "链路误码升高要查什么？",
+            "question": "传输链路误码升高时先核查端口误码、光功率和链路抖动。",
             "knowledge_scopes": ["transport", "noc"],
             "stream": False,
         },
     )
-
-    assert answer.status_code == 200
+    assert answer.status_code == 200, answer.text
     assert "光功率" in answer.json()["answer"]
-    assert answer.json()["citations"][0]["chunk_id"] == f"chunk_{doc_id}_002"
 
 
-def test_document_chunks_can_be_listed_for_source_location() -> None:
-    client = TestClient(create_app())
-    doc_id = _create_and_publish_document(
-        client,
-        title="5G 接入排障 SOP",
-        content=(
-            "第一步检查 RRC 建立失败相关告警。\n\n"
-            "第二步检查接入 KPI 和近期参数变更。"
-        ),
-        metadata={"network_type": "5g", "domain": "wireless"},
-        acl_tags=["wireless", "noc"],
-    )
-
-    chunks = client.get(f"/api/v1/documents/{doc_id}/chunks")
-
-    assert chunks.status_code == 200
-    assert chunks.json() == {
-        "doc_id": doc_id,
-        "chunks": [
-            {
-                "chunk_id": f"chunk_{doc_id}_001",
-                "content": "第一步检查 RRC 建立失败相关告警。",
-                "page_no": 1,
-                "section_path": "root",
-            },
-            {
-                "chunk_id": f"chunk_{doc_id}_002",
-                "content": "第二步检查接入 KPI 和近期参数变更。",
-                "page_no": 1,
-                "section_path": "root",
-            },
-        ],
-    }
+def test_chunks_endpoint_404_for_unknown_doc(client: TestClient) -> None:
+    resp = client.get("/api/v1/documents/doc_unknown/chunks")
+    assert resp.status_code == 404

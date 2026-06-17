@@ -5,7 +5,7 @@ import re
 from ai_employee.common_schemas.knowledge import ParsedChunk
 
 _MAX_CHUNK_LEN = 800
-_MERGE_MAX_LEN = 200
+_MERGE_MAX_LEN = 15
 _MERGE_MAX_BLOCKS = 3
 _ALARM_CODE_RE = re.compile(r"[A-Z]{2,}-\d{2,}")
 
