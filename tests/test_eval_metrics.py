@@ -74,7 +74,7 @@ def test_compute_latency_percentiles() -> None:
     m = compute(results, top_ks=[1])
     # 100 个值 [10..1000] 步长 10；P50 下标 49.5 -> 500+10*0.5 = 505；P95 下标 94.05 -> 940+10*0.95 = 949.5
     assert m.latency_p50_ms == 505.0
-    assert m.latency_p95_ms == 940.5
+    assert m.latency_p95_ms == 950.5
     assert m.latency_mean_ms == 505.0
 
 
