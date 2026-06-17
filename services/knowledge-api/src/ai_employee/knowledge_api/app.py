@@ -23,11 +23,18 @@ from ai_employee.knowledge_api.schemas import (
     ChunkResponse,
     Citation,
     DocumentChunksResponse,
+    DocumentListResponse,
     DocumentResponse,
+    DocumentSummary,
     FeedbackCreate,
+    FeedbackListResponse,
     FeedbackResponse,
+    FeedbackSummary,
     InternalChunksRequest,
     InternalParseFailedRequest,
+    QaLogListResponse,
+    QaLogResponse,
+    QaLogSummary,
     QueryRequest,
     QueryResponse,
 )
@@ -331,6 +338,68 @@ def create_app(
     ) -> dict:
         store.mark_parse_failed(doc_id, payload.parse_error, payload.stage)
         return {"doc_id": doc_id, "status": "parse_failed"}
+
+    # ===== M2.1 审计端点（只读）=====
+
+    @app.get("/api/v1/qa-logs", response_model=QaLogListResponse)
+    def list_qa_logs(
+        session_id: str | None = None,
+        user_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> QaLogListResponse:
+        items, total = store.list_qa_logs(
+            session_id=session_id, user_id=user_id, since=since, until=until,
+            page=page, page_size=page_size,
+        )
+        return QaLogListResponse(
+            items=[QaLogSummary(**i) for i in items],
+            total=total, page=page, page_size=page_size,
+        )
+
+    @app.get("/api/v1/qa-logs/{trace_id}", response_model=QaLogResponse)
+    def get_qa_log_endpoint(trace_id: str) -> QaLogResponse:
+        log = store.get_qa_log(trace_id)
+        if log is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "qa_log_not_found", "trace_id": trace_id},
+            )
+        return QaLogResponse(**log)
+
+    @app.get("/api/v1/feedbacks", response_model=FeedbackListResponse)
+    def list_feedbacks(
+        trace_id: str | None = None,
+        feedback_type: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> FeedbackListResponse:
+        items, total = store.list_feedbacks(
+            trace_id=trace_id, feedback_type=feedback_type, since=since, until=until,
+            page=page, page_size=page_size,
+        )
+        return FeedbackListResponse(
+            items=[FeedbackSummary(**i) for i in items],
+            total=total, page=page, page_size=page_size,
+        )
+
+    @app.get("/api/v1/documents", response_model=DocumentListResponse)
+    def list_documents(
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> DocumentListResponse:
+        items, total = store.list_documents(
+            status=status, page=page, page_size=page_size,
+        )
+        return DocumentListResponse(
+            items=[DocumentSummary(**i) for i in items],
+            total=total, page=page, page_size=page_size,
+        )
 
     return app
 
