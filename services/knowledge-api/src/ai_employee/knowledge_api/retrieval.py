@@ -42,10 +42,12 @@ class RetrievalService:
         top_k: int = 3,
         sparse_store: OpenSearchSparseStore | StubSparseStore | None = None,
         vector_store: VectorStore | None = None,
+        query_rewriter: QueryRewriter | None = None,
     ) -> None:
         self.store = store
         self.query_provider = query_provider or StubEmbeddingProvider(dim=8)
         self.top_k = top_k
+        self.query_rewriter = query_rewriter
         # Determine sparse store: injected > OPENSEARCH_ENABLED env > Stub fallback
         if sparse_store is not None:
             self.sparse_store: OpenSearchSparseStore | StubSparseStore = sparse_store
@@ -67,6 +69,7 @@ class RetrievalService:
         scopes: list[str],
         scope_or: list[str] | None = None,
         top_k: int | None = None,
+        query_rewriter: QueryRewriter | None = None,
     ) -> list[RetrievalHit]:
         top_k = top_k or self.top_k
         scope_or = scope_or or []
