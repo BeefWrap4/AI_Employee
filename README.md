@@ -76,3 +76,10 @@ $env:RCA_SQLITE_PATH="./var/data/rca.sqlite3"
 conda activate ai-employee
 python -m ai_employee.rca_agent.replay tests/rca-replay/sample_cases.jsonl --json
 ```
+
+启动 M5 Agent Platform API 原型服务：
+
+```powershell
+conda activate ai-employee
+uvicorn ai_employee.agent_platform_api.app:app --port 8030 --app-dir services/agent-platform-api/src
+```

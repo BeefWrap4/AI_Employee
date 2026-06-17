@@ -31,6 +31,7 @@ packages = [
   "ai_employee.common_schemas",
   "ai_employee.eval",
   "ai_employee.rca_agent",
+  "ai_employee.agent_platform_api",
 ]
 
 [tool.setuptools.package-dir]
@@ -39,6 +40,7 @@ packages = [
 "ai_employee.common_schemas" = "packages/common-schemas/src/ai_employee/common_schemas"
 "ai_employee.eval" = "services/eval-service/src/ai_employee/eval"
 "ai_employee.rca_agent" = "services/rca-agent/src/ai_employee/rca_agent"
+"ai_employee.agent_platform_api" = "services/agent-platform-api/src/ai_employee/agent_platform_api"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
