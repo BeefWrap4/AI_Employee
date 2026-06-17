@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from ai_employee.knowledge_api.internal_auth import require_internal_token
@@ -6,13 +6,14 @@ from ai_employee.knowledge_api.internal_auth import require_internal_token
 
 def _app(token: str) -> FastAPI:
     app = FastAPI()
+    dep = require_internal_token(token)
 
     @app.post("/internal/chunks")
-    def chunks(_=require_internal_token(token)) -> dict:
+    def chunks(_: None = Depends(dep)) -> dict:
         return {"ok": True}
 
     @app.post("/internal/documents/{doc_id}/parse-failed")
-    def failed(doc_id: str, _=require_internal_token(token)) -> dict:
+    def failed(doc_id: str, _: None = Depends(dep)) -> dict:
         return {"doc_id": doc_id}
 
     return app
