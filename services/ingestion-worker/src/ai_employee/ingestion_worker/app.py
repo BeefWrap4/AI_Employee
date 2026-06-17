@@ -15,6 +15,14 @@ from ai_employee.common_schemas.security import (
     UnsafeSourceUriError,
     assert_safe_source_uri,
 )
+from ai_employee.common_schemas.sparse_store import (
+    OpenSearchSparseStore,
+    StubSparseStore,
+)
+from ai_employee.common_schemas.vector_store import (
+    VectorStore,
+    build_vector_store,
+)
 from ai_employee.ingestion_worker.chunker import chunk_sections
 from ai_employee.ingestion_worker.embedding import EmbeddingProvider
 from ai_employee.ingestion_worker.parsers import get_parser
@@ -41,6 +49,21 @@ def create_app(
         embed_provider = provider
         embed_degraded = bool(degraded) if degraded is not None else False
     state = {"last_call_ok": True}
+
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Initialize sparse (BM25) store for the full-text search pipeline.
+    opensearch_enabled = os.getenv("OPENSEARCH_ENABLED", "false").strip().lower() == "true"
+    if opensearch_enabled:
+        sparse_store: OpenSearchSparseStore | StubSparseStore = OpenSearchSparseStore()
+        sparse_store.create_index("knowledge_base")
+    else:
+        sparse_store = StubSparseStore()
+
+    # Initialize vector store (Milvus or stub fallback).
+    vector_store: VectorStore = build_vector_store()
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -141,6 +164,46 @@ def create_app(
 
         for chunk, vec in zip(parsed_chunks, embeddings):
             chunk.embedding = vec
+
+        # Also index chunks into the sparse (BM25) store for full-text search.
+        # This is a best-effort side effect -- failures are logged, not raised.
+        documents = [
+            {
+                "chunk_id": c.chunk_id,
+                "doc_id": request.doc_id,
+                "content": c.content,
+                "section_path": c.section_path,
+            }
+            for c in parsed_chunks
+        ]
+        try:
+            sparse_store.bulk_index("knowledge_base", documents)
+        except Exception:
+            pass  # best-effort; logged inside the store
+
+        # Also write vectors to Milvus (or stub) for ANN vector recall.
+        # Best-effort side effect -- failures are logged, not raised, to keep
+        # the existing SQLite write path intact.
+        try:
+            vector_store.create_collection("chunks", len(embeddings[0]))
+            vector_store.insert(
+                "chunks",
+                vectors=embeddings,
+                metadata=[
+                    {
+                        "chunk_id": c.chunk_id,
+                        "doc_id": request.doc_id,
+                        "chunk_no": c.chunk_no,
+                        "content": c.content,
+                        "section_path": c.section_path,
+                        "page_no": c.page_no,
+                        "embedding_model": embed_provider.name,
+                    }
+                    for c in parsed_chunks
+                ],
+            )
+        except Exception as exc:
+            logger.warning("Vector store insert failed (best-effort): %s", exc)
 
         return ParseResponse(
             doc_id=request.doc_id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 
 from fastapi import HTTPException, status
@@ -10,6 +11,14 @@ from ai_employee.common_schemas.embedding import (
     EmbeddingProvider,
     EmbeddingUnavailableError,
     StubEmbeddingProvider,
+)
+from ai_employee.common_schemas.sparse_store import (
+    OpenSearchSparseStore,
+    StubSparseStore,
+)
+from ai_employee.common_schemas.vector_store import (
+    VectorStore,
+    build_vector_store,
 )
 from ai_employee.knowledge_api.store import SQLiteStore
 
@@ -31,10 +40,26 @@ class RetrievalService:
         store: SQLiteStore,
         query_provider: EmbeddingProvider | None = None,
         top_k: int = 3,
+        sparse_store: OpenSearchSparseStore | StubSparseStore | None = None,
+        vector_store: VectorStore | None = None,
     ) -> None:
         self.store = store
         self.query_provider = query_provider or StubEmbeddingProvider(dim=8)
         self.top_k = top_k
+        # Determine sparse store: injected > OPENSEARCH_ENABLED env > Stub fallback
+        if sparse_store is not None:
+            self.sparse_store: OpenSearchSparseStore | StubSparseStore = sparse_store
+        elif os.getenv("OPENSEARCH_ENABLED", "false").strip().lower() == "true":
+            _store = OpenSearchSparseStore()
+            _store.create_index("knowledge_base")
+            self.sparse_store = _store
+        else:
+            self.sparse_store = StubSparseStore()
+        # Determine vector store: injected > build from env > None (uses SQLite fallback)
+        if vector_store is not None:
+            self.vector_store: VectorStore | None = vector_store
+        else:
+            self.vector_store = build_vector_store()
 
     def search(
         self,
@@ -54,13 +79,31 @@ class RetrievalService:
             )
 
         effective = set(scopes or []) | set(scope_or or [])
-        fts_rows = self._filter_chunk_acl(self.store.search_fts(question, doc_ids, limit=20), effective)
-        vec_rows = self._filter_chunk_acl(self.store.list_chunks_for_vector_recall(doc_ids), effective)
+
+        # BM25 full-text recall: prefer OpenSearch if enabled and data is there.
+        # Fall back to SQLite FTS5 when OpenSearch is not enabled or returns nothing.
+        bm25_rows: list[dict] = []
+        os_results = self.sparse_store.search(
+            "knowledge_base", question, doc_ids_filter=doc_ids, top_k=20,
+        )
+        if os_results:
+            # OpenSearch returned results -- use them as BM25 recall.
+            # Enrich with SQLite chunk metadata (acl_tags, embedding, title).
+            for r in os_results:
+                chunk = self.store.get_chunk(r["chunk_id"])
+                if chunk:
+                    chunk["score"] = r.get("score", 0.0)
+                    bm25_rows.append(chunk)
+        else:
+            # No OpenSearch results: fall back to FTS5.
+            bm25_rows = self.store.search_fts(question, doc_ids, limit=20)
+
+        fts_rows = self._filter_chunk_acl(bm25_rows, effective)
 
         scores: dict[str, float] = {}
         meta: dict[str, dict] = {}
 
-        # FTS5 召回（ASCII/空格分词 token 命中）
+        # BM25 召回（OpenSearch BM25 or SQLite FTS5）
         for r in fts_rows:
             cid = r["chunk_id"]
             scores[cid] = scores.get(cid, 0.0) + 0.5
@@ -83,12 +126,43 @@ class RetrievalService:
                     "trace_id": trace_id,
                 },
             ) from exc
+
         best_vec: dict[str, float] = {}
-        for r in vec_rows:
-            sim = _cosine(question_vec, r["embedding"])
-            if sim > best_vec.get(r["chunk_id"], -2.0):
-                best_vec[r["chunk_id"]] = sim
-                meta.setdefault(r["chunk_id"], r)
+
+        # Try Milvus vector search first (if available and has data).
+        # Falls back to SQLite in-memory cosine when Milvus is a stub or returns nothing.
+        milvus_hits: list[dict] = []
+        _used_milvus = False
+        if self.vector_store is not None:
+            try:
+                # Build filter expression for doc_id filtering
+                filter_expr = _build_milvus_filter(doc_ids)
+                milvus_hits = self.vector_store.search(
+                    "chunks", question_vec, top_k=max(20, top_k * 3), filter_expr=filter_expr,
+                )
+                _used_milvus = len(milvus_hits) > 0
+            except Exception:
+                _used_milvus = False
+
+        if _used_milvus:
+            # Milvus returned results: use distance directly as confidence signal.
+            for hit in milvus_hits:
+                cid = hit["chunk_id"]
+                # cosine distance → [-1, 1]; normalize to [0, 1] via (sim+1)/2
+                sim = hit.get("distance", 0.0)
+                if sim > best_vec.get(cid, -2.0):
+                    best_vec[cid] = sim
+                    meta.setdefault(cid, hit)
+        else:
+            # Fallback: SQLite vector recall (load chunks and compute cosine in Python).
+            vec_rows = self._filter_chunk_acl(
+                self.store.list_chunks_for_vector_recall(doc_ids), effective
+            )
+            for r in vec_rows:
+                sim = _cosine(question_vec, r["embedding"])
+                if sim > best_vec.get(r["chunk_id"], -2.0):
+                    best_vec[r["chunk_id"]] = sim
+                    meta.setdefault(r["chunk_id"], r)
         max_sim = max(best_vec.values()) if best_vec else 0.0
         # 阈值：FTS 无命中时视为纯向量召回，Qwen 实测：
         # 语义不相关时余弦 < 0.65，弱相关 0.65-0.8，强相关 ≥ 0.8。
@@ -99,7 +173,7 @@ class RetrievalService:
             norm = (sim + 1.0) / 2.0 if max_sim > 0 else 0.0
             scores[cid] = scores.get(cid, 0.0) + 0.5 * norm
 
-        if not scores or (not fts_rows and max_sim < _VEC_ONLY_THRESHOLD):
+        if not scores or (not bm25_rows and max_sim < _VEC_ONLY_THRESHOLD):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "no_knowledge_in_scope"},
@@ -175,3 +249,15 @@ def _cosine(a: list[float], b: list[float]) -> float:
     if na == 0 or nb == 0:
         return 0.0
     return dot / (na * nb)
+
+
+def _build_milvus_filter(doc_ids: list[str]) -> str | None:
+    """Build a Milvus filter expression to restrict search to given doc_ids.
+
+    For Milvus, the filter syntax is: doc_id in ['id1', 'id2', ...]
+    Returns None when doc_ids is empty (no filter).
+    """
+    if not doc_ids:
+        return None
+    quoted = ", ".join(f"'{did}'" for did in doc_ids)
+    return f"doc_id in [{quoted}]"
