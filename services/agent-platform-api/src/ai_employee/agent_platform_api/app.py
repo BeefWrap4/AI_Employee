@@ -8,6 +8,7 @@ from ai_employee.agent_platform_api.runtime import (
     create_run,
     decide_approval_task,
     list_templates,
+    register_tool,
 )
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
@@ -18,6 +19,9 @@ from ai_employee.agent_platform_api.schemas import (
     ApprovalDecisionRequest,
     ApprovalTask,
     ApprovalTaskListResponse,
+    ToolListResponse,
+    ToolRegistration,
+    ToolResponse,
 )
 
 SERVICE_VERSION = "0.1.0"
@@ -145,6 +149,47 @@ def create_app(store: AgentPlatformStore | None = None) -> FastAPI:
             decision=payload.decision,
             decided_by=payload.decided_by,
             comment=payload.comment,
+        )
+
+    @app.post(
+        "/api/v1/tools",
+        response_model=ToolResponse,
+        response_model_exclude_none=True,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_tool(payload: ToolRegistration) -> ToolResponse:
+        if payload.tool_name in state.tools:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "tool_already_registered",
+                    "tool_name": payload.tool_name,
+                },
+            )
+        return register_tool(state, payload)
+
+    @app.get("/api/v1/tools", response_model=ToolListResponse)
+    def list_tools(
+        risk_level: str | None = None,
+        status: str | None = None,
+        service_name: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> ToolListResponse:
+        tools = list(state.tools.values())
+        if risk_level is not None:
+            tools = [tool for tool in tools if tool.risk_level == risk_level]
+        if status is not None:
+            tools = [tool for tool in tools if tool.status == status]
+        if service_name is not None:
+            tools = [tool for tool in tools if tool.service_name == service_name]
+        total = len(tools)
+        page, page_size, start, end = _page_bounds(page, page_size)
+        return ToolListResponse(
+            items=tools[start:end],
+            total=total,
+            page=page,
+            page_size=page_size,
         )
 
     return app

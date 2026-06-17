@@ -9,6 +9,8 @@ from ai_employee.agent_platform_api.schemas import (
     ApprovalTask,
     NodeTrace,
     ToolCallSummary,
+    ToolRegistration,
+    ToolResponse,
 )
 
 
@@ -93,6 +95,7 @@ class AgentPlatformStore:
     approval_task_count: int = 0
     runs: dict[str, AgentRunResponse] = field(default_factory=dict)
     approval_tasks: dict[str, ApprovalTask] = field(default_factory=dict)
+    tools: dict[str, ToolResponse] = field(default_factory=dict)
 
 
 def list_templates() -> list[AgentTemplate]:
@@ -208,6 +211,12 @@ def decide_approval_task(
     )
     store.runs[run.run_id] = updated_run
     return updated_task
+
+
+def register_tool(store: AgentPlatformStore, payload: ToolRegistration) -> ToolResponse:
+    tool = ToolResponse(**payload.model_dump(), health_status="unknown")
+    store.tools[tool.tool_name] = tool
+    return tool
 
 
 def _output_for_template(template_id: str, payload: dict) -> dict:

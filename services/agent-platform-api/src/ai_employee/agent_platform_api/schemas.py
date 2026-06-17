@@ -10,6 +10,9 @@ ApprovalStatus = Literal["not_required", "pending", "approved", "rejected"]
 TemplateStatus = Literal["published", "disabled"]
 ApprovalTaskStatus = Literal["pending", "approved", "rejected"]
 ApprovalDecision = Literal["approved", "rejected"]
+ToolRiskLevel = Literal["read_only", "approval_required", "high_risk"]
+ToolStatus = Literal["active", "disabled"]
+ToolHealthStatus = Literal["unknown", "healthy", "unhealthy"]
 
 
 class AgentTemplate(BaseModel):
@@ -101,3 +104,25 @@ class ApprovalDecisionRequest(BaseModel):
     decision: ApprovalDecision
     decided_by: str
     comment: str | None = None
+
+
+class ToolRegistration(BaseModel):
+    tool_name: str
+    service_name: str
+    description: str
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    risk_level: ToolRiskLevel
+    status: ToolStatus = "active"
+    health_check_url: str | None = None
+
+
+class ToolResponse(ToolRegistration):
+    health_status: ToolHealthStatus = "unknown"
+
+
+class ToolListResponse(BaseModel):
+    items: list[ToolResponse]
+    total: int
+    page: int
+    page_size: int
