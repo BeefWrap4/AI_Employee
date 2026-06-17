@@ -63,3 +63,10 @@ python scripts/m1_smoke.py --json
 conda activate ai-employee
 uvicorn ai_employee.rca_agent.app:app --port 8020 --app-dir services/rca-agent/src
 ```
+
+运行 RCA 回放评测：
+
+```powershell
+conda activate ai-employee
+python -m ai_employee.rca_agent.replay tests/rca-replay/sample_cases.jsonl --json
+```

@@ -19,4 +19,15 @@ conda activate ai-employee
 uvicorn ai_employee.rca_agent.app:app --port 8020 --app-dir services/rca-agent/src
 ```
 
+## Replay Evaluation
+
+Run the simulated RCA replay suite and emit a JSON report:
+
+```powershell
+conda activate ai-employee
+python -m ai_employee.rca_agent.replay tests/rca-replay/sample_cases.jsonl --json
+```
+
+The report includes Top-1/Top-3 root-cause coverage, evidence coverage, average evidence count, and per-case predicted root-cause types.
+
 The MVP uses in-memory state and simulated read-only diagnostic tools. It does not execute high-risk O&M actions.
