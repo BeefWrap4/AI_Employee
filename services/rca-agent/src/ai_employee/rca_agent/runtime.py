@@ -12,6 +12,11 @@ from ai_employee.rca_agent.schemas import (
     RcaReportResponse,
     RcaRunResponse,
 )
+from ai_employee.rca_agent.tool_adapters import (
+    AdapterUnavailable,
+    ToolAdapter,
+    build_adapters,
+)
 
 
 STATE_HISTORY = [
@@ -41,6 +46,11 @@ class RcaStore:
     runs: dict[str, RcaRunResponse] = field(default_factory=dict)
     reports: dict[str, RcaReportResponse] = field(default_factory=dict)
     candidates: dict[str, CandidateKnowledge] = field(default_factory=dict)
+    adapters: dict[str, ToolAdapter] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.adapters:
+            self.adapters = build_adapters()
 
 
 def normalize_alarm(store: RcaStore, raw: RawAlarmEvent) -> AlarmEvent:
@@ -178,7 +188,53 @@ def resume_with_more_evidence(store: RcaStore, run_id: str) -> RcaRunResponse:
     return updated_run
 
 
-def collect_evidence(incident: IncidentResponse) -> list[Evidence]:
+def collect_evidence(
+    incident: IncidentResponse,
+    *,
+    adapters: dict[str, ToolAdapter] | None = None,
+) -> list[Evidence]:
+    """Collect evidence using pluggable adapters + a static knowledge lookup.
+
+    Adapters cover KPI / Log / Topology / Ticket data sources.  The
+    knowledge evidence is intentionally not a tool adapter: it is a
+    static SOP recommendation derived from the alarm code.  When a real
+    adapter fails (AdapterUnavailable), the call falls back to the
+    fixture adapter so evidence collection never returns an empty list.
+    """
+    primary = incident.primary_alarm
+    adapter_map = adapters or build_adapters()
+    tool_evidence: list[Evidence] = []
+    for source_type, adapter in adapter_map.items():
+        try:
+            tool_evidence.extend(adapter.fetch(incident))
+        except AdapterUnavailable:
+            from ai_employee.rca_agent.tool_adapters import (
+                FixtureKPIAdapter,
+                FixtureLogAdapter,
+                FixtureTicketAdapter,
+                FixtureTopologyAdapter,
+            )
+            fallback_map = {
+                "kpi": FixtureKPIAdapter(),
+                "log": FixtureLogAdapter(),
+                "topology": FixtureTopologyAdapter(),
+                "ticket": FixtureTicketAdapter(),
+            }
+            tool_evidence.extend(fallback_map[source_type].fetch(incident))
+    knowledge = Evidence(
+        evidence_id="e_004",
+        source_type="knowledge",
+        source_ref=f"kb:{primary.alarm_code}",
+        content=(
+            "SOP recommends checking transmission port errors, optical power, "
+            "and recent changes first."
+        ),
+        confidence=0.7,
+    )
+    return [*tool_evidence, knowledge]
+
+
+def _legacy_collect_evidence(incident: IncidentResponse) -> list[Evidence]:
     primary = incident.primary_alarm
     return [
         Evidence(
@@ -224,12 +280,20 @@ def generate_hypotheses(
     evidence: list[Evidence],
 ) -> list[Hypothesis]:
     alarm_codes = {event.alarm_code.upper() for event in incident.alarm_events}
+    by_type: dict[str, list[str]] = {}
+    for item in evidence:
+        by_type.setdefault(item.source_type, []).append(item.evidence_id)
+    metric_ids = by_type.get("metric", [])
+    log_ids = by_type.get("log", [])
+    topology_ids = by_type.get("topology", [])
+    knowledge_ids = by_type.get("knowledge", [])
+    ticket_ids = by_type.get("ticket", [])
     if any("LINK" in code or "TRANSPORT" in code for code in alarm_codes):
         primary = Hypothesis(
             hypothesis_id="h_001",
             root_cause_type="transmission_link_degradation",
             description="Transmission link degradation is the most likely root cause of access failures.",
-            supporting_evidence_ids=["e_001", "e_003", "e_004", "e_005"],
+            supporting_evidence_ids=[*metric_ids, *topology_ids, *knowledge_ids, *ticket_ids],
             confidence=0.78,
             next_check=[
                 "Confirm port error counters with the transmission team.",
@@ -241,7 +305,7 @@ def generate_hypotheses(
             hypothesis_id="h_001",
             root_cause_type="wireless_access_anomaly",
             description="Wireless access anomaly is likely, but transmission evidence still needs confirmation.",
-            supporting_evidence_ids=["e_001", "e_002", "e_004"],
+            supporting_evidence_ids=[*metric_ids, *log_ids, *knowledge_ids],
             confidence=0.62,
             next_check=["Check cell KPI trend and neighboring-cell alarms."],
         )
@@ -249,7 +313,9 @@ def generate_hypotheses(
         hypothesis_id="h_002",
         root_cause_type="recent_parameter_change",
         description="Recent configuration changes could contribute and should be ruled out.",
-        supporting_evidence_ids=[evidence[1].evidence_id, evidence[4].evidence_id],
+        supporting_evidence_ids=(
+            [log_ids[1]] if len(log_ids) >= 2 else list(log_ids)
+        ) + ([ticket_ids[-1]] if ticket_ids else []),
         confidence=0.46,
         next_check=["Compare parameter changes before and after the alarm window."],
     )
