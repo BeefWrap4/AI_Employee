@@ -88,18 +88,14 @@ class InMemoryKnowledgeStore:
 
     def create_document(self, payload: DocumentCreate) -> DocumentRecord:
         doc_id = f"doc_{len(self.documents) + 1:03d}"
-        chunk = ChunkRecord(
-            chunk_id=f"chunk_{doc_id}_001",
-            doc_id=doc_id,
-            content=payload.content,
-        )
+        chunks = _build_chunks(doc_id, payload.content)
         record = DocumentRecord(
             doc_id=doc_id,
             title=payload.title,
             content=payload.content,
             metadata=payload.metadata,
             acl_tags=payload.acl_tags,
-            chunks=[chunk],
+            chunks=chunks,
         )
         self.documents[doc_id] = record
         return record
@@ -118,7 +114,9 @@ class InMemoryKnowledgeStore:
         record.parse_status = "published"
         return record
 
-    def find_best_document(self, query: str, knowledge_scopes: list[str]) -> DocumentRecord | None:
+    def find_best_match(
+        self, query: str, knowledge_scopes: list[str]
+    ) -> tuple[DocumentRecord, ChunkRecord] | None:
         candidates = [
             record
             for record in self.documents.values()
@@ -129,13 +127,12 @@ class InMemoryKnowledgeStore:
             return None
 
         query_tokens = _tokenize(query)
-        return max(
-            candidates,
-            key=lambda record: (
-                _relevance_score(record, query_tokens),
-                record.doc_id,
-            ),
-        )
+        matches = [
+            (record, chunk)
+            for record in candidates
+            for chunk in record.chunks
+        ]
+        return max(matches, key=lambda match: _match_sort_key(match, query_tokens))
 
     def create_feedback(self, payload: FeedbackCreate) -> FeedbackResponse:
         self.feedback_count += 1
@@ -158,6 +155,20 @@ def _document_response(record: DocumentRecord, trace_id: str) -> DocumentRespons
     )
 
 
+def _build_chunks(doc_id: str, content: str) -> list[ChunkRecord]:
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
+    if not paragraphs:
+        paragraphs = [content]
+    return [
+        ChunkRecord(
+            chunk_id=f"chunk_{doc_id}_{index:03d}",
+            doc_id=doc_id,
+            content=paragraph,
+        )
+        for index, paragraph in enumerate(paragraphs, start=1)
+    ]
+
+
 def _is_visible_in_scope(record: DocumentRecord, knowledge_scopes: list[str]) -> bool:
     if not knowledge_scopes:
         return True
@@ -173,11 +184,20 @@ def _tokenize(text: str) -> set[str]:
     return {token.strip() for token in ascii_tokens.union(cjk_tokens) if token.strip()}
 
 
-def _relevance_score(record: DocumentRecord, query_tokens: set[str]) -> int:
+def _match_sort_key(
+    match: tuple[DocumentRecord, ChunkRecord], query_tokens: set[str]
+) -> tuple[int, str, str]:
+    record, chunk = match
+    return (_relevance_score(record, chunk, query_tokens), record.doc_id, chunk.chunk_id)
+
+
+def _relevance_score(
+    record: DocumentRecord, chunk: ChunkRecord, query_tokens: set[str]
+) -> int:
     searchable_text = " ".join(
         [
             record.title,
-            record.content,
+            chunk.content,
             " ".join(str(value) for value in record.metadata.values()),
             " ".join(record.acl_tags),
         ]
@@ -219,15 +239,15 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/chat/query", response_model=QueryResponse)
     def query(payload: QueryRequest) -> QueryResponse:
-        record = store.find_best_document(payload.question, payload.knowledge_scopes)
-        if record is None:
+        match = store.find_best_match(payload.question, payload.knowledge_scopes)
+        if match is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="no published knowledge documents available for requested scope",
             )
 
+        record, chunk = match
         trace_id = f"trace_{payload.session_id}_query"
-        chunk = record.chunks[0]
         return QueryResponse(
             answer=(
                 f"根据《{record.title}》，{chunk.content} "

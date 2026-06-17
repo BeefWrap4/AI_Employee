@@ -162,3 +162,35 @@ def test_query_filters_documents_outside_knowledge_scope() -> None:
     assert answer.status_code == 200
     assert answer.json()["citations"][0]["chunk_id"] == f"chunk_{wireless_doc_id}_001"
     assert answer.json()["citations"][0]["doc_title"] == "5G RRC 建立失败处理 SOP"
+
+
+def test_document_content_is_split_into_paragraph_chunks_and_query_cites_best_chunk() -> None:
+    client = TestClient(create_app())
+    doc_id = _create_and_publish_document(
+        client,
+        title="5G 接入与传输联合排障 SOP",
+        content=(
+            "RRC 建立失败时先检查无线侧告警和接入 KPI。\n\n"
+            "传输链路误码升高时先核查端口误码、光功率和链路抖动。"
+        ),
+        metadata={"network_type": "5g", "domain": "wireless"},
+        acl_tags=["wireless", "transport", "noc"],
+    )
+
+    document = client.get(f"/api/v1/documents/{doc_id}")
+    assert document.status_code == 200
+    assert document.json()["chunk_count"] == 2
+
+    answer = client.post(
+        "/api/v1/chat/query",
+        json={
+            "session_id": "s_chunk",
+            "question": "链路误码升高要查什么？",
+            "knowledge_scopes": ["transport", "noc"],
+            "stream": False,
+        },
+    )
+
+    assert answer.status_code == 200
+    assert "光功率" in answer.json()["answer"]
+    assert answer.json()["citations"][0]["chunk_id"] == f"chunk_{doc_id}_002"
