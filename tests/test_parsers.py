@@ -1,11 +1,14 @@
 import pytest
 
 from ai_employee.ingestion_worker.parsers import (
+    DocxParser,
     HtmlParser,
     MarkdownParser,
     NotImplementedParser,
     ParsedSection,
+    PdfParser,
     TextParser,
+    XlsxParser,
     get_parser,
 )
 
@@ -74,7 +77,14 @@ def test_get_parser_routes_by_mime() -> None:
     assert isinstance(get_parser("text/markdown"), MarkdownParser)
     assert isinstance(get_parser("text/html"), HtmlParser)
     assert isinstance(get_parser("text/plain"), TextParser)
-    assert isinstance(get_parser("application/pdf"), NotImplementedParser)
+    assert isinstance(get_parser("application/pdf"), PdfParser)
+    assert isinstance(get_parser(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ), DocxParser)
+    assert isinstance(get_parser(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ), XlsxParser)
+    assert isinstance(get_parser("application/octet-stream"), NotImplementedParser)
 
 
 def test_parsed_section_holds_fields() -> None:

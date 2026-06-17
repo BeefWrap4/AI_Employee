@@ -22,6 +22,12 @@ from ai_employee.ingestion_worker.parsers import get_parser
 
 SERVICE_VERSION = "0.1.0"
 
+_BINARY_MIME = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
 
 def create_app(
     provider: EmbeddingProvider | None = None,
@@ -64,13 +70,6 @@ def create_app(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error_code": "file_not_found", "file_path": request.file_path},
             )
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error_code": "file_read_error", "message": str(exc)},
-            ) from exc
 
         parser = get_parser(request.mime_type)
         if type(parser).__name__ == "NotImplementedParser":
@@ -81,8 +80,26 @@ def create_app(
                     "mime_type": request.mime_type,
                 },
             )
+
+        # Binary file types: read as bytes; text types: read as string
+        if request.mime_type in _BINARY_MIME:
+            try:
+                source = path.read_bytes()
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error_code": "file_read_error", "message": str(exc)},
+                ) from exc
+        else:
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error_code": "file_read_error", "message": str(exc)},
+                ) from exc
         try:
-            sections = parser.parse(text)
+            sections = parser.parse(source)
         except NotImplementedError as exc:
             return JSONResponse(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
