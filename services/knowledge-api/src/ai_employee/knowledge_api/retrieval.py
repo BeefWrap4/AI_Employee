@@ -64,13 +64,16 @@ class RetrievalService:
                 best_vec[r["chunk_id"]] = sim
                 meta.setdefault(r["chunk_id"], r)
         max_sim = max(best_vec.values()) if best_vec else 0.0
-        # 阈值：FTS 无命中且向量相似度过低视为无匹配
-        _VEC_THRESHOLD = 0.3
+        # 阈值：FTS 无命中时视为纯向量召回，Qwen 实测：
+        # 语义不相关时余弦 < 0.65，弱相关 0.65-0.8，强相关 ≥ 0.8。
+        # 设 0.7 作为纯向量召回的下限，避免误命中语义无关的 chunk。
+        # FTS 命中时不受此限（FTS 已含 token 级匹配证据）。
+        _VEC_ONLY_THRESHOLD = 0.7
         for cid, sim in best_vec.items():
             norm = (sim + 1.0) / 2.0 if max_sim > 0 else 0.0
             scores[cid] = scores.get(cid, 0.0) + 0.5 * norm
 
-        if not scores or (not fts_rows and max_sim < _VEC_THRESHOLD):
+        if not scores or (not fts_rows and max_sim < _VEC_ONLY_THRESHOLD):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "no_knowledge_in_scope"},

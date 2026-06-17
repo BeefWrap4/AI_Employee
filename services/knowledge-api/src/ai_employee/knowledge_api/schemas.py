@@ -41,6 +41,7 @@ class QueryRequest(BaseModel):
 
 class Citation(BaseModel):
     chunk_id: str
+    doc_id: str
     doc_title: str
     page_no: int
     section_path: str

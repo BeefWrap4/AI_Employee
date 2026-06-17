@@ -293,6 +293,7 @@ def create_app(
             citations=[
                 Citation(
                     chunk_id=h.chunk_id,
+                    doc_id=h.doc_id,
                     doc_title=h.doc_title,
                     page_no=h.page_no,
                     section_path=h.section_path,
