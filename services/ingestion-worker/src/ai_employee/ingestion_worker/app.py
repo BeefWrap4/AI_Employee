@@ -11,6 +11,10 @@ from ai_employee.common_schemas.knowledge import (
     ParseRequest,
     ParseResponse,
 )
+from ai_employee.common_schemas.security import (
+    UnsafeSourceUriError,
+    assert_safe_source_uri,
+)
 from ai_employee.ingestion_worker.chunker import chunk_sections
 from ai_employee.ingestion_worker.embedding import EmbeddingProvider
 from ai_employee.ingestion_worker.parsers import get_parser
@@ -45,6 +49,15 @@ def create_app(
 
     @app.post("/internal/parse", response_model=ParseResponse)
     def parse(request: ParseRequest) -> ParseResponse:
+        # 路径校验：必须位于 ${KNOWLEDGE_DATA_DIR}/raw/ 之下
+        data_dir = os.getenv("KNOWLEDGE_DATA_DIR", "./var/data")
+        try:
+            assert_safe_source_uri(request.file_path, data_dir)
+        except UnsafeSourceUriError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "path_not_allowed", "message": str(exc)},
+            ) from exc
         path = Path(request.file_path)
         if not path.is_file():
             raise HTTPException(

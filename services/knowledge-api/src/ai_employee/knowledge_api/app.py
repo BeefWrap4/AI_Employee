@@ -80,6 +80,8 @@ def create_app(
     # 查询侧 embedding 与 worker 侧共享同一 provider，保证维度一致
     query_provider, query_degraded = build_provider()
     retrieval = RetrievalService(store, query_provider=query_provider)
+    # 暴露 retrieval 让测试可注入 query provider
+    app.state.retrieval = retrieval
     auth = require_internal_token(cfg["internal_token"])
 
     @app.get("/health")
@@ -153,7 +155,9 @@ def create_app(
             acl_tags=acl_tags,
             version=version,
         )
-        final_path = os.path.join(raw_dir, f"{doc_id}.{ext}")
+        # 用 Path 强制绝对路径，避免 raw_dir 相对时 os.path.join 拼出相对路径
+        from pathlib import Path as _Path
+        final_path = str((_Path(raw_dir) / f"{doc_id}.{ext}").resolve())
         try:
             os.replace(tmp_path, final_path)
         except OSError as exc:

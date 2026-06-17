@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from ai_employee.common_schemas.embedding import (
     EmbeddingProvider,
+    EmbeddingUnavailableError,
     StubEmbeddingProvider,
 )
 from ai_employee.knowledge_api.store import SQLiteStore
@@ -55,8 +56,23 @@ class RetrievalService:
             scores[cid] = scores.get(cid, 0.0) + 0.5
             meta[cid] = r
 
-        # 向量召回（查询侧 embedding 与 worker 侧共享同一 provider，维度一致）
-        question_vec = _embed_question(self.query_provider, question)
+        # 向量召回（查询侧 embedding 与 worker 侧共享同一 provider，维度一致）。
+        # query provider 失败（Qwen/OpenAICompat 不可用）→ 503 embedding_unavailable，
+        # 不返回低质量答案。
+        try:
+            question_vec = _embed_question(self.query_provider, question)
+        except EmbeddingUnavailableError as exc:
+            import time as _t
+            trace_id = f"trace_{int(_t.time() * 1000)}_embed_unavailable"
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error_code": "embedding_unavailable",
+                    "message": str(exc),
+                    "cause": exc.cause,
+                    "trace_id": trace_id,
+                },
+            ) from exc
         best_vec: dict[str, float] = {}
         for r in vec_rows:
             sim = _cosine(question_vec, r["embedding"])
