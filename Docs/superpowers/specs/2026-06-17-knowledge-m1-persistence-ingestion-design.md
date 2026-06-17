@@ -64,16 +64,18 @@ AI_Employee/
 │        ├─ __init__.py
 │        └─ knowledge.py      # 新增：Document/Chunk/Citation 共享 schema
 ├─ tests/
-│  ├─ test_knowledge_api_m1.py   # 重写：改用 SQLite fixture
-│  ├─ test_ingestion_worker_m1.py # 新增
-│  ├─ test_chunker.py            # 新增
-│  ├─ test_parsers.py            # 新增
-│  ├─ test_embedding_stub.py     # 新增
-│  ├─ test_state_machine.py      # 新增
-│  ├─ test_acl_filter.py         # 新增
-│  ├─ test_fts5_recall.py        # 新增
-│  ├─ test_internal_auth.py      # 新增
-│  └─ test_parse_failure_flow.py # 新增
+│  ├─ test_knowledge_api_m1.py            # 重写：改用 SQLite fixture
+│  ├─ test_ingestion_worker_app.py        # 新增
+│  ├─ test_upload_to_publish_flow.py      # 新增
+│  ├─ test_parse_failure_flow.py          # 新增
+│  ├─ test_embedding_degraded.py          # 新增
+│  ├─ test_internal_auth.py               # 新增
+│  ├─ test_chunker.py                     # 新增
+│  ├─ test_parsers.py                     # 新增
+│  ├─ test_embedding_stub.py              # 新增
+│  ├─ test_state_machine.py               # 新增
+│  ├─ test_acl_filter.py                  # 新增
+│  └─ test_fts5_recall.py                 # 新增
 ├─ var/data/raw/             # 新增：原始文件落盘目录（gitignore）
 └─ .env.example               # 新增：列出可选的 Embedding 配置
 ```
@@ -83,6 +85,13 @@ AI_Employee/
 - `services/knowledge-api/src`
 - `services/ingestion-worker/src`
 - `packages/common-schemas/src`
+
+`pyproject.toml` 中 `[project].dependencies` 追加：
+
+- `aiosqlite>=0.20`
+- `markdown-it-py>=3.0`
+- `beautifulsoup4>=4.12`
+- `httpx>=0.27`（worker → api 回写 + api → worker 调用复用已有 httpx 客户端）
 
 `.gitignore` 追加：
 
@@ -184,7 +193,7 @@ CREATE VIRTUAL TABLE chunks_fts USING fts5(
 
 | 方法 | 路径 | 变化 | 说明 |
 |---|---|---|---|
-| `POST` | `/api/v1/documents` | **改 multipart** | 字段：`file`（必填）、`title`、`metadata_json`、`acl_tags_json`、`version`、`mime_type`（可声明，服务端校验）。返回 202 + `doc_id`、`parse_status=uploaded`、`trace_id`、`worker_dispatch`。 |
+| `POST` | `/api/v1/documents` | **改 multipart** | 字段：`file`（必填）、`title`、`metadata_json`、`acl_tags_json`、`version`、`mime_type`（可声明，服务端校验）。返回 202 + `doc_id`、`parse_status=uploaded`、`trace_id`、`worker_dispatch`，其中 `worker_dispatch` 取值：`accepted`（worker 接收成功，文档会随后进入 `parsing`）、`timeout`（连接或调用超时，文档保持 `uploaded`）、`worker_unreachable`（worker 健康检查不可达）。 |
 | `GET` | `/api/v1/documents/{doc_id}` | 响应扩展 | 增加 `parse_error`、`updated_at`、`mime_type`、`version`。 |
 | `GET` | `/api/v1/documents/{doc_id}/chunks` | 不变 | 数据从 SQLite 读。 |
 | `POST` | `/api/v1/documents/{doc_id}/publish` | **状态前置** | 仅 `ready` 允许；否则 409。 |
@@ -313,10 +322,10 @@ class OpenAICompatEmbeddingProvider:
 | SQLite 写失败 | `db_write_failed` | 临时文件清理，不创建 `documents` 记录 |
 | mime 不支持 | `mime_unsupported` | 415 |
 | 请求体超大 | `payload_too_large` | 413 |
-| Worker 调用超时 | 文档保持 `uploaded` | 202 + `worker_dispatch=timeout` |
-| Worker 解析失败 | 文档 → `parse_failed` | 保留磁盘文件 |
+| Worker 调用未接受（连接失败 / 超时） | 文档保持 `uploaded` | 202 + `worker_dispatch=timeout`（客户端轮询等待，可调 `/reparse` 兜底） |
+| Worker 调用已接受但处理失败 | 文档 → `parse_failed` | 保留磁盘文件，`parse_error` 记录失败阶段（`parse` / `chunk` / `embed` / `db_write`） |
+| Worker 调用已接受后回调 5xx | 文档仍处 `parsing` | 客户端暂时拿到 502 `worker_error`，后台 reconcile 任务在 M2 引入；M1 仅在响应中提示客户端稍后重试 |
 | Embedding 失败 | 文档 → `parse_failed` | `parse_error="embed_unavailable"` |
-| Worker 内部 5xx | 文档保持 `uploaded` | 502 `worker_error` |
 | 内部 token 校验失败 | `internal_unauthorized` | 401 |
 | 范围内无 published 文档 | `no_knowledge_in_scope` | 404 |
 | FTS5 损坏 | `index_corrupted` | 500，启动时检测并退出 |
@@ -324,9 +333,9 @@ class OpenAICompatEmbeddingProvider:
 
 ### 9.2 重试与超时
 
-- knowledge-api → worker：30s 超时，网络错误重试 1 次。
+- knowledge-api → worker：30s 超时，网络错误重试 1 次；2 次仍失败 → 文档保持 `uploaded`，响应附 `worker_dispatch=timeout`。
 - worker → EmbeddingProvider：10s 单次超时，连续 3 次失败 → `parse_failed`。
-- worker → knowledge-api 回写：5s 单次超时，失败由后台 reconcile 任务扫描 `parsing > 5min` 文档重试（M2 完善，本期仅在文档说明）。
+- worker → knowledge-api 回写：5s 单次超时，失败由后台 reconcile 任务扫描 `parsing > 5min` 文档重试。**M1 范围仅在文档中说明该行为；reconcile 任务本身推迟到 M2 实现**。M1 阶段文档可能短暂停留在 `parsing`，客户端通过 `/health` 看到 worker 状态或轮询 `GET /api/v1/documents/{id}` 检测 `updated_at` 不再推进时再决定是否手工干预。
 
 ### 9.3 错误响应格式
 
@@ -416,5 +425,6 @@ def knowledge_workspace(tmp_path, monkeypatch):
 - `python -m pytest` 全部通过。
 - 端到端：上传一个 Markdown SOP → 等待 `ready` → 发布 → 提问命中 → 引用正确。
 - ACL 越权：用户 scope 不含 `wireless` 时查询 `wireless` 文档返回 404。
-- Worker 失败：worker 模拟 500 → 文档停在 `uploaded` 或转 `parse_failed`，可重试。
+- Worker 失败：worker 模拟 500（接受后失败） → 文档转 `parse_failed` 且 `parse_error` 含失败阶段；`/reparse` 后恢复 `uploaded` 并被 worker 重新接受。
+- 上传未联调 worker：worker 不可达时 `POST /api/v1/documents` 仍返回 202 + `worker_dispatch=worker_unreachable`，文档可在 worker 恢复后调 `/reparse` 入队。
 - 内存旧实现已完全移除（无 `InMemoryKnowledgeStore` 残留）。
