@@ -289,6 +289,8 @@ class QaLogSummary(BaseModel):
     created_at: str
 
 class QaLogResponse(QaLogSummary):
+    """单条 qa_log 详情。retrieved_chunks 由 store 层从 qa_logs.retrieved_chunks_json
+    列反序列化得到（list[dict]），含 chunk_id / doc_id / 命中顺序。"""
     retrieved_chunks: list[dict]
 
 class QaLogListResponse(BaseModel):
@@ -299,6 +301,22 @@ class QaLogListResponse(BaseModel):
 
 class FeedbackListResponse(BaseModel):
     items: list[FeedbackResponse]
+    total: int
+    page: int
+    page_size: int
+
+class DocumentSummary(BaseModel):
+    doc_id: str
+    title: str
+    mime_type: str
+    parse_status: str
+    chunk_count: int
+    version: str
+    created_at: str
+    updated_at: str
+
+class DocumentListResponse(BaseModel):
+    items: list[DocumentSummary]
     total: int
     page: int
     page_size: int
