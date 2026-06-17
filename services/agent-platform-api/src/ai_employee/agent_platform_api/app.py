@@ -15,6 +15,7 @@ from ai_employee.agent_platform_api.schemas import (
     AgentRunListResponse,
     AgentRunResponse,
     AgentRunSummary,
+    AgentRunTraceResponse,
     AgentTemplateListResponse,
     ApprovalDecisionRequest,
     ApprovalTask,
@@ -91,6 +92,35 @@ def create_app(store: AgentPlatformStore | None = None) -> FastAPI:
             total=total,
             page=page,
             page_size=page_size,
+        )
+
+    @app.get(
+        "/api/v1/agent-runs/{run_id}/trace",
+        response_model=AgentRunTraceResponse,
+    )
+    def get_agent_run_trace(run_id: str) -> AgentRunTraceResponse:
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "agent_run_not_found", "run_id": run_id},
+            )
+        template = TEMPLATES[run.template_id]
+        approval_tasks = [
+            task for task in state.approval_tasks.values() if task.run_id == run_id
+        ]
+        registered_tools = [
+            tool
+            for tool in state.tools.values()
+            if tool.tool_name in template.tool_names
+        ]
+        return AgentRunTraceResponse(
+            run=run,
+            template=template,
+            node_trace=run.node_trace,
+            tool_calls=run.tool_calls,
+            approval_tasks=approval_tasks,
+            registered_tools=registered_tools,
         )
 
     @app.get("/api/v1/agent-runs/{run_id}", response_model=AgentRunResponse)

@@ -126,3 +126,12 @@ class ToolListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class AgentRunTraceResponse(BaseModel):
+    run: AgentRunResponse
+    template: AgentTemplate
+    node_trace: list[NodeTrace]
+    tool_calls: list[ToolCallSummary]
+    approval_tasks: list[ApprovalTask]
+    registered_tools: list[ToolResponse]
