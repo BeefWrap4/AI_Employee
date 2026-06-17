@@ -193,3 +193,22 @@ class CandidateReviewResponse(BaseModel):
     reviewer: str | None = None
     review_comment: str | None = None
     reviewed_at: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Ticket write-back (spec §6.4)
+# --------------------------------------------------------------------------- #
+
+
+class TicketWritebackRequest(BaseModel):
+    rca_report_id: str
+
+
+class TicketWritebackResponse(BaseModel):
+    ticket_id: str
+    rca_report_id: str
+    incident_id: str
+    adapter_name: str
+    status: str
+    response: dict[str, Any] = Field(default_factory=dict)
+    attempt_id: str

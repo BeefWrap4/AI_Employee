@@ -47,6 +47,8 @@ class RcaStore:
     reports: dict[str, RcaReportResponse] = field(default_factory=dict)
     candidates: dict[str, CandidateKnowledge] = field(default_factory=dict)
     adapters: dict[str, ToolAdapter] = field(default_factory=dict)
+    writeback_adapter: object | None = None
+    writebacks: object | None = None
 
     def __post_init__(self) -> None:
         if not self.adapters:

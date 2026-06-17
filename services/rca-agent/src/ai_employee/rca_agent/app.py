@@ -36,8 +36,16 @@ from ai_employee.rca_agent.schemas import (
     RcaRunListResponse,
     RcaRunResponse,
     RcaRunSummary,
+    TicketWritebackRequest,
+    TicketWritebackResponse,
 )
 from ai_employee.rca_agent.store import SQLiteRcaStore
+from ai_employee.rca_agent.ticket_writeback import (
+    TicketWritebackError,
+    TicketWritebackStore,
+    TicketWritebackUnavailable,
+    build_writeback_adapter,
+)
 
 SERVICE_VERSION = "0.1.0"
 
@@ -45,6 +53,10 @@ SERVICE_VERSION = "0.1.0"
 def create_app(store: RcaStore | None = None) -> FastAPI:
     app = FastAPI(title="AI Employee RCA Agent", version=SERVICE_VERSION)
     state = store or _default_store()
+    if state.writeback_adapter is None:
+        state.writeback_adapter = build_writeback_adapter()
+    if state.writebacks is None:
+        state.writebacks = TicketWritebackStore()
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -373,6 +385,113 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         if hasattr(state, "save_candidate"):
             state.save_candidate(updated)
         return updated
+
+    # ------------------------------------------------------------------ #
+    # Ticket write-back (spec §6.4)
+    # ------------------------------------------------------------------ #
+
+    @app.post(
+        "/api/v1/tickets/{ticket_id}/rca-summary",
+        response_model=TicketWritebackResponse,
+    )
+    def writeback_rca_summary(
+        ticket_id: str, payload: TicketWritebackRequest
+    ) -> TicketWritebackResponse:
+        report = state.reports.get(payload.rca_report_id)
+        if report is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error_code": "rca_report_not_found",
+                    "rca_report_id": payload.rca_report_id,
+                },
+            )
+        adapter = state.writeback_adapter
+        audit = state.writebacks
+        adapter_name = getattr(adapter, "name", type(adapter).__name__)
+        try:
+            response = adapter.post_summary(  # type: ignore[union-attr]
+                ticket_id=ticket_id,
+                rca_report_id=payload.rca_report_id,
+                incident_id=report.incident_id,
+                summary_markdown=report.report_markdown,
+                final_root_cause=report.final_root_cause,
+            )
+        except TicketWritebackUnavailable as exc:
+            record = audit.record(  # type: ignore[union-attr]
+                ticket_id=ticket_id,
+                rca_report_id=payload.rca_report_id,
+                incident_id=report.incident_id,
+                status="failed",
+                adapter_name=adapter_name,
+                response={},
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error_code": "ticket_writeback_unavailable",
+                    "message": str(exc),
+                    "attempt_id": record.attempt_id,
+                },
+            ) from exc
+        except TicketWritebackError as exc:
+            record = audit.record(  # type: ignore[union-attr]
+                ticket_id=ticket_id,
+                rca_report_id=payload.rca_report_id,
+                incident_id=report.incident_id,
+                status="failed",
+                adapter_name=adapter_name,
+                response={},
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error_code": "ticket_writeback_rejected",
+                    "status_code": exc.status_code,
+                    "message": exc.body,
+                    "attempt_id": record.attempt_id,
+                },
+            ) from exc
+        record = audit.record(  # type: ignore[union-attr]
+            ticket_id=ticket_id,
+            rca_report_id=payload.rca_report_id,
+            incident_id=report.incident_id,
+            status="success",
+            adapter_name=adapter_name,
+            response=response,
+            error=None,
+        )
+        return TicketWritebackResponse(
+            ticket_id=ticket_id,
+            rca_report_id=payload.rca_report_id,
+            incident_id=report.incident_id,
+            adapter_name=adapter_name,
+            status="success",
+            response=response,
+            attempt_id=record.attempt_id,
+        )
+
+    @app.get("/api/v1/tickets/{ticket_id}/rca-summary/attempts")
+    def list_writeback_attempts(ticket_id: str) -> dict[str, object]:
+        audit = state.writebacks
+        attempts = audit.list_for_ticket(ticket_id)  # type: ignore[union-attr]
+        return {
+            "ticket_id": ticket_id,
+            "items": [
+                {
+                    "attempt_id": a.attempt_id,
+                    "rca_report_id": a.rca_report_id,
+                    "status": a.status,
+                    "adapter_name": a.adapter_name,
+                    "error": a.error,
+                    "created_at": a.created_at,
+                }
+                for a in attempts
+            ],
+            "total": len(attempts),
+        }
 
     return app
 
