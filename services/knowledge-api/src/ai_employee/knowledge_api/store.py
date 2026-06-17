@@ -324,8 +324,11 @@ class SQLiteStore:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail={"error_code": "document_not_found", "doc_id": doc_id},
                 )
+            # acl_tags_override=None → 写入空列表表示"继承 doc 的 ACL"。
+            # chunk 级 ACL 过滤时空列表视为继承，跳过 chunk 级过滤（文档级已过滤）。
+            # acl_tags_override 非 None → 写入显式列表，chunk 级 ACL 强制生效。
             if acl_tags_override is None:
-                acl_tags = json.loads(row["acl_tags_json"])
+                acl_tags = []
             else:
                 acl_tags = list(acl_tags_override)
             acl_json = json.dumps(acl_tags, ensure_ascii=False)
@@ -406,7 +409,7 @@ class SQLiteStore:
         placeholders = ",".join("?" for _ in doc_ids)
         sql = (
             f"SELECT c.chunk_id, c.doc_id, c.content, c.section_path, c.embedding_json, "
-            f"c.embedding_model, d.title FROM chunks c "
+            f"c.embedding_model, c.acl_tags_json, d.title FROM chunks c "
             f"JOIN chunks_fts f ON f.chunk_id = c.chunk_id "
             f"JOIN documents d ON d.doc_id = c.doc_id "
             f"WHERE chunks_fts MATCH ? AND c.doc_id IN ({placeholders}) "
@@ -414,7 +417,12 @@ class SQLiteStore:
         )
         with self._lock, self._connect() as conn:
             rows = conn.execute(sql, [fts_query, *doc_ids, limit]).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["acl_tags"] = json.loads(r["acl_tags_json"]) if r["acl_tags_json"] else []
+            out.append(d)
+        return out
 
     def list_chunks_for_vector_recall(self, doc_ids: list[str]) -> list[dict[str, Any]]:
         if not doc_ids:
@@ -422,7 +430,8 @@ class SQLiteStore:
         placeholders = ",".join("?" for _ in doc_ids)
         with self._lock, self._connect() as conn:
             rows = conn.execute(
-                f"SELECT chunk_id, doc_id, content, section_path, embedding_json, embedding_model "
+                f"SELECT chunk_id, doc_id, content, section_path, embedding_json, "
+                f"embedding_model, acl_tags_json "
                 f"FROM chunks WHERE doc_id IN ({placeholders}) AND embedding_json IS NOT NULL",
                 doc_ids,
             ).fetchall()
@@ -430,6 +439,7 @@ class SQLiteStore:
         for r in rows:
             d = dict(r)
             d["embedding"] = json.loads(r["embedding_json"]) if r["embedding_json"] else None
+            d["acl_tags"] = json.loads(r["acl_tags_json"]) if r["acl_tags_json"] else []
             out.append(d)
         return out
 

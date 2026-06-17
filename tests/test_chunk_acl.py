@@ -32,7 +32,7 @@ def test_init_schema_idempotent_acl_migration(store: SQLiteStore, tmp_path: Path
 
 
 def test_write_chunks_inherits_acl_from_document(store: SQLiteStore) -> None:
-    """acl_tags_override=None 时从 documents.acl_tags 继承。"""
+    """acl_tags_override=None 时写空列表表示继承 doc（chunk 级过滤跳过）。"""
     doc_id = store.create_document(
         "SOP", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1",
     )
@@ -45,7 +45,8 @@ def test_write_chunks_inherits_acl_from_document(store: SQLiteStore) -> None:
     )
     chunk = store.get_chunk(f"c_{doc_id}")
     assert chunk is not None
-    assert chunk["acl_tags"] == ["wireless"]
+    # 继承 doc 时 chunk.acl_tags 为空，表示"继承 doc ACL"
+    assert chunk["acl_tags"] == []
 
 
 def test_write_chunks_acl_override(store: SQLiteStore) -> None:

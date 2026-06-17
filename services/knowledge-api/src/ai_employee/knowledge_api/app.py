@@ -269,7 +269,11 @@ def create_app(
 
     @app.post("/api/v1/chat/query", response_model=QueryResponse)
     def query(payload: QueryRequest) -> QueryResponse:
-        hits = retrieval.search(payload.question, payload.knowledge_scopes)
+        hits = retrieval.search(
+            payload.question,
+            payload.knowledge_scopes,
+            scope_or=payload.knowledge_scopes_or,
+        )
         top = hits[0]
         answer = (
             f"根据《{top.doc_title}》，{top.content} "

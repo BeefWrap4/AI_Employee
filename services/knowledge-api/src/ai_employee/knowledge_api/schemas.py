@@ -36,6 +36,7 @@ class QueryRequest(BaseModel):
     session_id: str
     question: str = Field(min_length=1)
     knowledge_scopes: list[str] = Field(default_factory=list)
+    knowledge_scopes_or: list[str] = Field(default_factory=list)
     stream: bool = False
 
 

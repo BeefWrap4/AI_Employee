@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 
+from ai_employee.common_schemas.acl import resolve_visible_docs
 from ai_employee.common_schemas.embedding import (
     EmbeddingProvider,
     EmbeddingUnavailableError,
@@ -35,17 +36,26 @@ class RetrievalService:
         self.query_provider = query_provider or StubEmbeddingProvider(dim=8)
         self.top_k = top_k
 
-    def search(self, question: str, scopes: list[str], top_k: int | None = None) -> list[RetrievalHit]:
+    def search(
+        self,
+        question: str,
+        scopes: list[str],
+        scope_or: list[str] | None = None,
+        top_k: int | None = None,
+    ) -> list[RetrievalHit]:
         top_k = top_k or self.top_k
-        doc_ids = self.store.list_published_doc_ids_in_scope(scopes)
+        scope_or = scope_or or []
+        # 文档级 ACL：scope AND scope_or 联合（任一与 doc 可见集相交即命中）
+        doc_ids = resolve_visible_docs(self.store, scopes, scope_or)
         if not doc_ids:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "no_knowledge_in_scope"},
             )
 
-        fts_rows = self.store.search_fts(question, doc_ids, limit=20)
-        vec_rows = self.store.list_chunks_for_vector_recall(doc_ids)
+        effective = set(scopes or []) | set(scope_or or [])
+        fts_rows = self._filter_chunk_acl(self.store.search_fts(question, doc_ids, limit=20), effective)
+        vec_rows = self._filter_chunk_acl(self.store.list_chunks_for_vector_recall(doc_ids), effective)
 
         scores: dict[str, float] = {}
         meta: dict[str, dict] = {}
@@ -96,9 +106,13 @@ class RetrievalService:
             )
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+        # 引用二次校验：再次确认每个候选 doc_id 在可见集合内
+        allowed = set(doc_ids)
         hits: list[RetrievalHit] = []
         for cid, score in ranked:
             m = meta[cid]
+            if m["doc_id"] not in allowed:
+                continue
             title = m.get("title") or self.store.get_doc_title(m["doc_id"])
             hits.append(
                 RetrievalHit(
@@ -111,7 +125,32 @@ class RetrievalService:
                     confidence=max(0.0, min(1.0, score)),
                 )
             )
+        if not hits:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "no_knowledge_in_scope"},
+            )
         return hits
+
+    def _filter_chunk_acl(
+        self, rows: list[dict], effective_scopes: set[str]
+    ) -> list[dict]:
+        """chunk 级 ACL 过滤：
+          - effective_scopes 为空 → 全部保留（已通过文档级 ACL）
+          - chunk.acl_tags 为空 → 视为继承 doc（已通过文档级 ACL，保留）
+          - chunk.acl_tags 非空 → 必须与 effective_scopes 相交
+        """
+        if not effective_scopes:
+            return list(rows)
+        out: list[dict] = []
+        for r in rows:
+            acl = r.get("acl_tags") or []
+            if not acl:
+                out.append(r)
+                continue
+            if set(acl) & effective_scopes:
+                out.append(r)
+        return out
 
 
 def _embed_question(provider: EmbeddingProvider, question: str) -> list[float]:
