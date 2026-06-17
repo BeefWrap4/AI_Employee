@@ -6,6 +6,10 @@ from fastapi import FastAPI, HTTPException, status
 
 from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.agent_platform_api.eval_compare import compare_reports
+from ai_employee.agent_platform_api.inspection import (
+    run_inspection,
+    write_inspection_log,
+)
 from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     AgentPlatformStore,
@@ -394,6 +398,19 @@ def create_app(
                 },
             )
         return compare_reports(record_a, record_b)
+
+    @app.post("/api/v1/inspect/{service_name}")
+    def inspect_service(
+        service_name: str, check_items: str | None = None,
+    ) -> dict[str, object]:
+        items = (
+            [item.strip() for item in check_items.split(",") if item.strip()]
+            if check_items
+            else None
+        )
+        payload = run_inspection(service_name, check_items=items)
+        write_inspection_log(payload)
+        return payload
 
     return app
 
