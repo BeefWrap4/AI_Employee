@@ -1,19 +1,60 @@
 from __future__ import annotations
 
+import functools
 import json
 import os
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
 
+from ai_employee.common_schemas.errors import IndexCorruptedError
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.common_schemas.security import (
     UnsafeSourceUriError,
     assert_safe_source_uri,
 )
+
+
+def _with_db_errors(fn):
+    """包装 store 写方法。OperationalError('locked') 重试 3 次再 500 db_locked；
+    其他 OperationalError / IntegrityError → 500 db_write_failed。
+    """
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        last_exc: sqlite3.OperationalError | None = None
+        for attempt in range(3):
+            try:
+                return fn(self, *args, **kwargs)
+            except sqlite3.OperationalError as exc:
+                last_exc = exc
+                msg = str(exc).lower()
+                if "locked" in msg or "busy" in msg:
+                    if attempt < 2:
+                        time.sleep(0.1 * (2 ** attempt))
+                        continue
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail={"error_code": "db_locked", "message": str(exc)},
+                    ) from exc
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={"error_code": "db_write_failed", "message": str(exc)},
+                ) from exc
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={"error_code": "db_write_failed", "message": str(exc)},
+                ) from exc
+        # 不可达兜底
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error_code": "db_locked", "message": str(last_exc)},
+        )
+    return wrapper
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -41,6 +82,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     page_no INTEGER NOT NULL DEFAULT 1,
     embedding_json TEXT,
     embedding_model TEXT,
+    acl_tags_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
 );
@@ -142,7 +184,19 @@ class SQLiteStore:
                 "knowledge_scopes_json",
                 "TEXT NOT NULL DEFAULT '[]'",
             )
+            _ensure_column(
+                conn,
+                "chunks",
+                "acl_tags_json",
+                "TEXT NOT NULL DEFAULT '[]'",
+            )
             conn.commit()
+        # 启动期 FTS5 探活
+        try:
+            with self._connect() as conn:
+                conn.execute("SELECT 1 FROM chunks_fts LIMIT 1").fetchone()
+        except sqlite3.OperationalError as exc:
+            raise IndexCorruptedError(f"FTS5 索引损坏: {exc}") from exc
 
     def list_tables(self) -> list[str]:
         with self._lock, self._connect() as conn:
@@ -152,6 +206,7 @@ class SQLiteStore:
             ).fetchall()
             return [r["name"] for r in rows]
 
+    @_with_db_errors
     def create_document(
         self,
         title: str,
@@ -212,6 +267,7 @@ class SQLiteStore:
             )
             conn.commit()
 
+    @_with_db_errors
     def transition_status(self, doc_id: str, target: str) -> dict[str, Any]:
         with self._lock, self._connect() as conn:
             row = conn.execute(
@@ -230,6 +286,7 @@ class SQLiteStore:
             conn.commit()
         return self.get_document(doc_id)
 
+    @_with_db_errors
     def mark_parse_failed(self, doc_id: str, parse_error: str, stage: str) -> None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
@@ -249,29 +306,36 @@ class SQLiteStore:
             )
             conn.commit()
 
+    @_with_db_errors
     def write_chunks(
         self,
         doc_id: str,
         chunks: list[dict[str, Any]],
         embeddings: list[list[float]],
         embedding_model: str,
+        acl_tags_override: list[str] | None = None,
     ) -> None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT parse_status FROM documents WHERE doc_id = ?", (doc_id,)
+                "SELECT parse_status, acl_tags_json FROM documents WHERE doc_id = ?", (doc_id,)
             ).fetchone()
             if row is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail={"error_code": "document_not_found", "doc_id": doc_id},
                 )
+            if acl_tags_override is None:
+                acl_tags = json.loads(row["acl_tags_json"])
+            else:
+                acl_tags = list(acl_tags_override)
+            acl_json = json.dumps(acl_tags, ensure_ascii=False)
             now = _now()
             for chunk, vec in zip(chunks, embeddings):
                 conn.execute(
                     """INSERT INTO chunks
                        (chunk_id, doc_id, chunk_no, content, section_path, page_no,
-                        embedding_json, embedding_model, created_at)
-                       VALUES (?,?,?,?,?, 1, ?, ?, ?)""",
+                        embedding_json, embedding_model, acl_tags_json, created_at)
+                       VALUES (?,?,?,?,?, 1, ?, ?, ?, ?)""",
                     (
                         chunk["chunk_id"],
                         doc_id,
@@ -280,6 +344,7 @@ class SQLiteStore:
                         chunk["section_path"],
                         json.dumps(vec, ensure_ascii=False),
                         embedding_model,
+                        acl_json,
                         now,
                     ),
                 )
@@ -290,6 +355,26 @@ class SQLiteStore:
                 "UPDATE documents SET chunk_count = ?, parse_status = 'ready', "
                 "parse_error = NULL, updated_at = ? WHERE doc_id = ?",
                 (len(chunks), now, doc_id),
+            )
+            conn.commit()
+
+    @_with_db_errors
+    def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return _chunk_row_to_dict(row)
+
+    @_with_db_errors
+    def set_chunk_acl_tags(self, chunk_id: str, acl_tags: list[str]) -> None:
+        acl_json = json.dumps(list(acl_tags), ensure_ascii=False)
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "UPDATE chunks SET acl_tags_json = ? WHERE chunk_id = ?",
+                (acl_json, chunk_id),
             )
             conn.commit()
 
@@ -355,6 +440,7 @@ class SQLiteStore:
             ).fetchone()
         return row["title"] if row else ""
 
+    @_with_db_errors
     def write_qa_log(self, **fields: Any) -> None:
         with self._lock, self._connect() as conn:
             conn.execute(
@@ -382,6 +468,7 @@ class SQLiteStore:
             )
             conn.commit()
 
+    @_with_db_errors
     def write_feedback(
         self, trace_id: str, feedback_type: str, comment: str | None
     ) -> str:
@@ -561,6 +648,7 @@ def _chunk_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "page_no": row["page_no"],
         "embedding": json.loads(row["embedding_json"]) if row["embedding_json"] else None,
         "embedding_model": row["embedding_model"],
+        "acl_tags": json.loads(row["acl_tags_json"]) if row["acl_tags_json"] else [],
     }
 
 
