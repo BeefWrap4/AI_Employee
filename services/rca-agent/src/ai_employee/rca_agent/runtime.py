@@ -48,6 +48,8 @@ def normalize_alarm(store: RcaStore, raw: RawAlarmEvent) -> AlarmEvent:
         fingerprint=f"{raw.vendor}:{raw.site_id}:{raw.ne_id}:{raw.alarm_code}",
     )
     store.alarms[event.alarm_event_id] = event
+    if hasattr(store, "save_alarm"):
+        store.save_alarm(event)
     return event
 
 
@@ -71,6 +73,8 @@ def build_incident(
         alarm_events=events,
     )
     store.incidents[incident.incident_id] = incident
+    if hasattr(store, "save_incident"):
+        store.save_incident(incident)
     return incident
 
 
@@ -118,6 +122,8 @@ def run_rca(
     )
     store.runs[run_id] = run
     store.reports[report_id] = report
+    if hasattr(store, "save_run_and_report"):
+        store.save_run_and_report(run, report)
     return run
 
 

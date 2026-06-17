@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, HTTPException, status
 
 from ai_employee.rca_agent.runtime import (
@@ -19,13 +21,14 @@ from ai_employee.rca_agent.schemas import (
     RcaRunCreate,
     RcaRunResponse,
 )
+from ai_employee.rca_agent.store import SQLiteRcaStore
 
 SERVICE_VERSION = "0.1.0"
 
 
 def create_app(store: RcaStore | None = None) -> FastAPI:
     app = FastAPI(title="AI Employee RCA Agent", version=SERVICE_VERSION)
-    state = store or RcaStore()
+    state = store or _default_store()
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -33,7 +36,7 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             "service": "rca-agent",
             "status": "ok",
             "version": SERVICE_VERSION,
-            "runtime": "in_memory_dag",
+            "runtime": "sqlite_dag" if isinstance(state, SQLiteRcaStore) else "in_memory_dag",
         }
 
     @app.post(
@@ -115,7 +118,12 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         state.reports[report_id] = updated
         run = state.runs.get(report.run_id)
         if run is not None and payload.decision in {"accepted", "rejected"}:
-            state.runs[run.run_id] = run.model_copy(update={"status": payload.decision})
+            run = run.model_copy(update={"status": payload.decision})
+            state.runs[run.run_id] = run
+            if hasattr(state, "save_run"):
+                state.save_run(run)
+        if hasattr(state, "save_report"):
+            state.save_report(updated)
         return ReportReviewResponse(
             report_id=report_id,
             review_status=payload.decision,
@@ -125,6 +133,13 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _default_store() -> RcaStore:
+    sqlite_path = os.getenv("RCA_SQLITE_PATH")
+    if sqlite_path:
+        return SQLiteRcaStore(sqlite_path)
+    return RcaStore()
 
 
 app = create_app()

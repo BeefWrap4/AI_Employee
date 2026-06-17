@@ -64,6 +64,12 @@ conda activate ai-employee
 uvicorn ai_employee.rca_agent.app:app --port 8020 --app-dir services/rca-agent/src
 ```
 
+如需持久化 RCA run、报告和审核结果，可设置：
+
+```powershell
+$env:RCA_SQLITE_PATH="./var/data/rca.sqlite3"
+```
+
 运行 RCA 回放评测：
 
 ```powershell
