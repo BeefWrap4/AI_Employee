@@ -552,3 +552,19 @@ def resume_run_from_node(
     )
     store.runs[run_id] = updated
     return updated
+
+def select_runtime():
+    """Pick the agent runtime backend from env (spec P3 §4 LangGraph v1).
+
+    RUNTIME_BACKEND=dag (default) → self-built DAG (this module).
+    RUNTIME_BACKEND=langgraph      → LangGraph v1 StateGraph runtime.
+
+    Returns a lightweight handle exposing run(payload) so the HTTP
+    layer can stay backend-agnostic.
+    """
+    import os
+    backend = os.environ.get('RUNTIME_BACKEND', 'dag').lower()
+    if backend == 'langgraph':
+        from ai_employee.agent_platform_api.langgraph_runtime import build_langgraph_runtime
+        return build_langgraph_runtime()
+    return None  # sentinel: caller uses the default self-built DAG
