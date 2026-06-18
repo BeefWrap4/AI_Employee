@@ -377,14 +377,29 @@ def create_app(
         }
 
     def _answer_query(payload: QueryRequest) -> QueryResponse:
-        # Multi-turn context: include the previous answer for this session
-        # so follow-up questions can disambiguate pronouns / references.
+        # Multi-turn context: collect this session's prior retrieved chunks +
+        # answers and stitch them into a ``context_str`` block.  This block is
+        # injected into the LLM prompt so follow-up questions can resolve
+        # pronouns / references against earlier turns (R19-1).
         prior_rows, _ = store.list_qa_logs(session_id=payload.session_id)
+        # Hydrate prior rows with retrieved_chunks via get_qa_log so the
+        # context string can reference the actual prior chunks.
+        hydrated: list[dict[str, Any]] = []
+        for row in prior_rows:
+            trace_id = row.get("trace_id")
+            if trace_id:
+                full = store.get_qa_log(trace_id)
+                if full is not None:
+                    hydrated.append(full)
+                    continue
+            hydrated.append(row)
+        context_str = _build_multiturn_context_str(
+            store=store, prior_rows=hydrated
+        )
         prior_turn_hint = ""
-        if prior_rows:
-            last_answer = prior_rows[-1].get("answer", "")
+        if context_str:
             prior_turn_hint = (
-                f"\n\n[上轮回答]\n{last_answer[:200]}\n"
+                f"\n\n[上轮回答]\n{prior_rows[-1].get('answer', '')[:200]}\n"
                 f"[当前问题]\n{payload.question}"
             )
         effective_question = (
@@ -410,6 +425,7 @@ def create_app(
             prompts = RAG_ANSWER_TEMPLATE.to_messages(
                 evidence=evidence,
                 question=payload.question,
+                context_str=context_str,
             )
             try:
                 client = LlmClient()
@@ -584,6 +600,53 @@ def create_app(
         )
 
     return app
+
+
+def _build_multiturn_context_str(
+    *, store: SQLiteStore, prior_rows: list[dict[str, Any]]
+) -> str:
+    """Build the multi-turn context string from prior qa_log rows.
+
+    Each prior turn contributes:
+      - the prior question,
+      - the prior answer,
+      - the retrieved chunks (chunk_id + doc_id + content).
+
+    Returns an empty string when no prior turns exist so callers can detect
+    "first turn" and skip the context block.
+    """
+    if not prior_rows:
+        return ""
+    parts: list[str] = []
+    for row in prior_rows:
+        q = row.get("question") or ""
+        a = row.get("answer") or ""
+        chunks = row.get("retrieved_chunks") or []
+        chunk_lines: list[str] = []
+        for c in chunks:
+            cid = c.get("chunk_id", "")
+            did = c.get("doc_id", "")
+            content = ""
+            try:
+                fetched = store.get_chunk(cid) if cid else None
+                if fetched:
+                    content = fetched.get("content", "") or ""
+            except Exception:
+                # Skip chunks that can't be fetched (e.g. doc was deleted)
+                content = ""
+            line = f"  - chunk_id={cid} doc_id={did}"
+            if content:
+                line += f" content={content[:200]}"
+            chunk_lines.append(line)
+        block = (
+            f"[历史上下文] session_turn trace_id={row.get('trace_id', '')}\n"
+            f"  question: {q[:200]}\n"
+            f"  answer: {a[:200]}\n"
+            f"  retrieved_chunks:\n"
+            + "\n".join(chunk_lines)
+        )
+        parts.append(block)
+    return "\n\n".join(parts)
 
 
 def _apply_parse_response(store: SQLiteStore, doc_id: str, response: Any) -> None:

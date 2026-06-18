@@ -58,6 +58,9 @@ RAG_ANSWER_TEMPLATE = PromptTemplate(
 证据:
 {evidence}
 
+历史上下文:
+{context_str}
+
 问题: {question}
 
 要求:
