@@ -105,6 +105,23 @@ def _percentile(values: list[float], p: float) -> float:
     return float(s[lo] + (s[hi] - s[lo]) * (rank - lo))
 
 
+def _tool_call_success_rate() -> float:
+    """Compute tool_call_success_rate from the platform log store.
+
+    Falls back to 1.0 (no signal) when the store hasn't been initialised
+    or has no records yet — keeps the dashboard metric stable across
+    restarts.
+    """
+    try:
+        from ai_employee.agent_platform_api.tool_call_log import (
+            PlatformToolCallLogStore,
+        )
+        store = PlatformToolCallLogStore()
+        return round(store.success_rate(), 6)
+    except Exception:
+        return 1.0
+
+
 def _record_timeseries_sample() -> None:
     """Snapshot the headline indicators and append to ``_TIMESERIES``.
 
@@ -157,6 +174,7 @@ def snapshot_dict() -> dict[str, Any]:
         "agent_run_success_rate": (
             round(m.runs_succeeded / m.runs_total, 6) if m.runs_total else 1.0
         ),
+        "tool_call_success_rate": _tool_call_success_rate(),
         "approval_wait_time_p95_s": round(_percentile(m.approval_waits_s, 95), 6),
         "model_latency_p95_ms": round(_percentile(m.model_latencies_ms, 95), 6),
         "tool_latency_p95_ms": round(_percentile(m.tool_latencies_ms, 95), 6),
