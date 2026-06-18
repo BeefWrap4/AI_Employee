@@ -51,6 +51,13 @@ from ai_employee.auth_policy.rbac import (
     permissions_for_roles,
 )
 
+from ai_employee.auth_policy.casbin_engine import (
+    AccessContext,
+    CasbinPolicyEngine,
+    build_casbin_engine,
+    casbin_check,
+)
+
 from ai_employee.auth_policy.oidc import (
     OIDCClaims,
     OIDCConfig,

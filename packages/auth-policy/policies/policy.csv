@@ -1,0 +1,36 @@
+# AI Employee RBAC policies (spec P3 §4 Casbin).
+#
+# Format: p, sub, dom, obj, act
+# Roles (sub) are the same as the legacy rbac.py roles — the
+# Casbin engine is a drop-in replacement.
+# `*` as `dom` means "all tenants" (admin wildcard).
+
+# --- knowledge ---------------------------------------------------------
+p, viewer,   tenant-default, knowledge, read
+p, operator, tenant-default, knowledge, read
+p, operator, tenant-default, knowledge, write
+p, admin,    *,              knowledge, *
+
+# --- rca ---------------------------------------------------------------
+p, viewer,   tenant-default, rca, read
+p, operator, tenant-default, rca, read
+p, operator, tenant-default, rca, write
+p, reviewer, tenant-default, rca, approve
+p, admin,    *,              rca, *
+
+# --- agent -------------------------------------------------------------
+p, operator, tenant-default, agent, run
+p, reviewer, tenant-default, agent, approve
+p, admin,    *,              agent, *
+
+# --- tool --------------------------------------------------------------
+p, operator, tenant-default, tool, invoke
+p, admin,    *,              tool, *
+
+# --- inspect -----------------------------------------------------------
+p, operator, tenant-default, inspect, run
+p, admin,    *,              inspect, *
+
+# --- role bindings ------------------------------------------------------
+# reviewer inherits operator's read/write abilities (per-tenant).
+g, reviewer, operator, tenant-default
