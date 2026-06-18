@@ -22,6 +22,7 @@ dependencies = [
   "opensearch-py>=3.0",
   "pymilvus>=2.5",
   "PyJWT>=2.8",
+  "boto3>=1.34",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +65,7 @@ packages = [
   "ai_employee.tool_registry",
   "ai_employee.approval_service",
   "ai_employee.mcp_gateway",
+  "ai_employee.object_store",
 ]
 
 [tool.setuptools.package-dir]
@@ -79,6 +81,7 @@ packages = [
 "ai_employee.tool_registry" = "services/tool-registry/src/ai_employee/tool_registry"
 "ai_employee.approval_service" = "services/approval-service/src/ai_employee/approval_service"
 "ai_employee.mcp_gateway" = "services/mcp-gateway/src/ai_employee/mcp_gateway"
+"ai_employee.object_store" = "packages/object-store/src/ai_employee/object_store"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -94,4 +97,5 @@ pythonpath = [
   "packages/observability/src",
   "packages/auth-policy/src",
   "services/tool-registry/src",
+  "packages/object-store/src",
 ]
