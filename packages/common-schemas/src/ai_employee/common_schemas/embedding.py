@@ -265,6 +265,8 @@ def build_provider(
       - stub（默认）：零依赖确定性伪向量
       - qwen：DashScope OpenAI-compatible，读 QWEN_API_KEY；缺 key 降级 stub
       - openai_compat：通用 OpenAI-compatible，读 EMBEDDING_BASE_URL/API_KEY/MODEL
+      - siliconflow：硅基流动 BAAI/bge-m3（spec §5.4 默认），读 SILICONFLOW_API_KEY；
+        缺 key 降级 stub；fallback model 从 llm_gateway registry 取
     """
     name = provider_name or os.getenv("EMBEDDING_PROVIDER", "stub")
     stub_dim = int(os.getenv("EMBEDDING_DIM", "8"))
@@ -286,7 +288,33 @@ def build_provider(
         dim = int(os.getenv("EMBEDDING_DIM", str(_OPENAI_COMPAT_DEFAULT_DIM)))
         return OpenAICompatEmbeddingProvider(base_url, api_key, model, dim=dim), False
 
+    if name == "siliconflow":
+        # Default model id from the llm_gateway registry — falls back to
+        # the canonical BAAI/bge-m3 string if the registry isn't importable.
+        model = os.getenv("EMBEDDING_MODEL") or _siliconflow_default_model()
+        api_key = os.getenv("SILICONFLOW_API_KEY", "")
+        if not api_key:
+            return StubEmbeddingProvider(dim=stub_dim), True
+        base_url = os.getenv(
+            "SILICONFLOW_BASE_URL", "https://api.siliconflow.cn",
+        )
+        dim = int(os.getenv("EMBEDDING_DIM", "1024"))
+        return OpenAICompatEmbeddingProvider(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            dim=dim,
+        ), False
+
     return StubEmbeddingProvider(dim=stub_dim), False
+
+
+def _siliconflow_default_model() -> str:
+    try:
+        from ai_employee.llm_gateway.model_registry import get_model_for_task
+        return get_model_for_task("embed").model_id
+    except Exception:
+        return "BAAI/bge-m3"
 
 
 __all__ = [
