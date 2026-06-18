@@ -10,6 +10,7 @@ import cost or need the dependency at all.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 
@@ -73,7 +74,7 @@ class S3ObjectStore:
         # Stash a fresh client per call so boto3 connection pools don't
         # get shared across threads in a way that surprises tests.
         self._boto3 = boto3
-        self._client_factory = lambda: boto3.client("s3", **kwargs)  # noqa: E731
+        self._client_factory: Callable[[], Any] = lambda: boto3.client("s3", **kwargs)
 
     # -- operations -------------------------------------------------------- #
 
@@ -155,7 +156,7 @@ class S3ObjectStore:
             "content_type": resp.get("ContentType", "application/octet-stream"),
             "size": int(resp.get("ContentLength", 0)),
             "etag": resp.get("ETag", "").strip('"'),
-            "metadata": {k: v for k, v in (resp.get("Metadata") or {}).items()},
+            "metadata": dict((resp.get("Metadata") or {}).items()),
         }
 
     def presign(self, key: str, *, expires: int = 3600) -> str:

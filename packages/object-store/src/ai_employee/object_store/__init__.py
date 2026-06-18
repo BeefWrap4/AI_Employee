@@ -245,7 +245,7 @@ def build_object_store(
     if chosen_url:
         # S3 / MinIO branch — only imported lazily so LocalFs-only
         # environments don't need boto3 installed.
-        from ai_employee.object_store.s3 import (  # noqa: WPS433 (lazy import)
+        from ai_employee.object_store.s3 import (  # lazy import
             S3ObjectStore,
         )
 
