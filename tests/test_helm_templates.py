@@ -187,3 +187,82 @@ def test_no_duplicate_resources_in_render(rendered: str) -> None:
     for (kind, name), count in seen.items():
         if kind in {"Deployment", "ServiceAccount", "ConfigMap", "PodDisruptionBudget", "HorizontalPodAutoscaler", "NetworkPolicy", "PersistentVolumeClaim"}:
             assert count == 1, f"duplicate {kind}/{name}: {count}"
+
+
+# --------------------------------------------------------------------------- #
+# R22: object-store env vars + MinIO StatefulSet
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def rendered_with_object_store() -> str:
+    if not _has_helm():
+        pytest.skip("helm CLI not installed; skipping live template render")
+    result = subprocess.run(
+        [
+            "helm", "template", "ai-employee", str(CHART_PATH),
+            "--set", "objectStore.url=http://minio:9000",
+            "--set", "objectStore.accessKey=test",
+            "--set", "objectStore.secretKey=test",
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout
+
+
+@pytest.fixture(scope="module")
+def rendered_with_minio() -> str:
+    if not _has_helm():
+        pytest.skip("helm CLI not installed; skipping live template render")
+    result = subprocess.run(
+        [
+            "helm", "template", "ai-employee", str(CHART_PATH),
+            "--set", "objectStore.minio.enabled=true",
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout
+
+
+def test_object_store_env_vars_injected(rendered_with_object_store: str) -> None:
+    """objectStore.url/credentials are exported as env vars to every pod."""
+    docs = list(yaml.safe_load_all(rendered_with_object_store))
+    deployments = [
+        d for d in docs if d and d.get("kind") == "Deployment"
+    ]
+    assert deployments, "no deployments rendered"
+    for dep in deployments:
+        env = (
+            dep["spec"]["template"]["spec"]["containers"][0].get("env", [])
+        )
+        env_names = {e["name"] for e in env}
+        assert "OBJECT_STORE_URL" in env_names, dep["metadata"]["name"]
+        assert "OBJECT_STORE_BUCKET" in env_names, dep["metadata"]["name"]
+        url_value = next(
+            e["value"] for e in env if e["name"] == "OBJECT_STORE_URL"
+        )
+        assert url_value == "http://minio:9000", dep["metadata"]["name"]
+
+
+def test_minio_statefulset_renders_when_enabled(rendered_with_minio: str) -> None:
+    """Setting objectStore.minio.enabled=true deploys a MinIO StatefulSet + PVC + Service."""
+    docs = list(yaml.safe_load_all(rendered_with_minio))
+    kinds = {d.get("kind") for d in docs if d}
+    assert "StatefulSet" in kinds
+    assert "PersistentVolumeClaim" in kinds
+    sset = next(
+        d for d in docs if d and d.get("kind") == "StatefulSet"
+    )
+    assert sset["metadata"]["name"] == "minio"
+    # The MinIO container uses the configured image.
+    container = sset["spec"]["template"]["spec"]["containers"][0]
+    assert container["image"].startswith("minio/minio:")
+
+
+def test_minio_disabled_by_default(rendered: str) -> None:
+    """With the default values the chart does NOT ship a MinIO pod."""
+    docs = list(yaml.safe_load_all(rendered))
+    sset = next(
+        (d for d in docs if d and d.get("kind") == "StatefulSet"), None,
+    )
+    assert sset is None

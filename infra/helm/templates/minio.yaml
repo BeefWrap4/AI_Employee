@@ -1,0 +1,121 @@
+{{- if and .Values.objectStore .Values.objectStore.minio .Values.objectStore.minio.enabled -}}
+{{- $minio := .Values.objectStore.minio -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: {{ .Values.global.namespace }}
+type: Opaque
+stringData:
+  rootUser: {{ $minio.rootUser | quote }}
+  rootPassword: {{ $minio.rootPassword | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: minio
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.global.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $minio.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: {{ $minio.consolePort }}
+      targetPort: 9001
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: minio
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        {{- include "ai-employee.labels" $ | nindent 8 }}
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /data/ai-employee
+              minio server /data --console-address ":9001"
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootUser
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootPassword
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
+{{- end }}

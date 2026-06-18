@@ -1,0 +1,117 @@
+# R22: MinIO object-store deployment.
+# Standalone MinIO server (single-node, single-drive).  In production
+# you'd run a distributed cluster with erasure coding; for the MVP we
+# use a StatefulSet so the data volume survives pod restarts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: ai-employee
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: ai-employee
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName is left empty so the cluster default applies; set
+  # via Helm values to pin to a fast SSD class in prod.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: ai-employee
+  labels:
+    app: minio
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /data/ai-employee
+              minio server /data --console-address ":9001"
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          env:
+            # In production, inject via a Secret (see minio-credentials).
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootUser
+                  optional: true
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootPassword
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates: []
+---
+# Standalone credentials Secret.  Only required when running this
+# manifest outside the Helm chart (which manages it via values).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: ai-employee
+type: Opaque
+stringData:
+  rootUser: "REPLACE_WITH_MINIO_ROOT_USER"
+  rootPassword: "REPLACE_WITH_MINIO_ROOT_PASSWORD"

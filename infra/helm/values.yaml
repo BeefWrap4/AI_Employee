@@ -19,6 +19,24 @@ global:
 
   storageClassName: ""
 
+# R22: object-store configuration.  When ``url`` is empty the services
+# fall back to a LocalFs store under ``OBJECT_STORE_LOCAL_ROOT`` on
+# each pod's PVC.  Set ``url`` (e.g. ``http://minio:9000``) to switch
+# to S3 / MinIO with the credentials below.
+objectStore:
+  url: ""                              # "" = LocalFs; "http://minio:9000" = MinIO
+  accessKey: "REPLACE_WITH_ACCESS_KEY"
+  secretKey: "REPLACE_WITH_SECRET_KEY"
+  bucket: "ai-employee"
+  localRoot: "/var/lib/ai-employee/objects"
+  # MinIO-specific knobs (only used when minio.enabled=true).
+  minio:
+    enabled: false
+    storage: 20Gi
+    rootUser: "minioadmin"
+    rootPassword: "minioadmin"
+    consolePort: 9001
+
 # Per-service overrides. Replicas default to 1 (SQLite is single-writer).
 services:
   knowledge-api:

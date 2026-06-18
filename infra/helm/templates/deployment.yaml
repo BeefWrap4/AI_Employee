@@ -1,4 +1,5 @@
 {{- $global := .Values.global -}}
+{{- $os := .Values.objectStore -}}
 {{- range $name, $svc := .Values.services -}}
 {{- if $svc.enabled }}
 ---
@@ -43,6 +44,16 @@ spec:
               value: {{ $name }}
             - name: SERVICE_PORT
               value: {{ $svc.port | quote }}
+            - name: OBJECT_STORE_URL
+              value: {{ $os.url | default "" | quote }}
+            - name: OBJECT_STORE_LOCAL_ROOT
+              value: {{ $os.localRoot | default "/var/lib/ai-employee/objects" | quote }}
+            - name: OBJECT_STORE_ACCESS_KEY
+              value: {{ $os.accessKey | default "" | quote }}
+            - name: OBJECT_STORE_SECRET_KEY
+              value: {{ $os.secretKey | default "" | quote }}
+            - name: OBJECT_STORE_BUCKET
+              value: {{ $os.bucket | default "ai-employee" | quote }}
             {{- if eq $name "agent-platform-api" }}
             {{- range $k, $v := $global.secrets }}
             - name: {{ $k | upper }}
