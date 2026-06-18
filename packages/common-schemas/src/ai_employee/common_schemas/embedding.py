@@ -289,9 +289,13 @@ def build_provider(
         return OpenAICompatEmbeddingProvider(base_url, api_key, model, dim=dim), False
 
     if name == "siliconflow":
-        # Default model id from the llm_gateway registry — falls back to
-        # the canonical BAAI/bge-m3 string if the registry isn't importable.
-        model = os.getenv("EMBEDDING_MODEL") or _siliconflow_default_model()
+        # Resolution order: EMBEDDING_MODEL > SILICONFLOW_EMBED_MODEL >
+        # llm_gateway registry default (BAAI/bge-m3).
+        model = (
+            os.getenv("EMBEDDING_MODEL")
+            or os.getenv("SILICONFLOW_EMBED_MODEL")
+            or _siliconflow_default_model()
+        )
         api_key = os.getenv("SILICONFLOW_API_KEY", "")
         if not api_key:
             return StubEmbeddingProvider(dim=stub_dim), True
