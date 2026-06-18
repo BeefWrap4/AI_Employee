@@ -51,6 +51,16 @@ from ai_employee.auth_policy.rbac import (
     permissions_for_roles,
 )
 
+from ai_employee.auth_policy.oidc import (
+    OIDCClaims,
+    OIDCConfig,
+    OIDCDisabled,
+    OIDCInvalid,
+    OIDCVerifier,
+    build_oidc_verifier,
+    verify_oidc_token,
+)
+
 __all__ = [
     "ACTION_PERMISSIONS",
     "AccessDecision",
@@ -61,6 +71,11 @@ __all__ = [
     "JWTError",
     "JWTExpired",
     "JWTInvalid",
+    "OIDCClaims",
+    "OIDCConfig",
+    "OIDCDisabled",
+    "OIDCInvalid",
+    "OIDCVerifier",
     "PERM_ADMIN",
     "PERM_AGENT_APPROVE",
     "PERM_AGENT_RUN",
@@ -76,6 +91,7 @@ __all__ = [
     "RISK_LEVEL_PERMISSIONS",
     "ROLE_PERMISSIONS",
     "TokenClaims",
+    "build_oidc_verifier",
     "can",
     "can_access_resource",
     "can_any",
@@ -88,5 +104,6 @@ __all__ = [
     "permissions_for_roles",
     "require_internal_or_jwt",
     "require_jwt",
+    "verify_oidc_token",
     "verify_token",
 ]
