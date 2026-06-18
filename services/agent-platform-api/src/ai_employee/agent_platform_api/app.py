@@ -40,6 +40,7 @@ from ai_employee.agent_platform_api.schemas import (
     AgentRunTraceResponse,
     AgentTemplateListResponse,
     ApprovalDecisionRequest,
+    ApprovalDelegateRequest,
     ApprovalRouteRequest,
     ApprovalSupplementAnswer,
     ApprovalSupplementRequest,
@@ -340,6 +341,26 @@ def create_app(
         return expire_approval(
             state, task_id=task_id,
             escalation_reviewer=payload.escalation_reviewer,
+        )
+
+    @app.post(
+        "/api/v1/approval-tasks/{task_id}/delegate",
+        response_model=ApprovalTask,
+    )
+    def delegate_task(
+        task_id: str, payload: ApprovalDelegateRequest,
+    ) -> ApprovalTask:
+        from ai_employee.agent_platform_api.runtime import delegate_approval
+
+        task = state.approval_tasks.get(task_id)
+        if task is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        return delegate_approval(
+            state, task_id=task_id, delegate=payload.delegate,
+            delegated_by=payload.delegated_by, reason=payload.reason,
         )
 
     @app.post(

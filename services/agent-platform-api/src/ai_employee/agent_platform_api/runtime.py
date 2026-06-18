@@ -370,6 +370,39 @@ def expire_approval(
     return updated
 
 
+
+
+def delegate_approval(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    delegate: str,
+    delegated_by: str,
+    reason: str | None,
+) -> ApprovalTask:
+    """HITL delegation: add delegate as a co-reviewer.
+
+    Unlike :func:`route_approval` (which moves ownership), delegation
+    keeps the original requester as a valid decider.  Any of
+    [requested_by, routed_to, delegates...] may decide; the first
+    decision wins and subsequent attempts return 409.
+    """
+    from datetime import datetime, timezone
+
+    task = store.approval_tasks[task_id]
+    new_delegates = list(dict.fromkeys([*task.delegates, delegate]))
+    updated = task.model_copy(
+        update={
+            "delegates": new_delegates,
+            "delegated_by": delegated_by,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    _ = reason
+    return updated
+
+
 def register_tool(store: AgentPlatformStore, payload: ToolRegistration) -> ToolResponse:
     tool = ToolResponse(**payload.model_dump(), health_status="unknown")
     store.tools[tool.tool_name] = tool

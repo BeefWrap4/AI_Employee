@@ -108,6 +108,10 @@ class ApprovalTask(BaseModel):
     deadline_at: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    # Delegation (spec §5.4): list of co-reviewers.  Original requester
+    # remains a valid decider; the first decision among them wins.
+    delegates: list[str] = Field(default_factory=list)
+    delegated_by: str | None = None
 
 
 class ApprovalTaskListResponse(BaseModel):
@@ -141,6 +145,12 @@ class ApprovalRouteRequest(BaseModel):
 
 class ApprovalTimeoutRequest(BaseModel):
     escalation_reviewer: str | None = None
+
+
+class ApprovalDelegateRequest(BaseModel):
+    delegate: str
+    delegated_by: str
+    reason: str | None = None
 
 
 class ToolRegistration(BaseModel):
