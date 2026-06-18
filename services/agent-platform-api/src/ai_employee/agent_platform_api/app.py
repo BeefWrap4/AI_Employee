@@ -4,6 +4,11 @@ import json
 import os
 from datetime import datetime, timezone
 
+from ai_employee.agent_platform_api.clients import (
+    ApprovalServiceClient,
+    _ApprovalError,
+    apply_decision_run_effect,
+)
 from ai_employee.agent_platform_api.eval_compare import compare_reports
 from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.agent_platform_api.events import bus as platform_bus
@@ -29,18 +34,13 @@ from ai_employee.agent_platform_api.runtime import (
     ApprovalTransferForbidden,
     answer_supplement,
     create_run,
-    decide_approval_task,
-    escalate_approval,
     expire_approval,
     list_templates,
     register_tool,
     request_supplement,
-    request_supplement_governance,
-    resolve_supplement_governance,
     resume_run_from_node,
     route_approval,
     run_to_persist_dict,
-    transfer_approval,
 )
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
@@ -89,15 +89,59 @@ SERVICE_VERSION = "0.1.0"
 EVAL_TOP_KS = [1, 3, 5]
 
 
+def _map_approval_error(exc: _ApprovalError) -> HTTPException:
+    """Re-raise an approval-service upstream error as a FastAPI HTTPException.
+
+    The service returns the same ``detail`` shape the platform surfaces
+    (``{"error_code": ..., ...}``), so we forward it verbatim with the
+    upstream status code.
+    """
+    detail = exc.body.get("detail", exc.body)
+    return HTTPException(status_code=exc.status_code, detail=detail)
+
+
+def _sync_task_locally(
+    client: ApprovalServiceClient,
+    store: AgentPlatformStore,
+    task: ApprovalTask,
+) -> None:
+    """Mirror a service-returned task into the platform's in-memory store.
+
+    In HTTP mode the service is the source of truth for task state; the
+    platform keeps a local copy so the trace endpoint and legacy HITL
+    endpoints stay consistent.  In-memory mode is a no-op (the client
+    already mutated the store).
+    """
+    if client.applies_run_side_effects:
+        return
+    store.approval_tasks[task.task_id] = task
+
+
 def create_app(
     store: AgentPlatformStore | None = None,
     eval_store: EvalStore | None = None,
     run_store: AgentRunStore | None = None,
+    *,
+    approval_client: ApprovalServiceClient | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Agent Platform API", version=SERVICE_VERSION)
     state = store or AgentPlatformStore()
     eval_state = eval_store or EvalStore()
     run_state = run_store or AgentRunStore()
+
+    # R21 service isolation (spec §9): delegate approval-task state to a
+    # standalone ``approval-service`` when ``APPROVAL_SERVICE_URL`` is
+    # set; fall back to in-memory otherwise.  The in-memory client is
+    # bound to this app's store so it shares state with the legacy
+    # endpoints.
+    from ai_employee.agent_platform_api.clients import (
+        InMemoryApprovalServiceClient,
+        build_approval_client,
+    )
+
+    approval_state = approval_client or build_approval_client()
+    if isinstance(approval_state, InMemoryApprovalServiceClient):
+        approval_state.bind(state)
 
     from ai_employee.agent_platform_api.tenant import (
         reset_current_tenant,
@@ -219,6 +263,23 @@ def create_app(
                 },
             )
         run = create_run(state, payload)
+        # R21: when delegating to a standalone approval-service, push the
+        # newly-created approval task to the service so it owns the state
+        # machine.  In-memory mode is a no-op (the task already lives in
+        # ``state.approval_tasks``).
+        if run.approval_status == "pending":
+            task = state.approval_tasks.get(
+                next(
+                    (tid for tid, t in state.approval_tasks.items() if t.run_id == run.run_id),
+                    "",
+                )
+            )
+            if task is not None:
+                try:
+                    approval_state.create_task(task)
+                except _ApprovalError:
+                    # Service already has the task (e.g. replay) — ignore.
+                    pass
         run_state.upsert_run(run_to_persist_dict(run))
         platform_metrics().record_run(succeeded=(run.status != "failed"))
         return run
@@ -332,16 +393,13 @@ def create_app(
         page: int = 1,
         page_size: int = 50,
     ) -> ApprovalTaskListResponse:
-        tasks = list(state.approval_tasks.values())
-        if status is not None:
-            tasks = [task for task in tasks if task.status == status]
-        total = len(tasks)
-        page, page_size, start, end = _page_bounds(page, page_size)
+        page, page_size, _, _ = _page_bounds(page, page_size)
+        data = approval_state.list_tasks(status=status, page=page, page_size=page_size)
         return ApprovalTaskListResponse(
-            items=tasks[start:end],
-            total=total,
-            page=page,
-            page_size=page_size,
+            items=[ApprovalTask(**item) for item in data["items"]],
+            total=data["total"],
+            page=data["page"],
+            page_size=data["page_size"],
         )
 
     @app.post(
@@ -349,40 +407,54 @@ def create_app(
         response_model=ApprovalTask,
     )
     def decide_approval(task_id: str, payload: ApprovalDecisionRequest) -> ApprovalTask:
-        from ai_employee.agent_platform_api.runtime import is_decidable
+        from ai_employee.agent_platform_api.runtime import (
+            ApprovalTaskNotFound,
+            ApprovalTaskNotModifiable,
+        )
 
-        task = state.approval_tasks.get(task_id)
-        if task is None:
+        try:
+            updated_task = approval_state.decide(
+                task_id=task_id,
+                decision=payload.decision,
+                decided_by=payload.decided_by,
+                comment=payload.comment,
+            )
+        except ApprovalTaskNotFound:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "approval_task_not_found", "task_id": task_id},
             )
-        # R20 unified state machine: a task in ``pending``, ``transferred``
-        # or ``escalated`` is still open and may receive a final decision.
-        # ``supplement_pending`` must be resolved first; terminal states
-        # (approved / rejected / expired) are rejected as already-decided.
-        if not is_decidable(task):
+        except ApprovalTaskNotModifiable as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "error_code": "approval_task_already_decided",
                     "task_id": task_id,
-                    "current_status": task.status,
+                    "current_status": str(exc),
                 },
             )
-        updated_task = decide_approval_task(
-            state,
-            task_id=task_id,
-            decision=payload.decision,
-            decided_by=payload.decided_by,
-            comment=payload.comment,
-        )
+        except _ApprovalError as exc:
+            raise _map_approval_error(exc)
+
+        # When the client did NOT already mutate the platform's run
+        # store (HTTP mode), apply the run side-effect locally.  The
+        # in-memory client does this inside ``decide``.
+        if not approval_state.applies_run_side_effects:
+            apply_decision_run_effect(
+                state,
+                task=updated_task,
+                decision=payload.decision,
+                comment=payload.comment,
+                decided_by=payload.decided_by,
+            )
+            _sync_task_locally(approval_state, state, updated_task)
+
         # Approval wait time: task.created_at → now.  Best-effort; missing
         # timestamps are skipped silently.
         try:
             from datetime import datetime as _dt
 
-            _task = state.approval_tasks.get(task_id)
+            _task = updated_task
             if getattr(_task, "created_at", None):
                 _created = _task.created_at
                 if _created.endswith("Z"):
@@ -393,7 +465,7 @@ def create_app(
         except Exception:
             pass
         platform_metrics().record_review(accepted=(payload.decision == "approved"))
-        run = state.runs.get(task.run_id)
+        run = state.runs.get(updated_task.run_id)
         if run is not None:
             run_state.upsert_run(run_to_persist_dict(run))
         return updated_task
@@ -561,8 +633,7 @@ def create_app(
         payload: ApprovalSupplementGovernanceRequest,
     ) -> ApprovalTask:
         try:
-            return request_supplement_governance(
-                state,
+            updated = approval_state.request_supplement(
                 task_id=task_id,
                 note=payload.note,
                 attachments=[a.model_dump() for a in payload.attachments],
@@ -582,6 +653,10 @@ def create_app(
                     "current_status": str(exc),
                 },
             )
+        except _ApprovalError as exc:
+            raise _map_approval_error(exc)
+        _sync_task_locally(approval_state, state, updated)
+        return updated
 
     @app.post(
         "/api/v1/approvals/{task_id}/supplement/resolve",
@@ -592,8 +667,7 @@ def create_app(
         payload: ApprovalSupplementResolveRequest,
     ) -> ApprovalTask:
         try:
-            return resolve_supplement_governance(
-                state,
+            updated = approval_state.resolve_supplement(
                 task_id=task_id,
                 attachments=[a.model_dump() for a in payload.attachments],
                 note=payload.note,
@@ -613,6 +687,10 @@ def create_app(
                     "current_status": str(exc),
                 },
             )
+        except _ApprovalError as exc:
+            raise _map_approval_error(exc)
+        _sync_task_locally(approval_state, state, updated)
+        return updated
 
     @app.post(
         "/api/v1/approvals/{task_id}/transfer",
@@ -623,8 +701,7 @@ def create_app(
         payload: ApprovalTransferRequest,
     ) -> ApprovalTask:
         try:
-            return transfer_approval(
-                state,
+            updated = approval_state.transfer(
                 task_id=task_id,
                 new_approver=payload.new_approver,
                 reason=payload.reason,
@@ -654,6 +731,10 @@ def create_app(
                     "current_status": str(exc),
                 },
             )
+        except _ApprovalError as exc:
+            raise _map_approval_error(exc)
+        _sync_task_locally(approval_state, state, updated)
+        return updated
 
     @app.post(
         "/api/v1/approvals/{task_id}/escalate",
@@ -664,8 +745,7 @@ def create_app(
         payload: ApprovalEscalateRequest,
     ) -> ApprovalTask:
         try:
-            return escalate_approval(
-                state,
+            updated = approval_state.escalate(
                 task_id=task_id,
                 escalated_to=payload.escalated_to,
                 reason=payload.reason,
@@ -685,6 +765,10 @@ def create_app(
                     "current_status": str(exc),
                 },
             )
+        except _ApprovalError as exc:
+            raise _map_approval_error(exc)
+        _sync_task_locally(approval_state, state, updated)
+        return updated
 
     @app.post(
         "/api/v1/tools",

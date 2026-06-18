@@ -14,7 +14,7 @@ calls to this service over HTTP (see ``agent_platform_api.clients``).
 
 from __future__ import annotations
 
-from ai_employee.approval_service.app import create_app, app
+from ai_employee.approval_service.app import app, create_app
 from ai_employee.approval_service.store import ApprovalTaskStore
 
 __all__ = ["ApprovalTaskStore", "app", "create_app"]

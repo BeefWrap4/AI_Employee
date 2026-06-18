@@ -279,4 +279,4 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
-__all__ = ["ApprovalTaskStore", "DB_FILENAME", "DEFAULT_DATA_DIR", "default_db_path"]
+__all__ = ["DB_FILENAME", "DEFAULT_DATA_DIR", "ApprovalTaskStore", "default_db_path"]
