@@ -129,6 +129,23 @@ services:
       timeout: 5s
       retries: 10
 
+  neo4j:
+    # Neo4j topology graph (spec P2/P3 §4: 基站/小区/传输链路/上游设备拓扑).
+    image: neo4j:5.26
+    environment:
+      NEO4J_AUTH: neo4j/testpassword
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p testpassword 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres-data:
   minio-data:
@@ -136,3 +153,4 @@ volumes:
   etcd-data:
   milvus-data:
   grafana-data:
+  neo4j-data:

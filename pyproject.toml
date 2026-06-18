@@ -38,6 +38,7 @@ dev = [
   "celery>=5.3",
   "hvac>=2.4",
   "aiokafka>=0.11",
+  "neo4j>=5.20",
 ]
 
 [build-system]
