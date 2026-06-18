@@ -6,6 +6,7 @@ up the active trace context without manual changes.  Use
 ``logger.info("...")`` automatically emits ``trace_id=...`` /
 ``span_id=...`` keys.
 """
+
 from __future__ import annotations
 
 import logging
@@ -17,7 +18,7 @@ from ai_employee.observability.correlation import get_span_id, get_trace_id
 class _ContextFilter(logging.Filter):
     """Inject trace/span ids from the current context into every record."""
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+    def filter(self, record: logging.LogRecord) -> bool:
         record.trace_id = get_trace_id() or "-"
         record.span_id = get_span_id() or "-"
         return True

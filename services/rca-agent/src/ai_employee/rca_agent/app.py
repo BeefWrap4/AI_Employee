@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, status
-
 from ai_employee.rca_agent.knowledge_feedback import (
     KnowledgeApiError,
     KnowledgeApiUnavailable,
@@ -28,15 +26,15 @@ from ai_employee.rca_agent.schemas import (
     IncidentBuildRequest,
     IncidentResponse,
     RawAlarmEvent,
-    ReportReviewRequest,
-    ReportReviewResponse,
-    RcaReportResponse,
     RcaReportListResponse,
+    RcaReportResponse,
     RcaReportSummary,
     RcaRunCreate,
     RcaRunListResponse,
     RcaRunResponse,
     RcaRunSummary,
+    ReportReviewRequest,
+    ReportReviewResponse,
     TicketWritebackRequest,
     TicketWritebackResponse,
 )
@@ -47,6 +45,7 @@ from ai_employee.rca_agent.ticket_writeback import (
     TicketWritebackUnavailable,
     build_writeback_adapter,
 )
+from fastapi import FastAPI, HTTPException, status
 
 SERVICE_VERSION = "0.1.0"
 
@@ -95,11 +94,15 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error_code": "incident_or_alarms_required"},
             )
-        if payload.incident_id and payload.incident_id not in state.incidents and not payload.alarms:
+        if (
+            payload.incident_id
+            and payload.incident_id not in state.incidents
+            and not payload.alarms
+        ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "incident_not_found", "incident_id": payload.incident_id},
-        )
+            )
         return run_rca(
             state,
             raw_alarms=payload.alarms,
@@ -162,7 +165,7 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
                     "error_code": "run_not_waiting_for_more_evidence",
                     "current_status": run.status,
                 },
-        )
+            )
         return resume_with_more_evidence(state, run_id)
 
     @app.get("/api/v1/rca/reports", response_model=RcaReportListResponse)
@@ -173,9 +176,7 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
     ) -> RcaReportListResponse:
         reports = list(state.reports.values())
         if review_status is not None:
-            reports = [
-                report for report in reports if report.review_status == review_status
-            ]
+            reports = [report for report in reports if report.review_status == review_status]
         total = len(reports)
         page, page_size, start, end = _page_bounds(page, page_size)
         return RcaReportListResponse(
@@ -529,9 +530,7 @@ def _page_bounds(page: int, page_size: int) -> tuple[int, int, int, int]:
     return page, page_size, start, end
 
 
-def _generate_and_persist_candidates(
-    store: RcaStore, report: RcaReportResponse
-) -> None:
+def _generate_and_persist_candidates(store: RcaStore, report: RcaReportResponse) -> None:
     incident = store.incidents.get(report.incident_id)
     if incident is None:
         return
@@ -542,9 +541,7 @@ def _generate_and_persist_candidates(
     for candidate in candidates:
         store.candidate_count += 1
         candidate_id = f"ck_{store.candidate_count:03d}"
-        persisted = candidate.model_copy(
-            update={"candidate_id": candidate_id, "created_at": now}
-        )
+        persisted = candidate.model_copy(update={"candidate_id": candidate_id, "created_at": now})
         store.candidates[candidate_id] = persisted
         if hasattr(store, "save_candidate"):
             store.save_candidate(persisted)

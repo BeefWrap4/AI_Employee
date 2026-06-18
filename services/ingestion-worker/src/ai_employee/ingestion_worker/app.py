@@ -3,9 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
-
 from ai_employee.common_schemas.embedding import build_provider
 from ai_employee.common_schemas.knowledge import (
     ParseRequest,
@@ -26,7 +23,8 @@ from ai_employee.common_schemas.vector_store import (
 from ai_employee.ingestion_worker.chunker import chunk_sections
 from ai_employee.ingestion_worker.embedding import EmbeddingProvider
 from ai_employee.ingestion_worker.parsers import get_parser
-
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
 
 SERVICE_VERSION = "0.1.0"
 
@@ -162,7 +160,7 @@ def create_app(
                 },
             )
 
-        for chunk, vec in zip(parsed_chunks, embeddings):
+        for chunk, vec in zip(parsed_chunks, embeddings, strict=False):
             chunk.embedding = vec
 
         # Also index chunks into the sparse (BM25) store for full-text search.

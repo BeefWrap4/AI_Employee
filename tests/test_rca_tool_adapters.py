@@ -6,11 +6,11 @@ running Prometheus / Elasticsearch / Neo4j / ticketing system.  Real
 adapters are gated by env vars (PROMETHEUS_ENABLED etc.) and selected
 automatically by ``build_adapters``.
 """
+
 from __future__ import annotations
 
 import pytest
-
-from ai_employee.rca_agent.schemas import Evidence, IncidentResponse, RawAlarmEvent
+from ai_employee.rca_agent.schemas import IncidentResponse, RawAlarmEvent
 from ai_employee.rca_agent.tool_adapters import (
     ElasticsearchLogAdapter,
     FixtureKPIAdapter,
@@ -37,11 +37,13 @@ def _make_incident() -> IncidentResponse:
         start_time="2026-06-17T10:00:00+08:00",
         raw_payload={"port": "eth0/1"},
     )
-    from ai_employee.rca_agent.runtime import normalize_alarm
     from ai_employee.rca_agent.schemas import AlarmEvent
 
-    event = AlarmEvent(**alarm.model_dump(), alarm_event_id="alarm_evt_001",
-                       fingerprint=f"{alarm.vendor}:{alarm.site_id}:{alarm.ne_id}:{alarm.alarm_code}")
+    event = AlarmEvent(
+        **alarm.model_dump(),
+        alarm_event_id="alarm_evt_001",
+        fingerprint=f"{alarm.vendor}:{alarm.site_id}:{alarm.ne_id}:{alarm.alarm_code}",
+    )
     return IncidentResponse(
         incident_id="inc_001",
         title="SITE-001 Transmission link degradation",

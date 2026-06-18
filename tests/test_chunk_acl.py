@@ -1,9 +1,8 @@
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import sqlite3
-
 from ai_employee.common_schemas.errors import IndexCorruptedError
 from ai_employee.knowledge_api.store import SQLiteStore
 
@@ -34,7 +33,12 @@ def test_init_schema_idempotent_acl_migration(store: SQLiteStore, tmp_path: Path
 def test_write_chunks_inherits_acl_from_document(store: SQLiteStore) -> None:
     """acl_tags_override=None 时写空列表表示继承 doc（chunk 级过滤跳过）。"""
     doc_id = store.create_document(
-        "SOP", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1",
+        "SOP",
+        "/tmp/x",
+        "text/plain",
+        {"network_type": "5g"},
+        ["wireless"],
+        "v1",
     )
     store.transition_status(doc_id, "parsing")
     store.write_chunks(
@@ -51,7 +55,12 @@ def test_write_chunks_inherits_acl_from_document(store: SQLiteStore) -> None:
 
 def test_write_chunks_acl_override(store: SQLiteStore) -> None:
     doc_id = store.create_document(
-        "SOP", "/tmp/x", "text/plain", {}, ["wireless"], "v1",
+        "SOP",
+        "/tmp/x",
+        "text/plain",
+        {},
+        ["wireless"],
+        "v1",
     )
     store.transition_status(doc_id, "parsing")
     store.write_chunks(
@@ -101,18 +110,23 @@ def test_fts5_startup_probe_fails_when_corrupted(tmp_path: Path) -> None:
         def __init__(self, conn):
             self._c = conn
             self._probed = False
+
         def __enter__(self):
             return self
+
         def __exit__(self, exc_type, exc, tb):
             self._c.close()
             return False
+
         def execute(self, sql, *args, **kwargs):
             if "FROM chunks_fts" in sql and not self._probed:
                 self._probed = True
                 raise sqlite3.OperationalError("database disk image is malformed")
             return self._c.execute(sql, *args, **kwargs)
+
         def executescript(self, sql):
             return self._c.executescript(sql)
+
         def commit(self):
             self._c.commit()
 

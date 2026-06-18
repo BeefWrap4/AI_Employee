@@ -1,5 +1,4 @@
 import pytest
-
 from ai_employee.ingestion_worker.parsers import (
     DocxParser,
     HtmlParser,
@@ -26,12 +25,7 @@ def test_text_parser_empty_input_returns_empty() -> None:
 
 
 def test_markdown_parser_builds_section_path() -> None:
-    md = (
-        "# 接入排障\n"
-        "## RRC 建立失败\n"
-        "先检查告警和 KPI。\n\n"
-        "再检查传输链路。\n"
-    )
+    md = "# 接入排障\n" "## RRC 建立失败\n" "先检查告警和 KPI。\n\n" "再检查传输链路。\n"
     sections = MarkdownParser().parse(md)
     paths = {s.section_path for s in sections}
     assert "接入排障 > RRC 建立失败" in paths
@@ -78,12 +72,13 @@ def test_get_parser_routes_by_mime() -> None:
     assert isinstance(get_parser("text/html"), HtmlParser)
     assert isinstance(get_parser("text/plain"), TextParser)
     assert isinstance(get_parser("application/pdf"), PdfParser)
-    assert isinstance(get_parser(
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ), DocxParser)
-    assert isinstance(get_parser(
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    ), XlsxParser)
+    assert isinstance(
+        get_parser("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        DocxParser,
+    )
+    assert isinstance(
+        get_parser("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), XlsxParser
+    )
     assert isinstance(get_parser("application/octet-stream"), NotImplementedParser)
 
 

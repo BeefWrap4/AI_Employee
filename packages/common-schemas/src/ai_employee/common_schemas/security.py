@@ -1,4 +1,5 @@
 """source_uri 路径安全校验。"""
+
 from __future__ import annotations
 
 from pathlib import Path

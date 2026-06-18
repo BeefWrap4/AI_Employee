@@ -14,12 +14,11 @@ Provides:
 Both dependencies raise ``401`` on missing/invalid credentials and
 ``403`` when the principal lacks the required permission.
 """
+
 from __future__ import annotations
 
 import os
-from typing import Callable
-
-from fastapi import Header, HTTPException, Request, status
+from collections.abc import Callable
 
 from ai_employee.auth_policy.jwt import (
     JWTError,
@@ -28,8 +27,8 @@ from ai_employee.auth_policy.jwt import (
     TokenClaims,
     verify_token,
 )
-from ai_employee.auth_policy.rbac import can, can_any
-
+from ai_employee.auth_policy.rbac import can_any
+from fastapi import HTTPException, Request, status
 
 _BEARER_PREFIX = "Bearer "
 
@@ -39,7 +38,7 @@ def _extract_bearer(authorization: str | None) -> str | None:
         return None
     if not authorization.startswith(_BEARER_PREFIX):
         return None
-    token = authorization[len(_BEARER_PREFIX):].strip()
+    token = authorization[len(_BEARER_PREFIX) :].strip()
     return token or None
 
 
@@ -89,7 +88,7 @@ def require_jwt(
     When ``permissions`` is empty/None, only authentication is enforced.
     """
 
-    def _dep(request: Request) -> TokenClaims:  # noqa: D401
+    def _dep(request: Request) -> TokenClaims:
         claims = _claims_from_request(request)
         if claims is None:
             raise HTTPException(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from string import Formatter
-from typing import Any
 
 
 class PromptTemplate:

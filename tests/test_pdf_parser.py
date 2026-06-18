@@ -1,10 +1,8 @@
 import io
-from pathlib import Path
 
 import fitz
 import pytest
-
-from ai_employee.ingestion_worker.parsers import PdfParser, ParsedSection
+from ai_employee.ingestion_worker.parsers import PdfParser
 
 
 @pytest.fixture
@@ -16,10 +14,10 @@ def pdf_bytes() -> bytes:
 
     # Page 1: heading and body text
     page.insert_text((72, 72), "Network Fault Report", fontsize=18, fontname="helv")
-    page.insert_text((72, 120), "This report details a major outage.",
-                     fontsize=12, fontname="helv")
-    page.insert_text((72, 140), "Root cause: power failure at node BSC-01.",
-                     fontsize=12, fontname="helv")
+    page.insert_text((72, 120), "This report details a major outage.", fontsize=12, fontname="helv")
+    page.insert_text(
+        (72, 140), "Root cause: power failure at node BSC-01.", fontsize=12, fontname="helv"
+    )
 
     # Page 2: table-like content
     page2 = doc.new_page(width=612, height=792)

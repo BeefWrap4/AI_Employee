@@ -1,10 +1,10 @@
 """End-to-end API tests for the RCA ticket write-back endpoint."""
-from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from __future__ import annotations
 
 from ai_employee.rca_agent.app import create_app
 from ai_employee.rca_agent.ticket_writeback import FixtureTicketWritebackAdapter
+from fastapi.testclient import TestClient
 
 
 def _client() -> TestClient:

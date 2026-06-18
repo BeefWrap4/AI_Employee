@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def test_agent_run_trace_aggregates_run_template_tools_and_approvals() -> None:

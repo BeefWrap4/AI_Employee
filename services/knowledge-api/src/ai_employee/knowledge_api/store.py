@@ -9,20 +9,20 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import HTTPException, status
-
 from ai_employee.common_schemas.errors import IndexCorruptedError
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.common_schemas.security import (
     UnsafeSourceUriError,
     assert_safe_source_uri,
 )
+from fastapi import HTTPException, status
 
 
 def _with_db_errors(fn):
     """包装 store 写方法。OperationalError('locked') 重试 3 次再 500 db_locked；
     其他 OperationalError / IntegrityError → 500 db_write_failed。
     """
+
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
         last_exc: sqlite3.OperationalError | None = None
@@ -34,7 +34,7 @@ def _with_db_errors(fn):
                 msg = str(exc).lower()
                 if "locked" in msg or "busy" in msg:
                     if attempt < 2:
-                        time.sleep(0.1 * (2 ** attempt))
+                        time.sleep(0.1 * (2**attempt))
                         continue
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -54,7 +54,9 @@ def _with_db_errors(fn):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error_code": "db_locked", "message": str(last_exc)},
         )
+
     return wrapper
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -242,9 +244,7 @@ class SQLiteStore:
 
     def get_document(self, doc_id: str) -> dict[str, Any]:
         with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM documents WHERE doc_id = ?", (doc_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
         if row is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -333,7 +333,7 @@ class SQLiteStore:
                 acl_tags = list(acl_tags_override)
             acl_json = json.dumps(acl_tags, ensure_ascii=False)
             now = _now()
-            for chunk, vec in zip(chunks, embeddings):
+            for chunk, vec in zip(chunks, embeddings, strict=False):
                 conn.execute(
                     """INSERT INTO chunks
                        (chunk_id, doc_id, chunk_no, content, section_path, page_no,
@@ -364,9 +364,7 @@ class SQLiteStore:
     @_with_db_errors
     def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
         with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,)).fetchone()
         if row is None:
             return None
         return _chunk_row_to_dict(row)
@@ -400,9 +398,7 @@ class SQLiteStore:
                 result.append(row["doc_id"])
         return result
 
-    def search_fts(
-        self, query: str, doc_ids: list[str], limit: int = 20
-    ) -> list[dict[str, Any]]:
+    def search_fts(self, query: str, doc_ids: list[str], limit: int = 20) -> list[dict[str, Any]]:
         if not doc_ids:
             return []
         fts_query = _to_fts_query(query)
@@ -445,9 +441,7 @@ class SQLiteStore:
 
     def get_doc_title(self, doc_id: str) -> str:
         with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT title FROM documents WHERE doc_id = ?", (doc_id,)
-            ).fetchone()
+            row = conn.execute("SELECT title FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
         return row["title"] if row else ""
 
     @_with_db_errors
@@ -479,9 +473,7 @@ class SQLiteStore:
             conn.commit()
 
     @_with_db_errors
-    def write_feedback(
-        self, trace_id: str, feedback_type: str, comment: str | None
-    ) -> str:
+    def write_feedback(self, trace_id: str, feedback_type: str, comment: str | None) -> str:
         with self._lock, self._connect() as conn:
             count = conn.execute("SELECT COUNT(*) AS c FROM feedbacks").fetchone()["c"]
             feedback_id = f"fb_{count + 1:03d}"
@@ -537,9 +529,7 @@ class SQLiteStore:
 
     def get_qa_log(self, trace_id: str) -> dict[str, Any] | None:
         with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM qa_logs WHERE trace_id = ?", (trace_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM qa_logs WHERE trace_id = ?", (trace_id,)).fetchone()
         if row is None:
             return None
         d = _qa_log_summary_row(row)

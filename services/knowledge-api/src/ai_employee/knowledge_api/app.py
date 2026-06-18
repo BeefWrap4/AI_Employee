@@ -5,16 +5,6 @@ import os
 import tempfile
 from typing import Any
 
-from fastapi import (
-    Depends,
-    FastAPI,
-    File,
-    Form,
-    HTTPException,
-    UploadFile,
-    status,
-)
-
 from ai_employee.common_schemas.embedding import build_provider
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.knowledge_api.internal_auth import require_internal_token
@@ -40,9 +30,20 @@ from ai_employee.knowledge_api.schemas import (
 )
 from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.worker_client import WorkerClient
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 
 _LLM_GATEWAY_ENABLED = os.getenv("LLM_GATEWAY_ENABLED", "false").strip().lower() in (
-    "true", "1", "yes"
+    "true",
+    "1",
+    "yes",
 )
 
 SERVICE_VERSION = "0.1.0"
@@ -164,6 +165,7 @@ def create_app(
         )
         # 用 Path 强制绝对路径，避免 raw_dir 相对时 os.path.join 拼出相对路径
         from pathlib import Path as _Path
+
         final_path = str((_Path(raw_dir) / f"{doc_id}.{ext}").resolve())
         try:
             os.replace(tmp_path, final_path)
@@ -372,9 +374,7 @@ def create_app(
     def internal_chunks(payload: InternalChunksRequest, _: None = Depends(auth)) -> dict:
         store.write_chunks(
             doc_id=payload.doc_id,
-            chunks=[
-                c.model_dump() if hasattr(c, "model_dump") else c for c in payload.chunks
-            ],
+            chunks=[c.model_dump() if hasattr(c, "model_dump") else c for c in payload.chunks],
             embeddings=payload.embeddings,
             embedding_model=payload.embedding_model,
         )
@@ -399,12 +399,18 @@ def create_app(
         page_size: int = 50,
     ) -> QaLogListResponse:
         items, total = store.list_qa_logs(
-            session_id=session_id, user_id=user_id, since=since, until=until,
-            page=page, page_size=page_size,
+            session_id=session_id,
+            user_id=user_id,
+            since=since,
+            until=until,
+            page=page,
+            page_size=page_size,
         )
         return QaLogListResponse(
             items=[QaLogSummary(**i) for i in items],
-            total=total, page=page, page_size=page_size,
+            total=total,
+            page=page,
+            page_size=page_size,
         )
 
     @app.get("/api/v1/qa-logs/{trace_id}", response_model=QaLogResponse)
@@ -427,12 +433,18 @@ def create_app(
         page_size: int = 50,
     ) -> FeedbackListResponse:
         items, total = store.list_feedbacks(
-            trace_id=trace_id, feedback_type=feedback_type, since=since, until=until,
-            page=page, page_size=page_size,
+            trace_id=trace_id,
+            feedback_type=feedback_type,
+            since=since,
+            until=until,
+            page=page,
+            page_size=page_size,
         )
         return FeedbackListResponse(
             items=[FeedbackSummary(**i) for i in items],
-            total=total, page=page, page_size=page_size,
+            total=total,
+            page=page,
+            page_size=page_size,
         )
 
     @app.get("/api/v1/documents", response_model=DocumentListResponse)
@@ -442,11 +454,15 @@ def create_app(
         page_size: int = 50,
     ) -> DocumentListResponse:
         items, total = store.list_documents(
-            status=status, page=page, page_size=page_size,
+            status=status,
+            page=page,
+            page_size=page_size,
         )
         return DocumentListResponse(
             items=[DocumentSummary(**i) for i in items],
-            total=total, page=page, page_size=page_size,
+            total=total,
+            page=page,
+            page_size=page_size,
         )
 
     return app
@@ -462,9 +478,7 @@ def _apply_parse_response(store: SQLiteStore, doc_id: str, response: Any) -> Non
     )
 
 
-def _document_response(
-    doc: dict, trace_id: str, worker_dispatch: str | None
-) -> DocumentResponse:
+def _document_response(doc: dict, trace_id: str, worker_dispatch: str | None) -> DocumentResponse:
     return DocumentResponse(
         doc_id=doc["doc_id"],
         title=doc["title"],

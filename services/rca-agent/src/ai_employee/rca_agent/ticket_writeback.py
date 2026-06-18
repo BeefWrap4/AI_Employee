@@ -8,6 +8,7 @@ auditable in MVP / dev environments.
 Each write-back attempt is recorded in :class:`TicketWritebackStore` so
 operators can audit failed posts and retry.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,6 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import httpx
-
 
 DEFAULT_TICKET_API_URL = "http://127.0.0.1:8089/tickets"
 
@@ -101,9 +101,7 @@ class HttpTicketWritebackAdapter:
         try:
             resp = httpx.post(url, json=payload, timeout=self._timeout)
         except httpx.HTTPError as exc:
-            raise TicketWritebackUnavailable(
-                f"{self.base_url} unreachable: {exc}"
-            ) from exc
+            raise TicketWritebackUnavailable(f"{self.base_url} unreachable: {exc}") from exc
         if resp.status_code >= 400:
             raise TicketWritebackError(resp.status_code, resp.text)
         if not resp.content:

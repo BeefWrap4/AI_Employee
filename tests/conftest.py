@@ -5,12 +5,11 @@ import os
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.ingestion_worker.app import create_app as create_worker_app
 from ai_employee.knowledge_api.app import create_app as create_api_app
 from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

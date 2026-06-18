@@ -8,7 +8,7 @@ re-exports them for existing call sites and tests.
 
 from __future__ import annotations
 
-from ai_employee.common_schemas.embedding import (  # noqa: F401
+from ai_employee.common_schemas.embedding import (
     EmbeddingProvider,
     OpenAICompatEmbeddingProvider,
     QwenEmbeddingProvider,

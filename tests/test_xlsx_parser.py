@@ -2,8 +2,7 @@ import io
 
 import openpyxl
 import pytest
-
-from ai_employee.ingestion_worker.parsers import XlsxParser, ParsedSection
+from ai_employee.ingestion_worker.parsers import XlsxParser
 
 
 @pytest.fixture

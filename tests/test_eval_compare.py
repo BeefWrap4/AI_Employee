@@ -1,7 +1,6 @@
 """Eval Center version comparison unit + API tests."""
-from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.eval_compare import (
@@ -10,6 +9,7 @@ from ai_employee.agent_platform_api.eval_compare import (
 )
 from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.common_schemas.eval import UnifiedReport
+from fastapi.testclient import TestClient
 
 
 def _record(report: UnifiedReport, summary: dict) -> dict:
@@ -29,12 +29,22 @@ def _record(report: UnifiedReport, summary: dict) -> dict:
 
 def test_compare_rag_reports_computes_deltas() -> None:
     a = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.6, top3_coverage=0.8,
-        evidence_coverage=0.7, refusal_accuracy=0.9, latency_p95_ms=120.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.6,
+        top3_coverage=0.8,
+        evidence_coverage=0.7,
+        refusal_accuracy=0.9,
+        latency_p95_ms=120.0,
     )
     b = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.7, top3_coverage=0.85,
-        evidence_coverage=0.65, refusal_accuracy=0.85, latency_p95_ms=150.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.7,
+        top3_coverage=0.85,
+        evidence_coverage=0.65,
+        refusal_accuracy=0.85,
+        latency_p95_ms=150.0,
     )
     result = compare_reports(_record(a, {}), _record(b, {}))
     by_metric = {m["metric"]: m for m in result["metrics"]}
@@ -48,12 +58,22 @@ def test_compare_rag_reports_computes_deltas() -> None:
 
 def test_compare_rca_reports_omits_rag_only_metrics() -> None:
     a = UnifiedReport(
-        eval_type="rca", total=5, top1_coverage=0.4, top3_coverage=0.8,
-        evidence_coverage=0.5, refusal_accuracy=None, latency_p95_ms=None,
+        eval_type="rca",
+        total=5,
+        top1_coverage=0.4,
+        top3_coverage=0.8,
+        evidence_coverage=0.5,
+        refusal_accuracy=None,
+        latency_p95_ms=None,
     )
     b = UnifiedReport(
-        eval_type="rca", total=5, top1_coverage=0.6, top3_coverage=0.9,
-        evidence_coverage=0.7, refusal_accuracy=None, latency_p95_ms=None,
+        eval_type="rca",
+        total=5,
+        top1_coverage=0.6,
+        top3_coverage=0.9,
+        evidence_coverage=0.7,
+        refusal_accuracy=None,
+        latency_p95_ms=None,
     )
     result = compare_reports(_record(a, {}), _record(b, {}))
     metric_names = {m["metric"] for m in result["metrics"]}
@@ -64,12 +84,22 @@ def test_compare_rca_reports_omits_rag_only_metrics() -> None:
 
 def test_compare_handles_null_metric_values() -> None:
     a = UnifiedReport(
-        eval_type="rag", total=0, top1_coverage=0.0, top3_coverage=0.0,
-        evidence_coverage=0.0, refusal_accuracy=None, latency_p95_ms=None,
+        eval_type="rag",
+        total=0,
+        top1_coverage=0.0,
+        top3_coverage=0.0,
+        evidence_coverage=0.0,
+        refusal_accuracy=None,
+        latency_p95_ms=None,
     )
     b = UnifiedReport(
-        eval_type="rag", total=0, top1_coverage=0.0, top3_coverage=0.0,
-        evidence_coverage=0.0, refusal_accuracy=None, latency_p95_ms=None,
+        eval_type="rag",
+        total=0,
+        top1_coverage=0.0,
+        top3_coverage=0.0,
+        evidence_coverage=0.0,
+        refusal_accuracy=None,
+        latency_p95_ms=None,
     )
     result = compare_reports(_record(a, {}), _record(b, {}))
     by_metric = {m["metric"]: m for m in result["metrics"]}
@@ -82,12 +112,22 @@ def test_compare_handles_null_metric_values() -> None:
 
 def test_compare_cross_type_only_uses_common_metrics() -> None:
     a = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.5, top3_coverage=0.7,
-        evidence_coverage=0.6, refusal_accuracy=0.8, latency_p95_ms=100.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.5,
+        top3_coverage=0.7,
+        evidence_coverage=0.6,
+        refusal_accuracy=0.8,
+        latency_p95_ms=100.0,
     )
     b = UnifiedReport(
-        eval_type="rca", total=5, top1_coverage=0.4, top3_coverage=0.8,
-        evidence_coverage=0.5, refusal_accuracy=None, latency_p95_ms=None,
+        eval_type="rca",
+        total=5,
+        top1_coverage=0.4,
+        top3_coverage=0.8,
+        evidence_coverage=0.5,
+        refusal_accuracy=None,
+        latency_p95_ms=None,
     )
     result = compare_reports(_record(a, {}), _record(b, {}))
     metric_names = {m["metric"] for m in result["metrics"]}
@@ -104,12 +144,22 @@ def test_load_unified_report_falls_back_to_minimal_when_missing() -> None:
 def test_compare_endpoint_returns_deltas(tmp_path) -> None:
     eval_store = EvalStore(db_path=str(tmp_path / "eval.sqlite3"))
     a_report = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.5, top3_coverage=0.7,
-        evidence_coverage=0.6, refusal_accuracy=0.8, latency_p95_ms=100.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.5,
+        top3_coverage=0.7,
+        evidence_coverage=0.6,
+        refusal_accuracy=0.8,
+        latency_p95_ms=100.0,
     )
     b_report = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.55, top3_coverage=0.75,
-        evidence_coverage=0.62, refusal_accuracy=0.82, latency_p95_ms=95.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.55,
+        top3_coverage=0.75,
+        evidence_coverage=0.62,
+        refusal_accuracy=0.82,
+        latency_p95_ms=95.0,
     )
     aid = eval_store.create_eval_run(
         eval_type="rag", template_id="knowledge_qa", golden_path="x.jsonl"

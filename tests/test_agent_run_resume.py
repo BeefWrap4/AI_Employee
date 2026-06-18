@@ -1,10 +1,10 @@
 """Agent Platform run persistence + resume API tests."""
-from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.run_store import AgentRunStore
+from fastapi.testclient import TestClient
 
 
 def _client(tmp_path) -> TestClient:

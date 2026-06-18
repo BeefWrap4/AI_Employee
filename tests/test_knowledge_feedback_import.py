@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.rca_agent.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _alarm(alarm_id: str, site_id: str, alarm_code: str = "LINK_DEGRADE") -> dict:
@@ -96,7 +95,9 @@ def test_import_candidate_success_updates_imported_doc_id(
     assert captured["data"]["mime_type"] == "text/markdown"
     assert '"rca_feedback"' in captured["data"]["acl_tags_json"]
     assert "rca_feedback" in captured["data"]["metadata_json"]
-    assert "SITE" in captured["data"]["metadata_json"] or "inc_" in captured["data"]["metadata_json"]
+    assert (
+        "SITE" in captured["data"]["metadata_json"] or "inc_" in captured["data"]["metadata_json"]
+    )
     file_tuple = captured["files"]["file"]
     assert file_tuple[0].endswith(".md")
     assert file_tuple[2] == "text/markdown"

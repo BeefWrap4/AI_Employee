@@ -1,4 +1,5 @@
 """ACL 解析：多 scope 表达式 + doc_id 解析。"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -8,7 +9,7 @@ if TYPE_CHECKING:
 
 
 def resolve_visible_docs(
-    store: "SQLiteStore",
+    store: SQLiteStore,
     scope: list[str] | None,
     scope_or: list[str] | None,
 ) -> list[str]:
@@ -26,9 +27,7 @@ def resolve_visible_docs(
         return sorted(d["doc_id"] for d in items)
     result: list[str] = []
     for d in items:
-        visible = set(d.get("acl_tags", [])) | {
-            str(v) for v in d.get("metadata", {}).values()
-        }
+        visible = set(d.get("acl_tags", [])) | {str(v) for v in d.get("metadata", {}).values()}
         if visible & effective:
             result.append(d["doc_id"])
     return sorted(result)

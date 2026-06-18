@@ -1,10 +1,10 @@
 """RCA ticket write-back tests."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_employee.rca_agent.ticket_writeback import (
     FixtureTicketWritebackAdapter,
     HttpTicketWritebackAdapter,

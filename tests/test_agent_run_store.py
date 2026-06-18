@@ -1,7 +1,6 @@
 """AgentRunStore persistence tests."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from ai_employee.agent_platform_api.run_store import AgentRunStore
 
@@ -16,12 +15,13 @@ def _sample_run(run_id: str = "agent_run_001") -> dict:
         "requested_by": "alice",
         "input": {"question": "What is RRC?"},
         "output": {"summary": "draft", "citations": []},
-        "node_trace": [
-            {"node_name": "TemplateLoaded", "status": "completed", "detail": "ok"}
-        ],
+        "node_trace": [{"node_name": "TemplateLoaded", "status": "completed", "detail": "ok"}],
         "tool_calls": [
-            {"tool_name": "knowledge-api.chat.query", "risk_level": "read_only",
-             "status": "completed"}
+            {
+                "tool_name": "knowledge-api.chat.query",
+                "risk_level": "read_only",
+                "status": "completed",
+            }
         ],
         "approval_status": "pending",
     }

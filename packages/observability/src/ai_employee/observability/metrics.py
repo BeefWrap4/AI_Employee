@@ -9,11 +9,12 @@ Use ``configure_default_registry()`` at process start to install a
 process-wide default registry, then access primitives via the helper
 functions (:func:`counter`, :func:`gauge`, :func:`histogram`).
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Iterable
 
 
 @dataclass
@@ -48,8 +49,11 @@ class MetricRegistry:
     # -- registration ----------------------------------------------------
 
     def register_counter(
-        self, name: str, help_text: str, labels: Iterable[str] = (),
-    ) -> "_Counter":
+        self,
+        name: str,
+        help_text: str,
+        labels: Iterable[str] = (),
+    ) -> _Counter:
         with self._lock:
             self._check_new(name)
             series = _Series(name=name, kind="counter", help_text=help_text)
@@ -57,8 +61,11 @@ class MetricRegistry:
         return _Counter(series, tuple(labels))
 
     def register_gauge(
-        self, name: str, help_text: str, labels: Iterable[str] = (),
-    ) -> "_Gauge":
+        self,
+        name: str,
+        help_text: str,
+        labels: Iterable[str] = (),
+    ) -> _Gauge:
         with self._lock:
             self._check_new(name)
             series = _Series(name=name, kind="gauge", help_text=help_text)
@@ -71,7 +78,7 @@ class MetricRegistry:
         help_text: str,
         buckets: Iterable[float] = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
         labels: Iterable[str] = (),
-    ) -> "_Histogram":
+    ) -> _Histogram:
         bucket_list = sorted(set(buckets))
         with self._lock:
             self._check_new(name)
@@ -204,13 +211,9 @@ def render_prometheus_text(registry: MetricRegistry | None = None) -> str:
             for boundary in series.buckets or []:
                 bucket_lbls = {"le": _format_bucket(boundary)}
                 count = series.bucket_counts.get(float(boundary), 0)
-                lines.append(
-                    f'{series.name}_bucket{_render_labels(bucket_lbls)} {count}'
-                )
+                lines.append(f"{series.name}_bucket{_render_labels(bucket_lbls)} {count}")
             # +Inf bucket reflects the total observation count.
-            lines.append(
-                f'{series.name}_bucket{_render_labels({"le": "+Inf"})} {series.count}'
-            )
+            lines.append(f'{series.name}_bucket{_render_labels({"le": "+Inf"})} {series.count}')
             lines.append(f"{series.name}_sum {series.sum_value}")
             lines.append(f"{series.name}_count {series.count}")
         else:
@@ -224,9 +227,7 @@ def render_prometheus_text(registry: MetricRegistry | None = None) -> str:
                     aggregate[key] = sample.value
             for key, value in aggregate.items():
                 lbls = dict(key)
-                lines.append(
-                    f"{series.name}{_render_labels(lbls)} {value}"
-                )
+                lines.append(f"{series.name}{_render_labels(lbls)} {value}")
     return "\n".join(lines) + ("\n" if lines else "")
 
 

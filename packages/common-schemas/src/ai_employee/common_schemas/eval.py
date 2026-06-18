@@ -38,7 +38,7 @@ class UnifiedReport:
         return asdict(self)
 
 
-def to_unified_rag(metrics: "EvalMetrics", report: dict[str, Any]) -> UnifiedReport:
+def to_unified_rag(metrics: EvalMetrics, report: dict[str, Any]) -> UnifiedReport:
     """Adapt a RAG eval ``EvalMetrics`` + ``build_report`` dict into UnifiedReport.
 
     - ``top1_coverage`` / ``top3_coverage`` map to Top-1 / Top-3 hit rates.

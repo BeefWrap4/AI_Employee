@@ -32,6 +32,7 @@ class _UnreachableWorker:
 
     def __init__(self) -> None:
         from ai_employee.knowledge_api.worker_client import WorkerDispatchResult
+
         self._WorkerDispatchResult = WorkerDispatchResult
 
     def health(self) -> bool:

@@ -5,6 +5,7 @@ Maps the platform's tool risk levels (``read_only``,
 must hold before invoking the tool.  Keeps the policy in one place so
 the agent platform and tool-registry service agree on enforcement.
 """
+
 from __future__ import annotations
 
 from ai_employee.auth_policy.rbac import (

@@ -1,7 +1,6 @@
+from ai_employee.knowledge_api.internal_auth import require_internal_token
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-
-from ai_employee.knowledge_api.internal_auth import require_internal_token
 
 
 def _app(token: str) -> FastAPI:

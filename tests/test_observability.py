@@ -1,11 +1,11 @@
 """Observability package tests — correlation, metrics, logging."""
+
 from __future__ import annotations
 
 import io
 import logging
 
 import pytest
-
 from ai_employee.observability import (
     MetricRegistry,
     bind,

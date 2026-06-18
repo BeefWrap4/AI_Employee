@@ -9,13 +9,13 @@ The format mirrors the W3C trace-context layout (``trace_id`` is a
 32-hex-char value, ``span_id`` is 16-hex-char) so logs and metrics are
 interoperable with downstream collectors that expect that shape.
 """
+
 from __future__ import annotations
 
 import secrets
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator
-
 
 _TRACE_ID: ContextVar[str | None] = ContextVar("observability_trace_id", default=None)
 _SPAN_ID: ContextVar[str | None] = ContextVar("observability_span_id", default=None)

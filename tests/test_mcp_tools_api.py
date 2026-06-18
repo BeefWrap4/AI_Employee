@@ -1,9 +1,9 @@
 """MCP-compatible tools/list endpoint test."""
+
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def test_mcp_tools_endpoint_returns_registered_tools() -> None:

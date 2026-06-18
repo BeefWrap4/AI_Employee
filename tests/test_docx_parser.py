@@ -2,8 +2,7 @@ import io
 
 import docx
 import pytest
-
-from ai_employee.ingestion_worker.parsers import DocxParser, ParsedSection
+from ai_employee.ingestion_worker.parsers import DocxParser
 
 
 @pytest.fixture
@@ -49,10 +48,7 @@ class TestDocxParser:
     def test_blocks_under_correct_section(self, docx_bytes: bytes) -> None:
         """Paragraphs should be assigned to the nearest preceding heading."""
         sections = DocxParser().parse(docx_bytes)
-        rca_sections = [
-            s for s in sections
-            if "Root Cause Analysis" in s.section_path
-        ]
+        rca_sections = [s for s in sections if "Root Cause Analysis" in s.section_path]
         assert len(rca_sections) == 1
         rca_text = " ".join(rca_sections[0].blocks)
         assert "power failure" in rca_text

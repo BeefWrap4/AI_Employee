@@ -9,11 +9,10 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
-
-from ai_employee.llm_gateway.retry import RetryExhaustedError, retry as retry_decorator
+from ai_employee.llm_gateway.retry import RetryExhaustedError
+from ai_employee.llm_gateway.retry import retry as retry_decorator
 
 _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 _DEFAULT_MODEL = "qwen-plus"

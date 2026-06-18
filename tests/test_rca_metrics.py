@@ -1,11 +1,11 @@
 """RCA operational metrics tests."""
-from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from __future__ import annotations
 
 from ai_employee.rca_agent.app import create_app
 from ai_employee.rca_agent.metrics import compute_metrics
 from ai_employee.rca_agent.runtime import RcaStore
+from fastapi.testclient import TestClient
 
 
 def _sample_alarms() -> list[dict]:

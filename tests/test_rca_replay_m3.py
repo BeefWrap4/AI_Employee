@@ -7,7 +7,6 @@ from pathlib import Path
 
 from ai_employee.rca_agent.replay import run_replay_file
 
-
 SAMPLE_CASES = Path("tests/rca-replay/sample_cases.jsonl")
 
 

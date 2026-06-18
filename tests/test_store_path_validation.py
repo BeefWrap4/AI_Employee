@@ -1,9 +1,8 @@
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
-
 from ai_employee.knowledge_api.store import SQLiteStore
+from fastapi import HTTPException
 
 
 @pytest.fixture

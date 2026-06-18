@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.rca_agent.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _alarm(alarm_id: str, site_id: str, alarm_code: str = "LINK_DEGRADE") -> dict:

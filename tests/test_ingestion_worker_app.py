@@ -4,9 +4,8 @@ import io
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.ingestion_worker.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _write(tmp_path: Path, name: str, content: str) -> str:
@@ -89,9 +88,7 @@ def test_parse_unsupported_mime_returns_415(
     assert resp.json()["error_code"] == "mime_unsupported"
 
 
-def test_parse_missing_file_returns_400(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_parse_missing_file_returns_400(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _set_data_dir(monkeypatch, tmp_path)
     (tmp_path / "raw").mkdir(exist_ok=True)
     client = TestClient(create_app())
@@ -108,9 +105,7 @@ def test_parse_missing_file_returns_400(
     assert resp.json()["detail"]["error_code"] == "file_not_found"
 
 
-def test_parse_embedding_dim_consistent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_parse_embedding_dim_consistent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _set_data_dir(monkeypatch, tmp_path)
     file_path = _write(tmp_path, "doc.md", "一段正文足够长以独立成块。")
     client = TestClient(create_app())
@@ -164,9 +159,7 @@ def test_parse_rejects_path_outside_data_dir(
     assert resp2.json()["detail"]["error_code"] == "path_not_allowed"
 
 
-def test_parse_rejects_relative_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_parse_rejects_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _set_data_dir(monkeypatch, tmp_path)
     client = TestClient(create_app())
     resp = client.post(

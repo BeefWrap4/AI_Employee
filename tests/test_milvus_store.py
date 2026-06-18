@@ -3,14 +3,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-
 from ai_employee.common_schemas.vector_store import (
     MilvusVectorStore,
     StubVectorStore,
     build_vector_store,
-    VectorStore,
 )
-
 
 # ---------------------------------------------------------------------------
 # StubVectorStore tests (no mocking needed)
@@ -38,8 +35,20 @@ class TestStubVectorStore:
             "chunks",
             vectors=[vec_a, vec_b],
             metadata=[
-                {"chunk_id": "c1", "doc_id": "doc_001", "content": "hello", "section_path": "root", "chunk_no": 1},
-                {"chunk_id": "c2", "doc_id": "doc_002", "content": "world", "section_path": "root", "chunk_no": 2},
+                {
+                    "chunk_id": "c1",
+                    "doc_id": "doc_001",
+                    "content": "hello",
+                    "section_path": "root",
+                    "chunk_no": 1,
+                },
+                {
+                    "chunk_id": "c2",
+                    "doc_id": "doc_002",
+                    "content": "world",
+                    "section_path": "root",
+                    "chunk_no": 2,
+                },
             ],
         )
 
@@ -59,19 +68,25 @@ class TestStubVectorStore:
         # Use vectors in different directions so cosine similarity differentiates them.
         # cos([1.0, 0.0], [1.0, 0.1]) > cos([1.0, 0.0], [0.0, 1.0])
         vectors = [
-            [1.0, 0.0],    # c0
-            [1.0, 0.05],   # c1 -- very close to [1, 0]
-            [1.0, 0.1],    # c2
-            [1.0, 0.2],    # c3
-            [1.0, 0.5],    # c4
-            [0.5, 1.0],    # c5
-            [0.0, 1.0],    # c6
-            [-1.0, 1.0],   # c7
-            [-1.0, 0.0],   # c8
+            [1.0, 0.0],  # c0
+            [1.0, 0.05],  # c1 -- very close to [1, 0]
+            [1.0, 0.1],  # c2
+            [1.0, 0.2],  # c3
+            [1.0, 0.5],  # c4
+            [0.5, 1.0],  # c5
+            [0.0, 1.0],  # c6
+            [-1.0, 1.0],  # c7
+            [-1.0, 0.0],  # c8
             [-1.0, -1.0],  # c9
         ]
         metadata = [
-            {"chunk_id": f"c{i}", "doc_id": "doc_001", "content": f"text {i}", "section_path": "root", "chunk_no": i}
+            {
+                "chunk_id": f"c{i}",
+                "doc_id": "doc_001",
+                "content": f"text {i}",
+                "section_path": "root",
+                "chunk_no": i,
+            }
             for i in range(10)
         ]
         store.insert("chunks", vectors=vectors, metadata=metadata)
@@ -87,8 +102,20 @@ class TestStubVectorStore:
             "chunks",
             vectors=[[1.0, 0.0], [0.0, 1.0]],
             metadata=[
-                {"chunk_id": "c1", "doc_id": "doc_A", "content": "a", "section_path": "root", "chunk_no": 1},
-                {"chunk_id": "c2", "doc_id": "doc_B", "content": "b", "section_path": "root", "chunk_no": 2},
+                {
+                    "chunk_id": "c1",
+                    "doc_id": "doc_A",
+                    "content": "a",
+                    "section_path": "root",
+                    "chunk_no": 1,
+                },
+                {
+                    "chunk_id": "c2",
+                    "doc_id": "doc_B",
+                    "content": "b",
+                    "section_path": "root",
+                    "chunk_no": 2,
+                },
             ],
         )
 
@@ -102,9 +129,27 @@ class TestStubVectorStore:
             "chunks",
             vectors=[[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]],
             metadata=[
-                {"chunk_id": "c1", "doc_id": "doc_A", "content": "a", "section_path": "root", "chunk_no": 1},
-                {"chunk_id": "c2", "doc_id": "doc_B", "content": "b", "section_path": "root", "chunk_no": 2},
-                {"chunk_id": "c3", "doc_id": "doc_C", "content": "c", "section_path": "root", "chunk_no": 3},
+                {
+                    "chunk_id": "c1",
+                    "doc_id": "doc_A",
+                    "content": "a",
+                    "section_path": "root",
+                    "chunk_no": 1,
+                },
+                {
+                    "chunk_id": "c2",
+                    "doc_id": "doc_B",
+                    "content": "b",
+                    "section_path": "root",
+                    "chunk_no": 2,
+                },
+                {
+                    "chunk_id": "c3",
+                    "doc_id": "doc_C",
+                    "content": "c",
+                    "section_path": "root",
+                    "chunk_no": 3,
+                },
             ],
         )
 
@@ -135,7 +180,15 @@ class TestStubVectorStore:
         store.insert(
             "chunks",
             vectors=[[1.0, 0.0]],
-            metadata=[{"chunk_id": "c1", "doc_id": "d1", "acl_tags": ["wireless", "5g"], "content": "x", "section_path": "root"}],
+            metadata=[
+                {
+                    "chunk_id": "c1",
+                    "doc_id": "d1",
+                    "acl_tags": ["wireless", "5g"],
+                    "content": "x",
+                    "section_path": "root",
+                }
+            ],
         )
         hits = store.search("chunks", query_vector=[1.0, 0.0], top_k=1)
         assert hits[0]["acl_tags"] == ["wireless", "5g"]
@@ -231,13 +284,17 @@ def mock_pymilvus(monkeypatch: pytest.MonkeyPatch) -> dict:
 
     # 2. Make _connect a no-op
     monkeypatch.setattr(
-        vs_mod.MilvusVectorStore, "_connect", lambda self: None,
+        vs_mod.MilvusVectorStore,
+        "_connect",
+        lambda self: None,
     )
 
     # 3. Make _collection return a MockCollection
     mock_coll = MockCollection("chunks")
     monkeypatch.setattr(
-        vs_mod.MilvusVectorStore, "_collection", lambda self, name: mock_coll,
+        vs_mod.MilvusVectorStore,
+        "_collection",
+        lambda self, name: mock_coll,
     )
 
     return {}
@@ -260,7 +317,9 @@ class TestMilvusVectorStore:
 
         # Fully override create_collection to a no-op (avoids pymilvus imports)
         monkeypatch.setattr(
-            vs_mod.MilvusVectorStore, "create_collection", lambda self, cn, dim: None,
+            vs_mod.MilvusVectorStore,
+            "create_collection",
+            lambda self, cn, dim: None,
         )
         store.create_collection("chunks", dim=128)  # should not raise
 
@@ -272,7 +331,9 @@ class TestMilvusVectorStore:
         store.insert(
             "chunks",
             vectors=[[1.0, 0.0, 0.0]],
-            metadata=[{"chunk_id": "c1", "doc_id": "d1", "content": "test", "section_path": "root"}],
+            metadata=[
+                {"chunk_id": "c1", "doc_id": "d1", "content": "test", "section_path": "root"}
+            ],
         )
         assert len(col._inserted) == 1
 
@@ -319,6 +380,7 @@ class TestBuildVectorStore:
         monkeypatch.setenv("MILVUS_ENABLED", "true")
         # Force MilvusVectorStore to fail on construction
         import ai_employee.common_schemas.vector_store as vs_mod
+
         monkeypatch.setattr(vs_mod, "_safe_import_pymilvus", lambda: None)
 
         def _failing_init(self, host=None, port=None):
@@ -333,9 +395,12 @@ class TestBuildVectorStore:
     ) -> None:
         monkeypatch.setenv("MILVUS_ENABLED", "true")
         import ai_employee.common_schemas.vector_store as vs_mod
+
         monkeypatch.setattr(vs_mod, "_safe_import_pymilvus", lambda: None)
         monkeypatch.setattr(
-            vs_mod.MilvusVectorStore, "_connect", lambda self: None,
+            vs_mod.MilvusVectorStore,
+            "_connect",
+            lambda self: None,
         )
         store = build_vector_store(enabled=True)
         assert isinstance(store, MilvusVectorStore)

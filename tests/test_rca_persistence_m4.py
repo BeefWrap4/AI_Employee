@@ -3,10 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.rca_agent.app import create_app
 from ai_employee.rca_agent.store import SQLiteRcaStore
+from fastapi.testclient import TestClient
 
 
 def _sample_alarms() -> list[dict]:

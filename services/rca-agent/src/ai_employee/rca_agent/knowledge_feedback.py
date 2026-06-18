@@ -2,13 +2,13 @@
 
 Spec: Docs/superpowers/specs/2026-06-17-platform-m6-knowledge-feedback-eval-center-design.md §5
 """
+
 from __future__ import annotations
 
 import json
 import os
 
 import httpx
-
 from ai_employee.rca_agent.schemas import (
     CandidateKnowledge,
     Evidence,

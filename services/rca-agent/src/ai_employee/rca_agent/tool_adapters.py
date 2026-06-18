@@ -10,6 +10,7 @@ Adapters are intentionally read-only.  They translate their backing store
 into the platform-wide ``Evidence`` schema so the runtime does not care
 whether the data came from a fixture or a real system.
 """
+
 from __future__ import annotations
 
 import json
@@ -99,9 +100,7 @@ class FixtureTicketAdapter:
     source_type = "ticket"
 
     def __init__(self, fixture_path: str | None = None) -> None:
-        self._fixture_path = fixture_path or os.getenv(
-            "TICKET_API_FIXTURE_PATH"
-        )
+        self._fixture_path = fixture_path or os.getenv("TICKET_API_FIXTURE_PATH")
 
     def fetch(self, incident: IncidentResponse) -> list[Evidence]:
         primary = incident.primary_alarm
@@ -201,7 +200,7 @@ class PrometheusKPIAdapter(_HttpAdapter):
         primary = incident.primary_alarm
         data = self._get(
             "/api/v1/query",
-            params={"query": f"up{{site=\"{primary.site_id}\"}}"},
+            params={"query": f'up{{site="{primary.site_id}"}}'},
         )
         result_count = len((data or {}).get("data", {}).get("result", []) or [])
         return [

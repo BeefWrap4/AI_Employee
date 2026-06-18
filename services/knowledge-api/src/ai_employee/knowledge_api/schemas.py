@@ -84,6 +84,7 @@ class InternalParseFailedRequest(BaseModel):
 
 # ===== 审计端点响应模型（M2.1）=====
 
+
 class QaLogSummary(BaseModel):
     qa_log_id: str
     trace_id: str
@@ -101,6 +102,7 @@ class QaLogSummary(BaseModel):
 class QaLogResponse(QaLogSummary):
     """单条 qa_log 详情。retrieved_chunks 由 store 层从 qa_logs.retrieved_chunks_json
     列反序列化得到（list[dict]），含 chunk_id / doc_id / 命中顺序。"""
+
     retrieved_chunks: list[dict]
 
 

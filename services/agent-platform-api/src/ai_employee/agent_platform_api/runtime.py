@@ -13,7 +13,6 @@ from ai_employee.agent_platform_api.schemas import (
     ToolResponse,
 )
 
-
 TEMPLATES: dict[str, AgentTemplate] = {
     "knowledge_qa": AgentTemplate(
         template_id="knowledge_qa",

@@ -66,7 +66,9 @@ class EvalStore:
     # -- write helpers -----------------------------------------------------
 
     def _next_eval_run_id(self, conn: sqlite3.Connection) -> str:
-        row = conn.execute("SELECT eval_run_id FROM eval_runs ORDER BY eval_run_id DESC LIMIT 1").fetchone()
+        row = conn.execute(
+            "SELECT eval_run_id FROM eval_runs ORDER BY eval_run_id DESC LIMIT 1"
+        ).fetchone()
         if row is None:
             return "eval_001"
         last = row["eval_run_id"]
@@ -174,7 +176,9 @@ class EvalStore:
         offset = (page - 1) * page_size
 
         with self._lock, self._connect() as conn:
-            total_row = conn.execute(f"SELECT COUNT(*) AS c FROM eval_runs{where}", params).fetchone()
+            total_row = conn.execute(
+                f"SELECT COUNT(*) AS c FROM eval_runs{where}", params
+            ).fetchone()
             total = int(total_row["c"]) if total_row else 0
             rows = conn.execute(
                 f"""SELECT * FROM eval_runs{where}

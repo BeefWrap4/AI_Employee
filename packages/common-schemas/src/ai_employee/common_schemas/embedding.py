@@ -13,7 +13,6 @@ import os
 import time
 from typing import Protocol
 
-
 _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode"
 _QWEN_DEFAULT_MODEL = "text-embedding-v3"
 _QWEN_DEFAULT_DIM = 1024
@@ -115,7 +114,7 @@ class _RemoteEmbeddingMixin:
                 )
             except httpx.TimeoutException as exc:
                 if attempt < max_retries:
-                    time.sleep(0.2 * (2 ** attempt))
+                    time.sleep(0.2 * (2**attempt))
                     continue
                 raise EmbeddingUnavailableError(
                     f"embedding api timeout: {exc}", cause="timeout"
@@ -131,7 +130,7 @@ class _RemoteEmbeddingMixin:
             last_text = getattr(resp, "text", "")
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt < max_retries:
-                    time.sleep(0.2 * (2 ** attempt))
+                    time.sleep(0.2 * (2**attempt))
                     continue
                 # 重试耗尽
                 raise EmbeddingUnavailableError(
@@ -187,8 +186,14 @@ class OpenAICompatEmbeddingProvider(_RemoteEmbeddingMixin):
         headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
             vectors = self._embed_batches(
-                texts, httpx.post, url, headers, self.model,
-                self.max_batch, self.max_retries, self.timeout,
+                texts,
+                httpx.post,
+                url,
+                headers,
+                self.model,
+                self.max_batch,
+                self.max_retries,
+                self.timeout,
             )
         except EmbeddingUnavailableError:
             raise
@@ -237,8 +242,14 @@ class QwenEmbeddingProvider(_RemoteEmbeddingMixin):
             "Content-Type": "application/json",
         }
         return self._embed_batches(
-            texts, httpx.post, url, headers, self.model,
-            self.max_batch, self.max_retries, self.timeout,
+            texts,
+            httpx.post,
+            url,
+            headers,
+            self.model,
+            self.max_batch,
+            self.max_retries,
+            self.timeout,
         )
 
 

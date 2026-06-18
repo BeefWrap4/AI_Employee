@@ -40,9 +40,8 @@ def test_openai_compat_missing_config_degrades_to_stub(api_factory) -> None:
     try:
         worker_app = create_worker_app()
         # 用降级后的 worker 构造 in-process client（在测试内联定义避免跨文件导入）
-        from ai_employee.ingestion_worker.app import create_app as _cw
-        from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
         from ai_employee.common_schemas.knowledge import ParseResponse
+        from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
 
         wc = TestClient(worker_app)
 

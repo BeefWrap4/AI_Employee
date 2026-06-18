@@ -24,10 +24,7 @@ def build_report(
     """构建报表 dict。pass 条件：所有阈值满足 + 无 refusal_violation。"""
     pass_ = (
         metrics.refusal_violations == 0
-        and all(
-            metrics.hit_rates.get(k, 0) >= thresholds.get(f"top{k}", 0)
-            for k in top_ks
-        )
+        and all(metrics.hit_rates.get(k, 0) >= thresholds.get(f"top{k}", 0) for k in top_ks)
         and metrics.refusal_accuracy >= thresholds.get("refusal", 0)
     )
     return {
@@ -99,9 +96,7 @@ def render_markdown(report: dict) -> str:
     if m["eligible_for_hit"]:
         cov = m["citation_coverage"]
         covered = int(round(cov * m["eligible_for_hit"]))
-        lines.append(
-            f"| 引用覆盖 | {cov * 100:.0f}% ({covered}/{m['eligible_for_hit']}) | — | — |"
-        )
+        lines.append(f"| 引用覆盖 | {cov * 100:.0f}% ({covered}/{m['eligible_for_hit']}) | — | — |")
     else:
         lines.append("| 引用覆盖 | — | — | — |")
     re_ = m["refusal_expected"]

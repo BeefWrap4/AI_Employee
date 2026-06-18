@@ -1,28 +1,58 @@
-import pytest
-
 from ai_employee.eval.metrics import (
-    EvalMetrics,
     EvalResult,
-    compute,
     _percentile,
+    compute,
 )
 
 
-def _r(qid, *, expect_refusal=False, expected_doc_id=None, status_code=200,
-       returned=None, latency_ms=100, error=None, answer="A"):
+def _r(
+    qid,
+    *,
+    expect_refusal=False,
+    expected_doc_id=None,
+    status_code=200,
+    returned=None,
+    latency_ms=100,
+    error=None,
+    answer="A",
+):
     return EvalResult(
-        qid=qid, question="x", expected_doc_id=expected_doc_id,
-        expect_refusal=expect_refusal, status_code=status_code,
-        returned_doc_ids=returned or [], answer=answer, latency_ms=latency_ms, error=error,
+        qid=qid,
+        question="x",
+        expected_doc_id=expected_doc_id,
+        expect_refusal=expect_refusal,
+        status_code=status_code,
+        returned_doc_ids=returned or [],
+        answer=answer,
+        latency_ms=latency_ms,
+        error=error,
     )
 
 
 def test_compute_top_k_hit_rates() -> None:
     # q01: d1 in [:1] → hit@1；q02: d1 在 index 1 → 仅 hit@3；q03: d1 在 index 4 → 仅 hit@5；q04: miss
     results = [
-        _r("q01", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d1", "d2"]),
-        _r("q02", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2", "d1", "d3"]),
-        _r("q03", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2", "d3", "d4", "d5", "d1"]),
+        _r(
+            "q01",
+            expect_refusal=False,
+            expected_doc_id="d1",
+            status_code=200,
+            returned=["d1", "d2"],
+        ),
+        _r(
+            "q02",
+            expect_refusal=False,
+            expected_doc_id="d1",
+            status_code=200,
+            returned=["d2", "d1", "d3"],
+        ),
+        _r(
+            "q03",
+            expect_refusal=False,
+            expected_doc_id="d1",
+            status_code=200,
+            returned=["d2", "d3", "d4", "d5", "d1"],
+        ),
         _r("q04", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2"]),
     ]
     m = compute(results, top_ks=[1, 3, 5])
@@ -88,7 +118,13 @@ def test_percentile_basic() -> None:
 def test_compute_per_item_verdicts() -> None:
     results = [
         _r("q01", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d1"]),
-        _r("q02", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2", "d1"]),
+        _r(
+            "q02",
+            expect_refusal=False,
+            expected_doc_id="d1",
+            status_code=200,
+            returned=["d2", "d1"],
+        ),
         _r("q03", expect_refusal=False, expected_doc_id="d1", status_code=200, returned=["d2"]),
         _r("q04", expect_refusal=True, status_code=404),
         _r("q05", expect_refusal=True, status_code=200),

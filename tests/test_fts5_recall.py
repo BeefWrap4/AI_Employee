@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from ai_employee.ingestion_worker.embedding import StubEmbeddingProvider
 from ai_employee.knowledge_api.retrieval import RetrievalService
 from ai_employee.knowledge_api.store import SQLiteStore
@@ -21,12 +20,21 @@ def service(tmp_path: Path) -> RetrievalService:
     return RetrievalService(store)
 
 
-def _publish(store: SQLiteStore, title: str, content: str, metadata: dict, acl_tags: list[str]) -> str:
+def _publish(
+    store: SQLiteStore, title: str, content: str, metadata: dict, acl_tags: list[str]
+) -> str:
     doc_id = store.create_document(title, "/tmp/x", "text/plain", metadata, acl_tags, "v1")
     store.transition_status(doc_id, "parsing")
     store.write_chunks(
         doc_id,
-        [{"chunk_id": f"chunk_{doc_id}_001", "chunk_no": 1, "content": content, "section_path": "root"}],
+        [
+            {
+                "chunk_id": f"chunk_{doc_id}_001",
+                "chunk_no": 1,
+                "content": content,
+                "section_path": "root",
+            }
+        ],
         [_vec(content)],
         "stub",
     )
@@ -35,7 +43,13 @@ def _publish(store: SQLiteStore, title: str, content: str, metadata: dict, acl_t
 
 
 def test_vector_recall_returns_matching_chunk(service: RetrievalService) -> None:
-    _publish(service.store, "RRC SOP", "RRC 建立失败时先检查告警和接入 KPI", {"network_type": "5g"}, ["wireless"])
+    _publish(
+        service.store,
+        "RRC SOP",
+        "RRC 建立失败时先检查告警和接入 KPI",
+        {"network_type": "5g"},
+        ["wireless"],
+    )
     hits = service.search("RRC 建立失败时先检查告警和接入 KPI", ["wireless"], top_k=3)
     assert len(hits) == 1
     assert "告警" in hits[0].content
@@ -48,7 +62,9 @@ def test_search_filters_out_of_scope(service: RetrievalService) -> None:
     from fastapi import HTTPException
 
     _publish(service.store, "无线", "RRC 建立失败检查告警", {"network_type": "5g"}, ["wireless"])
-    _publish(service.store, "传输", "光功率核查传输误码", {"network_type": "transport"}, ["transport"])
+    _publish(
+        service.store, "传输", "光功率核查传输误码", {"network_type": "transport"}, ["transport"]
+    )
     with pytest.raises(HTTPException) as exc:
         service.search("光功率核查传输误码", ["wireless"], top_k=3)
     assert exc.value.status_code == 404

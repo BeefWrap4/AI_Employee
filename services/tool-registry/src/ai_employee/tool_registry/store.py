@@ -5,6 +5,7 @@ Stores registered :class:`ToolSpec` rows.  Handlers are kept in-memory
 for the built-in demo tools); this keeps the schema focused on the
 declarative contract (name, description, schemas, risk level, service).
 """
+
 from __future__ import annotations
 
 import json
@@ -110,9 +111,7 @@ class ToolRegistryStore:
 
     def get(self, name: str) -> dict[str, Any] | None:
         with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM tools WHERE name = ?", (name,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM tools WHERE name = ?", (name,)).fetchone()
         return _row_to_dict(row) if row else None
 
     def list(self, *, service_name: str | None = None) -> list[dict[str, Any]]:
@@ -123,9 +122,7 @@ class ToolRegistryStore:
                     (service_name,),
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM tools ORDER BY name"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM tools ORDER BY name").fetchall()
         return [_row_to_dict(row) for row in rows]
 
 

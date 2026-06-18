@@ -1,6 +1,6 @@
 import json
-import pytest
 
+import pytest
 from ai_employee.eval.golden import GoldenItem, GoldenLoadError, load_golden
 
 
@@ -14,7 +14,16 @@ def test_load_golden_returns_twelve_items(tmp_path) -> None:
     path = _write_golden(
         tmp_path,
         [
-            json.dumps({"qid": f"q{i:02d}", "question": f"Q{i}", "expected_doc_title": f"D{i}", "scope": ["s"], "expect_refusal": False, "tags": ["hit"]})
+            json.dumps(
+                {
+                    "qid": f"q{i:02d}",
+                    "question": f"Q{i}",
+                    "expected_doc_title": f"D{i}",
+                    "scope": ["s"],
+                    "expect_refusal": False,
+                    "tags": ["hit"],
+                }
+            )
             for i in range(1, 13)
         ],
     )
@@ -47,32 +56,75 @@ def test_load_golden_empty_file(tmp_path) -> None:
 
 
 def test_load_golden_duplicate_qid(tmp_path) -> None:
-    line = json.dumps({"qid": "q01", "question": "x", "expected_doc_title": "D", "scope": [], "expect_refusal": False, "tags": []})
+    line = json.dumps(
+        {
+            "qid": "q01",
+            "question": "x",
+            "expected_doc_title": "D",
+            "scope": [],
+            "expect_refusal": False,
+            "tags": [],
+        }
+    )
     with pytest.raises(GoldenLoadError) as exc:
         load_golden(_write_golden(tmp_path, [line, line]))
     assert "重复" in str(exc.value) or "duplicate" in str(exc.value).lower()
 
 
 def test_load_golden_refusal_must_have_null_title(tmp_path) -> None:
-    bad = json.dumps({"qid": "q1", "question": "x", "expected_doc_title": "D", "scope": [], "expect_refusal": True, "tags": []})
+    bad = json.dumps(
+        {
+            "qid": "q1",
+            "question": "x",
+            "expected_doc_title": "D",
+            "scope": [],
+            "expect_refusal": True,
+            "tags": [],
+        }
+    )
     with pytest.raises(GoldenLoadError) as exc:
         load_golden(_write_golden(tmp_path, [bad]))
     assert "refusal" in str(exc.value).lower() or "拒答" in str(exc.value)
 
 
 def test_load_golden_hit_must_have_title(tmp_path) -> None:
-    bad = json.dumps({"qid": "q1", "question": "x", "expected_doc_title": None, "scope": [], "expect_refusal": False, "tags": []})
+    bad = json.dumps(
+        {
+            "qid": "q1",
+            "question": "x",
+            "expected_doc_title": None,
+            "scope": [],
+            "expect_refusal": False,
+            "tags": [],
+        }
+    )
     with pytest.raises(GoldenLoadError) as exc:
         load_golden(_write_golden(tmp_path, [bad]))
     assert "title" in str(exc.value).lower() or "标题" in str(exc.value)
 
 
 def test_load_golden_blank_question(tmp_path) -> None:
-    bad = json.dumps({"qid": "q1", "question": "  ", "expected_doc_title": "D", "scope": [], "expect_refusal": False, "tags": []})
+    bad = json.dumps(
+        {
+            "qid": "q1",
+            "question": "  ",
+            "expected_doc_title": "D",
+            "scope": [],
+            "expect_refusal": False,
+            "tags": [],
+        }
+    )
     with pytest.raises(GoldenLoadError):
         load_golden(_write_golden(tmp_path, [bad]))
 
 
 def test_golden_item_fields() -> None:
-    item = GoldenItem(qid="q01", question="x", expected_doc_title="D", scope=["s"], expect_refusal=False, tags=["hit"])
+    item = GoldenItem(
+        qid="q01",
+        question="x",
+        expected_doc_title="D",
+        scope=["s"],
+        expect_refusal=False,
+        tags=["hit"],
+    )
     assert item.qid == "q01" and item.expected_doc_title == "D"

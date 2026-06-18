@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 import httpx
-
 from ai_employee.eval.golden import load_golden
 from ai_employee.eval.metrics import EvalResult
 
@@ -50,7 +47,12 @@ class HttpApi:
         try:
             r = httpx.post(
                 f"{self.base_url}/api/v1/chat/query",
-                json={"session_id": "eval", "question": question, "knowledge_scopes": scopes, "stream": False},
+                json={
+                    "session_id": "eval",
+                    "question": question,
+                    "knowledge_scopes": scopes,
+                    "stream": False,
+                },
                 timeout=self.timeout,
             )
         except httpx.HTTPError as exc:
@@ -70,7 +72,7 @@ class Runner:
     def __init__(self, api: Api) -> None:
         self.api = api
 
-    def run(self, golden_path: str, top_ks: list[int]) -> list[EvalResult]:  # noqa: ARG002
+    def run(self, golden_path: str, top_ks: list[int]) -> list[EvalResult]:
         items = load_golden(golden_path)
         try:
             docs = self.api.list_documents()
@@ -78,10 +80,17 @@ class Runner:
             # 全部 errored
             return [
                 EvalResult(
-                    qid=it.qid, question=it.question, expected_doc_id=None,
-                    expect_refusal=it.expect_refusal, status_code=0,
-                    returned_doc_ids=[], answer="", latency_ms=0, error=str(exc),
-                ) for it in items
+                    qid=it.qid,
+                    question=it.question,
+                    expected_doc_id=None,
+                    expect_refusal=it.expect_refusal,
+                    status_code=0,
+                    returned_doc_ids=[],
+                    answer="",
+                    latency_ms=0,
+                    error=str(exc),
+                )
+                for it in items
             ]
         title_to_id = build_title_to_doc_id(docs)
 
@@ -93,32 +102,55 @@ class Runner:
                 resp = self.api.chat_query(question=it.question, scopes=it.scope)
             except ApiNotFound:
                 latency_ms = int((time.perf_counter() - t0) * 1000)
-                results.append(EvalResult(
-                    qid=it.qid, question=it.question, expected_doc_id=expected_id,
-                    expect_refusal=it.expect_refusal, status_code=404,
-                    returned_doc_ids=[], answer="", latency_ms=latency_ms, error=None,
-                ))
+                results.append(
+                    EvalResult(
+                        qid=it.qid,
+                        question=it.question,
+                        expected_doc_id=expected_id,
+                        expect_refusal=it.expect_refusal,
+                        status_code=404,
+                        returned_doc_ids=[],
+                        answer="",
+                        latency_ms=latency_ms,
+                        error=None,
+                    )
+                )
                 continue
             except ApiError as exc:
                 latency_ms = int((time.perf_counter() - t0) * 1000)
-                results.append(EvalResult(
-                    qid=it.qid, question=it.question, expected_doc_id=expected_id,
-                    expect_refusal=it.expect_refusal, status_code=0,
-                    returned_doc_ids=[], answer="", latency_ms=latency_ms, error=str(exc),
-                ))
+                results.append(
+                    EvalResult(
+                        qid=it.qid,
+                        question=it.question,
+                        expected_doc_id=expected_id,
+                        expect_refusal=it.expect_refusal,
+                        status_code=0,
+                        returned_doc_ids=[],
+                        answer="",
+                        latency_ms=latency_ms,
+                        error=str(exc),
+                    )
+                )
                 continue
             latency_ms = int((time.perf_counter() - t0) * 1000)
             returned = [c.get("doc_id") for c in resp.get("citations", []) if c.get("doc_id")]
-            results.append(EvalResult(
-                qid=it.qid, question=it.question, expected_doc_id=expected_id,
-                expect_refusal=it.expect_refusal, status_code=200,
-                returned_doc_ids=returned, answer=resp.get("answer", ""),
-                latency_ms=latency_ms, error=None,
-            ))
+            results.append(
+                EvalResult(
+                    qid=it.qid,
+                    question=it.question,
+                    expected_doc_id=expected_id,
+                    expect_refusal=it.expect_refusal,
+                    status_code=200,
+                    returned_doc_ids=returned,
+                    answer=resp.get("answer", ""),
+                    latency_ms=latency_ms,
+                    error=None,
+                )
+            )
         return results
 
 
-def run(  # noqa: A001
+def run(
     *,
     golden_path: str,
     api_base: str,

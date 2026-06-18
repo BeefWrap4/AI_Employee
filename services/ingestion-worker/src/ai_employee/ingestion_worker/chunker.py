@@ -69,11 +69,7 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
             if not block:
                 continue
             prospective_len = buffer_len + len(block) + 1
-            if (
-                buffer
-                and prospective_len <= _MERGE_MAX_LEN
-                and len(buffer) < _MERGE_MAX_BLOCKS
-            ):
+            if buffer and prospective_len <= _MERGE_MAX_LEN and len(buffer) < _MERGE_MAX_BLOCKS:
                 buffer.append(block)
                 buffer_len = prospective_len
             else:

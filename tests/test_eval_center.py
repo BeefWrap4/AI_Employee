@@ -13,16 +13,15 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.common_schemas.eval import (
     UnifiedReport,
-    to_unified_rca,
     to_unified_rag,
+    to_unified_rca,
 )
 from ai_employee.eval.metrics import EvalMetrics, EvalResult
+from fastapi.testclient import TestClient
 
 
 def _fake_rag_metrics() -> EvalMetrics:
@@ -42,7 +41,13 @@ def _fake_rag_metrics() -> EvalMetrics:
         latency_mean_ms=120.0,
         per_item=[
             {"qid": "q1", "verdict": "hit@1", "expected": "doc_a", "returned": ["doc_a"]},
-            {"qid": "q2", "verdict": "refusal", "expected": None, "returned": [], "status_code": 404},
+            {
+                "qid": "q2",
+                "verdict": "refusal",
+                "expected": None,
+                "returned": [],
+                "status_code": 404,
+            },
         ],
     )
 
@@ -253,9 +258,7 @@ def _fake_rag_results() -> list[EvalResult]:
     ]
 
 
-def test_post_rag_eval_run_executes_and_persists_unified_report(
-    eval_client, monkeypatch
-) -> None:
+def test_post_rag_eval_run_executes_and_persists_unified_report(eval_client, monkeypatch) -> None:
     monkeypatch.setattr("ai_employee.eval.runner.run", lambda **kwargs: _fake_rag_results())
 
     response = eval_client.post(
@@ -293,9 +296,7 @@ def test_post_rag_eval_run_executes_and_persists_unified_report(
     assert fetched.json()["trace_id"].startswith("trace_eval_")
 
 
-def test_post_rca_eval_run_executes_and_persists_unified_report(
-    eval_client, monkeypatch
-) -> None:
+def test_post_rca_eval_run_executes_and_persists_unified_report(eval_client, monkeypatch) -> None:
     monkeypatch.setattr(
         "ai_employee.rca_agent.replay.run_replay_file",
         lambda path: _fake_rca_replay_result(),

@@ -1,7 +1,4 @@
 import json
-from datetime import datetime, timezone
-
-import pytest
 
 from ai_employee.eval.metrics import EvalMetrics, EvalResult, compute
 from ai_employee.eval.report import build_report, render_json, render_markdown
@@ -38,8 +35,12 @@ def test_build_report_returns_dict_with_required_keys() -> None:
 def test_build_report_pass_under_thresholds() -> None:
     metrics = compute(_sample_results(), top_ks=[1])
     rpt = build_report(
-        metrics=metrics, golden_path="g", api_base="a", top_ks=[1],
-        ts="t", thresholds={"top1": 0.0, "top3": 0.0, "refusal": 0.0},
+        metrics=metrics,
+        golden_path="g",
+        api_base="a",
+        top_ks=[1],
+        ts="t",
+        thresholds={"top1": 0.0, "top3": 0.0, "refusal": 0.0},
     )
     assert rpt["pass"] is True
 
@@ -47,8 +48,12 @@ def test_build_report_pass_under_thresholds() -> None:
 def test_build_report_fail_when_below_threshold() -> None:
     metrics = compute(_sample_results(), top_ks=[1])
     rpt = build_report(
-        metrics=metrics, golden_path="g", api_base="a", top_ks=[1],
-        ts="t", thresholds={"top1": 0.99, "top3": 0.99, "refusal": 0.0},
+        metrics=metrics,
+        golden_path="g",
+        api_base="a",
+        top_ks=[1],
+        ts="t",
+        thresholds={"top1": 0.99, "top3": 0.99, "refusal": 0.0},
     )
     assert rpt["pass"] is False
 
@@ -56,23 +61,42 @@ def test_build_report_fail_when_below_threshold() -> None:
 def test_build_report_fail_on_refusal_violation() -> None:
     # 有应拒未拒（refusal_violations>0）即使其他指标都高也 FAIL
     metrics = EvalMetrics(
-        total=2, errored=0, refusal_violations=1, eligible_for_hit=1,
-        hit_counts={1: 1, 3: 1}, hit_rates={1: 1.0, 3: 1.0},
-        citation_coverage=1.0, refusal_expected=1, refusal_correct=0,
-        refusal_accuracy=0.0, latency_p50_ms=10, latency_p95_ms=10, latency_mean_ms=10,
+        total=2,
+        errored=0,
+        refusal_violations=1,
+        eligible_for_hit=1,
+        hit_counts={1: 1, 3: 1},
+        hit_rates={1: 1.0, 3: 1.0},
+        citation_coverage=1.0,
+        refusal_expected=1,
+        refusal_correct=0,
+        refusal_accuracy=0.0,
+        latency_p50_ms=10,
+        latency_p95_ms=10,
+        latency_mean_ms=10,
         per_item=[],
     )
     rpt = build_report(
-        metrics=metrics, golden_path="g", api_base="a", top_ks=[1],
-        ts="t", thresholds={"top1": 0.0, "top3": 0.0, "refusal": 0.0},
+        metrics=metrics,
+        golden_path="g",
+        api_base="a",
+        top_ks=[1],
+        ts="t",
+        thresholds={"top1": 0.0, "top3": 0.0, "refusal": 0.0},
     )
     assert rpt["pass"] is False
 
 
 def test_render_json_is_valid_json() -> None:
     metrics = compute(_sample_results(), top_ks=[1])
-    rpt = build_report(metrics, golden_path="g", api_base="a", top_ks=[1],
-                       ts="t", thresholds={"top1": 0, "top3": 0, "refusal": 0})
+    rpt = build_report(
+        metrics,
+        golden_path="g",
+        api_base="a",
+        top_ks=[1],
+        ts="t",
+        thresholds={"top1": 0, "top3": 0, "refusal": 0},
+    )
     s = render_json(rpt)
     parsed = json.loads(s)
     assert parsed["ts"] == "t"
@@ -81,7 +105,11 @@ def test_render_json_is_valid_json() -> None:
 def test_render_markdown_contains_table() -> None:
     metrics = compute(_sample_results(), top_ks=[1, 3])
     rpt = build_report(
-        metrics, golden_path="g", api_base="a", top_ks=[1, 3], ts="t",
+        metrics,
+        golden_path="g",
+        api_base="a",
+        top_ks=[1, 3],
+        ts="t",
         thresholds={"top1": 0.6, "top3": 0.8, "refusal": 0.9},
     )
     md = render_markdown(rpt)
@@ -95,7 +123,11 @@ def test_render_markdown_contains_table() -> None:
 def test_render_markdown_emoji_under_threshold() -> None:
     metrics = compute(_sample_results(), top_ks=[1])
     rpt = build_report(
-        metrics, golden_path="g", api_base="a", top_ks=[1], ts="t",
+        metrics,
+        golden_path="g",
+        api_base="a",
+        top_ks=[1],
+        ts="t",
         thresholds={"top1": 0.99, "top3": 0.99, "refusal": 0.0},
     )
     md = render_markdown(rpt)

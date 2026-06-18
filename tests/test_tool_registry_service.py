@@ -1,12 +1,12 @@
 """tool-registry service API tests."""
+
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.auth_policy import issue_token
 from ai_employee.tool_registry.app import create_app
 from ai_employee.tool_registry.store import ToolRegistryStore
+from fastapi.testclient import TestClient
 
 SECRET = "test-secret-please-rotate-super-long-key-32b"
 
@@ -30,7 +30,10 @@ def _admin_headers() -> dict[str, str]:
 
 def _operator_headers() -> dict[str, str]:
     token = issue_token(
-        subject="alice", roles=["operator"], scopes=["tool:invoke"], secret=SECRET,
+        subject="alice",
+        roles=["operator"],
+        scopes=["tool:invoke"],
+        secret=SECRET,
     )
     return {"Authorization": f"Bearer {token}"}
 

@@ -3,8 +3,9 @@ import json
 from fastapi.testclient import TestClient
 
 
-def _upload_and_publish(client: TestClient, *, title: str, content: str,
-                         metadata: dict, acl_tags: list[str]) -> str:
+def _upload_and_publish(
+    client: TestClient, *, title: str, content: str, metadata: dict, acl_tags: list[str]
+) -> str:
     r = client.post(
         "/api/v1/documents",
         files={"file": (f"{title}.md", content.encode("utf-8"), "text/markdown")},
@@ -25,7 +26,12 @@ def _upload_and_publish(client: TestClient, *, title: str, content: str,
 def _query(client: TestClient, *, session: str, question: str, scopes: list[str]) -> dict:
     r = client.post(
         "/api/v1/chat/query",
-        json={"session_id": session, "question": question, "knowledge_scopes": scopes, "stream": False},
+        json={
+            "session_id": session,
+            "question": question,
+            "knowledge_scopes": scopes,
+            "stream": False,
+        },
     )
     assert r.status_code == 200, r.text
     return r.json()
@@ -33,14 +39,18 @@ def _query(client: TestClient, *, session: str, question: str, scopes: list[str]
 
 def test_list_documents_published(client: TestClient) -> None:
     d1 = _upload_and_publish(
-        client, title="5G 接入排障 SOP",
+        client,
+        title="5G 接入排障 SOP",
         content="RRC 建立失败先检查告警和接入 KPI。",
-        metadata={"network_type": "5g"}, acl_tags=["wireless"],
+        metadata={"network_type": "5g"},
+        acl_tags=["wireless"],
     )
     d2 = _upload_and_publish(
-        client, title="传输链路 SOP",
+        client,
+        title="传输链路 SOP",
         content="光功率下降核查端口误码。",
-        metadata={"network_type": "transport"}, acl_tags=["transport"],
+        metadata={"network_type": "transport"},
+        acl_tags=["transport"],
     )
     r = client.get("/api/v1/documents?status=published&page=1&page_size=10")
     assert r.status_code == 200
@@ -55,8 +65,11 @@ def test_list_documents_published(client: TestClient) -> None:
 def test_list_documents_pagination(client: TestClient) -> None:
     for i in range(5):
         _upload_and_publish(
-            client, title=f"D{i}", content=f"c{i}",
-            metadata={}, acl_tags=[],
+            client,
+            title=f"D{i}",
+            content=f"c{i}",
+            metadata={},
+            acl_tags=[],
         )
     r = client.get("/api/v1/documents?page=1&page_size=2")
     assert r.status_code == 200
@@ -70,12 +83,15 @@ def test_list_documents_pagination(client: TestClient) -> None:
 
 def test_qa_log_round_trip(client: TestClient) -> None:
     _upload_and_publish(
-        client, title="5G SOP",
+        client,
+        title="5G SOP",
         content="RRC 建立失败先查告警。",
-        metadata={"network_type": "5g"}, acl_tags=["wireless"],
+        metadata={"network_type": "5g"},
+        acl_tags=["wireless"],
     )
     answer = _query(
-        client, session="sess_audit_1",
+        client,
+        session="sess_audit_1",
         question="RRC 建立失败先查告警。",
         scopes=["wireless"],
     )
@@ -99,9 +115,11 @@ def test_get_qa_log_missing_404(client: TestClient) -> None:
 
 def test_list_qa_logs_filter_session(client: TestClient) -> None:
     _upload_and_publish(
-        client, title="5G SOP",
+        client,
+        title="5G SOP",
         content="RRC 建立失败先查告警。",
-        metadata={"network_type": "5g"}, acl_tags=["wireless"],
+        metadata={"network_type": "5g"},
+        acl_tags=["wireless"],
     )
     _query(client, session="sA1", question="RRC 建立失败先查告警。", scopes=["wireless"])
     _query(client, session="sB1", question="RRC 建立失败先查告警。", scopes=["wireless"])
@@ -119,17 +137,23 @@ def test_list_qa_logs_filter_session(client: TestClient) -> None:
 
 def test_feedback_list_filter_trace(client: TestClient) -> None:
     _upload_and_publish(
-        client, title="5G SOP",
+        client,
+        title="5G SOP",
         content="RRC 建立失败先查告警。",
-        metadata={"network_type": "5g"}, acl_tags=["wireless"],
+        metadata={"network_type": "5g"},
+        acl_tags=["wireless"],
     )
     answer = _query(
-        client, session="sFB", question="RRC 建立失败先查告警。",
+        client,
+        session="sFB",
+        question="RRC 建立失败先查告警。",
         scopes=["wireless"],
     )
     trace_id = answer["trace_id"]
     # 提交 feedback
-    fr = client.post("/api/v1/feedback", json={"trace_id": trace_id, "feedback_type": "useful", "comment": "好"})
+    fr = client.post(
+        "/api/v1/feedback", json={"trace_id": trace_id, "feedback_type": "useful", "comment": "好"}
+    )
     assert fr.status_code == 201
 
     r = client.get(f"/api/v1/feedbacks?trace_id={trace_id}")
@@ -143,13 +167,17 @@ def test_feedback_list_filter_trace(client: TestClient) -> None:
 
 def test_list_qa_logs_since_filter(client: TestClient) -> None:
     _upload_and_publish(
-        client, title="5G SOP",
+        client,
+        title="5G SOP",
         content="RRC 建立失败先查告警。",
-        metadata={"network_type": "5g"}, acl_tags=["wireless"],
+        metadata={"network_type": "5g"},
+        acl_tags=["wireless"],
     )
     _query(client, session="sZ", question="RRC 建立失败先查告警。", scopes=["wireless"])
     # 设一个很早的 since，应返回 0
-    r = client.get("/api/v1/qa-logs?since=2000-01-01T00:00:00%2B00:00&until=2000-01-02T00:00:00%2B00:00")
+    r = client.get(
+        "/api/v1/qa-logs?since=2000-01-01T00:00:00%2B00:00&until=2000-01-02T00:00:00%2B00:00"
+    )
     assert r.status_code == 200
     assert r.json()["total"] == 0
     # 一个晚的 since，应返回 1

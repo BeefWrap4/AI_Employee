@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
-
 from ai_employee.common_schemas.knowledge import ParseResponse
 
 

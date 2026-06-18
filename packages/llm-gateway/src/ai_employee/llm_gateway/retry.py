@@ -59,7 +59,7 @@ def retry(
                     resp = func(*args, **kwargs)
                 except Exception:
                     if attempt < max_retries:
-                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        delay = min(base_delay * (2**attempt), max_delay)
                         time.sleep(delay)
                         continue
                     raise
@@ -72,7 +72,7 @@ def retry(
                         last_status=resp.status_code,
                     )
                 if attempt < max_retries:
-                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    delay = min(base_delay * (2**attempt), max_delay)
                     time.sleep(delay)
                     continue
                 raise RetryExhaustedError(

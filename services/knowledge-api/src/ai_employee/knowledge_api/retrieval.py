@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-
-from fastapi import HTTPException, status
 
 from ai_employee.common_schemas.acl import resolve_visible_docs
 from ai_employee.common_schemas.embedding import (
@@ -21,6 +20,7 @@ from ai_employee.common_schemas.vector_store import (
     build_vector_store,
 )
 from ai_employee.knowledge_api.store import SQLiteStore
+from fastapi import HTTPException, status
 
 
 @dataclass
@@ -42,7 +42,7 @@ class RetrievalService:
         top_k: int = 3,
         sparse_store: OpenSearchSparseStore | StubSparseStore | None = None,
         vector_store: VectorStore | None = None,
-        query_rewriter: QueryRewriter | None = None,
+        query_rewriter: Callable[[str], str] | None = None,
     ) -> None:
         self.store = store
         self.query_provider = query_provider or StubEmbeddingProvider(dim=8)
@@ -69,7 +69,7 @@ class RetrievalService:
         scopes: list[str],
         scope_or: list[str] | None = None,
         top_k: int | None = None,
-        query_rewriter: QueryRewriter | None = None,
+        query_rewriter: Callable[[str], str] | None = None,
     ) -> list[RetrievalHit]:
         top_k = top_k or self.top_k
         scope_or = scope_or or []
@@ -87,7 +87,10 @@ class RetrievalService:
         # Fall back to SQLite FTS5 when OpenSearch is not enabled or returns nothing.
         bm25_rows: list[dict] = []
         os_results = self.sparse_store.search(
-            "knowledge_base", question, doc_ids_filter=doc_ids, top_k=20,
+            "knowledge_base",
+            question,
+            doc_ids_filter=doc_ids,
+            top_k=20,
         )
         if os_results:
             # OpenSearch returned results -- use them as BM25 recall.
@@ -119,6 +122,7 @@ class RetrievalService:
             question_vec = _embed_question(self.query_provider, question)
         except EmbeddingUnavailableError as exc:
             import time as _t
+
             trace_id = f"trace_{int(_t.time() * 1000)}_embed_unavailable"
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -141,7 +145,10 @@ class RetrievalService:
                 # Build filter expression for doc_id filtering
                 filter_expr = _build_milvus_filter(doc_ids)
                 milvus_hits = self.vector_store.search(
-                    "chunks", question_vec, top_k=max(20, top_k * 3), filter_expr=filter_expr,
+                    "chunks",
+                    question_vec,
+                    top_k=max(20, top_k * 3),
+                    filter_expr=filter_expr,
                 )
                 _used_milvus = len(milvus_hits) > 0
             except Exception:
@@ -209,13 +216,11 @@ class RetrievalService:
             )
         return hits
 
-    def _filter_chunk_acl(
-        self, rows: list[dict], effective_scopes: set[str]
-    ) -> list[dict]:
+    def _filter_chunk_acl(self, rows: list[dict], effective_scopes: set[str]) -> list[dict]:
         """chunk 级 ACL 过滤：
-          - effective_scopes 为空 → 全部保留（已通过文档级 ACL）
-          - chunk.acl_tags 为空 → 视为继承 doc（已通过文档级 ACL，保留）
-          - chunk.acl_tags 非空 → 必须与 effective_scopes 相交
+        - effective_scopes 为空 → 全部保留（已通过文档级 ACL）
+        - chunk.acl_tags 为空 → 视为继承 doc（已通过文档级 ACL，保留）
+        - chunk.acl_tags 非空 → 必须与 effective_scopes 相交
         """
         if not effective_scopes:
             return list(rows)
@@ -246,7 +251,7 @@ def _embed_question(provider: EmbeddingProvider, question: str) -> list[float]:
 def _cosine(a: list[float], b: list[float]) -> float:
     if len(a) != len(b) or not a:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     if na == 0 or nb == 0:

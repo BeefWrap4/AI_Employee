@@ -2,21 +2,21 @@
 Tests for OpenSearchSparseStore and StubSparseStore.
 Uses a mocked opensearchpy client so no real OpenSearch instance is required.
 """
+
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from ai_employee.common_schemas.sparse_store import (
     OpenSearchSparseStore,
     StubSparseStore,
 )
 
-
 # ---------------------------------------------------------------------------
 # StubSparseStore tests
 # ---------------------------------------------------------------------------
+
 
 class TestStubSparseStore:
     """In-memory keyword-match store for testing and MVP development."""
@@ -66,8 +66,18 @@ class TestStubSparseStore:
     def test_search_filter_by_doc_ids(self) -> None:
         store = StubSparseStore()
         docs = [
-            {"chunk_id": "c1", "content": "5G troubleshooting", "section_path": "/a", "doc_id": "doc_001"},
-            {"chunk_id": "c2", "content": "5G optimization", "section_path": "/b", "doc_id": "doc_002"},
+            {
+                "chunk_id": "c1",
+                "content": "5G troubleshooting",
+                "section_path": "/a",
+                "doc_id": "doc_001",
+            },
+            {
+                "chunk_id": "c2",
+                "content": "5G optimization",
+                "section_path": "/b",
+                "doc_id": "doc_002",
+            },
         ]
         store.bulk_index("kb", docs)
 
@@ -78,8 +88,18 @@ class TestStubSparseStore:
     def test_search_doc_ids_filter_none_includes_all(self) -> None:
         store = StubSparseStore()
         docs = [
-            {"chunk_id": "c1", "content": "5G troubleshooting", "section_path": "/a", "doc_id": "doc_001"},
-            {"chunk_id": "c2", "content": "5G optimization", "section_path": "/b", "doc_id": "doc_002"},
+            {
+                "chunk_id": "c1",
+                "content": "5G troubleshooting",
+                "section_path": "/a",
+                "doc_id": "doc_001",
+            },
+            {
+                "chunk_id": "c2",
+                "content": "5G optimization",
+                "section_path": "/b",
+                "doc_id": "doc_002",
+            },
         ]
         store.bulk_index("kb", docs)
 
@@ -112,6 +132,7 @@ class TestStubSparseStore:
 # OpenSearchSparseStore tests (mocked opensearchpy)
 # ---------------------------------------------------------------------------
 
+
 class TestOpenSearchSparseStore:
     """Tests using a mocked opensearchpy.OpenSearch client."""
 
@@ -134,7 +155,9 @@ class TestOpenSearchSparseStore:
         call_kwargs = mock_client.indices.create.call_args.kwargs
         assert call_kwargs["index"] == "test_index"
 
-    def test_create_index_already_exists(self, store: OpenSearchSparseStore, mock_client: MagicMock) -> None:
+    def test_create_index_already_exists(
+        self, store: OpenSearchSparseStore, mock_client: MagicMock
+    ) -> None:
         mock_client.indices.exists.return_value = True
         store.create_index("test_index")
         mock_client.indices.create.assert_not_called()
@@ -143,7 +166,12 @@ class TestOpenSearchSparseStore:
         mock_client.bulk.return_value = {"errors": False}
 
         docs = [
-            {"chunk_id": "c1", "content": "5G troubleshooting", "section_path": "/a", "doc_id": "d1"},
+            {
+                "chunk_id": "c1",
+                "content": "5G troubleshooting",
+                "section_path": "/a",
+                "doc_id": "d1",
+            },
             {"chunk_id": "c2", "content": "LTE handover", "section_path": "/b", "doc_id": "d2"},
         ]
         store.bulk_index("kb", docs)
@@ -182,14 +210,14 @@ class TestOpenSearchSparseStore:
         assert results[0]["section_path"] == "/troubleshooting"
 
     def test_search_no_results(self, store: OpenSearchSparseStore, mock_client: MagicMock) -> None:
-        mock_client.search.return_value = {
-            "hits": {"total": {"value": 0}, "hits": []}
-        }
+        mock_client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
 
         results = store.search("kb", "nothing matches this")
         assert results == []
 
-    def test_search_with_doc_ids_filter(self, store: OpenSearchSparseStore, mock_client: MagicMock) -> None:
+    def test_search_with_doc_ids_filter(
+        self, store: OpenSearchSparseStore, mock_client: MagicMock
+    ) -> None:
         mock_client.search.return_value = {
             "hits": {
                 "total": {"value": 1},
@@ -197,7 +225,12 @@ class TestOpenSearchSparseStore:
                     {
                         "_id": "c1",
                         "_score": 1.0,
-                        "_source": {"chunk_id": "c1", "doc_id": "d1", "content": "x", "section_path": "/"},
+                        "_source": {
+                            "chunk_id": "c1",
+                            "doc_id": "d1",
+                            "content": "x",
+                            "section_path": "/",
+                        },
                     }
                 ],
             }
@@ -212,10 +245,10 @@ class TestOpenSearchSparseStore:
         assert "terms" in body_str
         assert "doc_id" in body_str
 
-    def test_search_doc_ids_filter_none(self, store: OpenSearchSparseStore, mock_client: MagicMock) -> None:
-        mock_client.search.return_value = {
-            "hits": {"total": {"value": 0}, "hits": []}
-        }
+    def test_search_doc_ids_filter_none(
+        self, store: OpenSearchSparseStore, mock_client: MagicMock
+    ) -> None:
+        mock_client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
 
         store.search("kb", "test", doc_ids_filter=None)
         call_body = mock_client.search.call_args.kwargs["body"]
@@ -224,9 +257,7 @@ class TestOpenSearchSparseStore:
         assert "terms" not in body_str
 
     def test_search_top_k(self, store: OpenSearchSparseStore, mock_client: MagicMock) -> None:
-        mock_client.search.return_value = {
-            "hits": {"total": {"value": 0}, "hits": []}
-        }
+        mock_client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
 
         store.search("kb", "test", top_k=5)
         assert mock_client.search.call_args.kwargs["body"]["size"] == 5
@@ -253,4 +284,6 @@ class TestOpenSearchSparseStore:
         store._fallback = None
 
         # Should not raise
-        store.bulk_index("kb", [{"chunk_id": "c1", "content": "x", "section_path": "/", "doc_id": "d1"}])
+        store.bulk_index(
+            "kb", [{"chunk_id": "c1", "content": "x", "section_path": "/", "doc_id": "d1"}]
+        )

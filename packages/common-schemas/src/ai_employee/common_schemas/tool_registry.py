@@ -13,11 +13,13 @@ so the spec can be exercised in unit tests without an extra dependency.
 The JSON shape is compatible with ``tools/list`` responses from
 real MCP servers.
 """
+
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping
+from typing import Any
 
 JsonDict = dict[str, Any]
 

@@ -1,16 +1,14 @@
 """Tests for the llm_gateway package: LlmClient, PromptTemplate, retry."""
+
 from __future__ import annotations
 
-import json
 from unittest import mock
 
 import httpx
 import pytest
-
 from ai_employee.llm_gateway.client import ChatResponse, LlmClient, LlmClientError
 from ai_employee.llm_gateway.prompt import RAG_ANSWER_TEMPLATE, PromptTemplate
 from ai_employee.llm_gateway.retry import RetryExhaustedError, retry
-
 
 # ---------------------------------------------------------------------------
 # PromptTemplate tests
@@ -97,11 +95,18 @@ class TestLlmClient:
             api_key="sk-test",
             model="test-model",
         )
-        with mock.patch.object(httpx, "post", return_value=_fake_response(200, {
-            "choices": [{"message": {"content": "Hello!"}}],
-            "model": "test-model",
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        })):
+        with mock.patch.object(
+            httpx,
+            "post",
+            return_value=_fake_response(
+                200,
+                {
+                    "choices": [{"message": {"content": "Hello!"}}],
+                    "model": "test-model",
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                },
+            ),
+        ):
             result = client.chat(
                 messages=[{"role": "user", "content": "hi"}],
                 temperature=0.0,
@@ -147,15 +152,20 @@ class TestLlmClient:
         with mock.patch.object(httpx, "post", return_value=raw_resp):
             with pytest.raises(LlmClientError) as exc_info:
                 client.chat(messages=[{"role": "user", "content": "hi"}])
-        assert "invalid JSON" in str(exc_info.value).lower() or "json" in str(exc_info.value).lower()
+        assert (
+            "invalid JSON" in str(exc_info.value).lower() or "json" in str(exc_info.value).lower()
+        )
 
     def test_chat_strips_trailing_slash_from_base_url(self) -> None:
         client = LlmClient(base_url="http://test/", api_key="sk-test")
         with mock.patch.object(httpx, "post") as mock_post:
-            mock_post.return_value = _fake_response(200, {
-                "choices": [{"message": {"content": "ok"}}],
-                "usage": {},
-            })
+            mock_post.return_value = _fake_response(
+                200,
+                {
+                    "choices": [{"message": {"content": "ok"}}],
+                    "usage": {},
+                },
+            )
             client.chat(messages=[{"role": "user", "content": "hi"}])
             url_called = mock_post.call_args[0][0]
             assert not url_called.endswith("//chat/completions")

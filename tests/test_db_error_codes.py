@@ -1,11 +1,10 @@
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import sqlite3
-from fastapi import HTTPException
-
 from ai_employee.knowledge_api.store import SQLiteStore
+from fastapi import HTTPException
 
 
 @pytest.fixture
@@ -22,8 +21,11 @@ def test_db_locked_retries_then_raises(store: SQLiteStore) -> None:
     def fake_connect(self):
         calls["n"] += 1
         raise sqlite3.OperationalError("database is locked")
-    with patch.object(SQLiteStore, "_connect", fake_connect), \
-         patch("ai_employee.knowledge_api.store.time.sleep", lambda *_: None):
+
+    with (
+        patch.object(SQLiteStore, "_connect", fake_connect),
+        patch("ai_employee.knowledge_api.store.time.sleep", lambda *_: None),
+    ):
         with pytest.raises(HTTPException) as exc:
             store.create_document("SOP", "/tmp/x", "text/plain", {}, [], "v1")
     assert exc.value.status_code == 500
@@ -38,6 +40,7 @@ def test_other_operational_error_raises_db_write_failed(store: SQLiteStore) -> N
     def fake_connect(self):
         calls["n"] += 1
         raise sqlite3.OperationalError("disk I/O error")
+
     with patch.object(SQLiteStore, "_connect", fake_connect):
         with pytest.raises(HTTPException) as exc:
             store.create_document("SOP", "/tmp/x", "text/plain", {}, [], "v1")
@@ -51,26 +54,39 @@ def test_integrity_error_raises_db_write_failed(store: SQLiteStore) -> None:
     """IntegrityError（UNIQUE 冲突）→ db_write_failed。"""
     # 先建一个 doc
     store.create_document("A", "/tmp/x", "text/plain", {}, [], "v1")
+
     # 触发 UNIQUE 冲突：手工插入
     def fake_execute(*a, **kw):
         raise sqlite3.IntegrityError("UNIQUE constraint failed: documents.doc_id")
+
     import sqlite3 as _sq
+
     real_connect = SQLiteStore._connect
+
     def fake_connect(self):
         ctx = real_connect(self)
+
         class _Wrap:
             def __init__(self, c):
                 self._c = c
-            def __enter__(self): return self
+
+            def __enter__(self):
+                return self
+
             def __exit__(self, exc_type, exc, tb):
                 self._c.close()
                 return False  # 不抑制异常
+
             def execute(self, sql, *args, **kwargs):
                 if "INSERT INTO documents" in sql:
                     raise _sq.IntegrityError("UNIQUE constraint failed: documents.doc_id")
                 return self._c.execute(sql, *args, **kwargs)
-            def commit(self): self._c.commit()
+
+            def commit(self):
+                self._c.commit()
+
         return _Wrap(ctx)
+
     with patch.object(SQLiteStore, "_connect", fake_connect):
         with pytest.raises(HTTPException) as exc:
             store.create_document("B", "/tmp/x", "text/plain", {}, [], "v1")

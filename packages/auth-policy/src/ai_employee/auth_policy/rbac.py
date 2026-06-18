@@ -5,10 +5,10 @@ service-level scopes and resource-level permissions.  Roles are
 intentionally coarse-grained; fine-grained access is expressed via
 scopes carried in the JWT.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
 
 # Canonical permission strings.  Naming: ``<domain>:<action>``.
 PERM_KNOWLEDGE_READ = "knowledge:read"

@@ -5,6 +5,10 @@ Shared authorization primitives for the AI Employee platform.  See
 enforcement, and ``policy`` for tool risk-level → permission mapping.
 """
 
+from ai_employee.auth_policy.fastapi_dep import (
+    require_internal_or_jwt,
+    require_jwt,
+)
 from ai_employee.auth_policy.jwt import (
     DEFAULT_ALGORITHM,
     DEFAULT_AUDIENCE,
@@ -25,7 +29,6 @@ from ai_employee.auth_policy.policy import (
     permission_for_risk_level,
 )
 from ai_employee.auth_policy.rbac import (
-    AccessDecision,
     PERM_ADMIN,
     PERM_AGENT_APPROVE,
     PERM_AGENT_RUN,
@@ -39,15 +42,12 @@ from ai_employee.auth_policy.rbac import (
     PERM_TOOL_INVOKE,
     PERM_TOOL_REGISTER,
     ROLE_PERMISSIONS,
+    AccessDecision,
     can,
     can_access_resource,
     can_any,
     permissions_for,
     permissions_for_roles,
-)
-from ai_employee.auth_policy.fastapi_dep import (
-    require_internal_or_jwt,
-    require_jwt,
 )
 
 __all__ = [

@@ -1,10 +1,10 @@
 """Tool registry protocol tests."""
+
 from __future__ import annotations
 
 import json
 
 import pytest
-
 from ai_employee.common_schemas.tool_registry import (
     ToolInvocationError,
     ToolNotFound,
@@ -35,8 +35,10 @@ def test_register_and_get_tool() -> None:
 def test_register_duplicate_raises() -> None:
     reg = ToolRegistry()
     spec = ToolSpec(
-        name="dup", description="x",
-        input_schema={}, output_schema={},
+        name="dup",
+        description="x",
+        input_schema={},
+        output_schema={},
     )
     reg.register(spec)
     with pytest.raises(ValueError):
@@ -59,24 +61,39 @@ def test_list_returns_all_tools() -> None:
 
 def test_list_by_service_filters() -> None:
     reg = ToolRegistry()
-    reg.register(ToolSpec(
-        name="k.q", description="x", input_schema={}, output_schema={},
-        service_name="knowledge-api",
-    ))
-    reg.register(ToolSpec(
-        name="r.r", description="y", input_schema={}, output_schema={},
-        service_name="rca-agent",
-    ))
+    reg.register(
+        ToolSpec(
+            name="k.q",
+            description="x",
+            input_schema={},
+            output_schema={},
+            service_name="knowledge-api",
+        )
+    )
+    reg.register(
+        ToolSpec(
+            name="r.r",
+            description="y",
+            input_schema={},
+            output_schema={},
+            service_name="rca-agent",
+        )
+    )
     matches = reg.list_by_service("knowledge-api")
     assert [t.name for t in matches] == ["k.q"]
 
 
 def test_invoke_runs_handler_with_arguments() -> None:
     reg = ToolRegistry()
+
     def handler(question: str, top_k: int = 3) -> dict:
         return {"answer": f"top {top_k} hits for {question}"}
+
     spec = ToolSpec(
-        name="demo", description="x", input_schema={}, output_schema={},
+        name="demo",
+        description="x",
+        input_schema={},
+        output_schema={},
         handler=handler,
     )
     reg.register(spec)
@@ -86,46 +103,68 @@ def test_invoke_runs_handler_with_arguments() -> None:
 
 def test_invoke_without_handler_raises() -> None:
     reg = ToolRegistry()
-    reg.register(ToolSpec(
-        name="nohandler", description="x", input_schema={}, output_schema={},
-    ))
+    reg.register(
+        ToolSpec(
+            name="nohandler",
+            description="x",
+            input_schema={},
+            output_schema={},
+        )
+    )
     with pytest.raises(ToolInvocationError):
         reg.invoke("nohandler", {})
 
 
 def test_invoke_with_bad_arguments_raises() -> None:
     reg = ToolRegistry()
+
     def handler(question: str) -> dict:
         return {"answer": question}
-    reg.register(ToolSpec(
-        name="badargs", description="x", input_schema={}, output_schema={},
-        handler=handler,
-    ))
+
+    reg.register(
+        ToolSpec(
+            name="badargs",
+            description="x",
+            input_schema={},
+            output_schema={},
+            handler=handler,
+        )
+    )
     with pytest.raises(ToolInvocationError):
         reg.invoke("badargs", {"unknown": "x"})
 
 
 def test_invoke_handler_returning_non_mapping_raises() -> None:
     reg = ToolRegistry()
+
     def handler() -> str:
         return "plain string"
-    reg.register(ToolSpec(
-        name="strreturn", description="x", input_schema={}, output_schema={},
-        handler=handler,
-    ))
+
+    reg.register(
+        ToolSpec(
+            name="strreturn",
+            description="x",
+            input_schema={},
+            output_schema={},
+            handler=handler,
+        )
+    )
     with pytest.raises(ToolInvocationError):
         reg.invoke("strreturn", {})
 
 
 def test_to_mcp_list_renders_tool_payload() -> None:
     reg = ToolRegistry()
-    reg.register(ToolSpec(
-        name="demo", description="desc",
-        input_schema={"type": "object"},
-        output_schema={"type": "object"},
-        risk_level="read_only",
-        service_name="knowledge-api",
-    ))
+    reg.register(
+        ToolSpec(
+            name="demo",
+            description="desc",
+            input_schema={"type": "object"},
+            output_schema={"type": "object"},
+            risk_level="read_only",
+            service_name="knowledge-api",
+        )
+    )
     payload = reg.to_mcp_list()
     assert "tools" in payload
     tool = payload["tools"][0]

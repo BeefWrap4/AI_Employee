@@ -18,7 +18,6 @@ from ai_employee.rca_agent.tool_adapters import (
     build_adapters,
 )
 
-
 STATE_HISTORY = [
     "AlarmReceived",
     "Normalized",
@@ -239,6 +238,7 @@ def collect_evidence(
                 FixtureTicketAdapter,
                 FixtureTopologyAdapter,
             )
+
             fallback_map = {
                 "kpi": FixtureKPIAdapter(),
                 "log": FixtureLogAdapter(),
@@ -338,9 +338,8 @@ def generate_hypotheses(
         hypothesis_id="h_002",
         root_cause_type="recent_parameter_change",
         description="Recent configuration changes could contribute and should be ruled out.",
-        supporting_evidence_ids=(
-            [log_ids[1]] if len(log_ids) >= 2 else list(log_ids)
-        ) + ([ticket_ids[-1]] if ticket_ids else []),
+        supporting_evidence_ids=([log_ids[1]] if len(log_ids) >= 2 else list(log_ids))
+        + ([ticket_ids[-1]] if ticket_ids else []),
         confidence=0.46,
         next_check=["Compare parameter changes before and after the alarm window."],
     )

@@ -5,6 +5,7 @@ tokens. Independent from the in-memory ``AgentPlatformStore`` so existing
 runtime behaviour is preserved. Used by the ``/api/v1/agent-runs/{id}/resume``
 endpoint to continue a paused run from its last completed node.
 """
+
 from __future__ import annotations
 
 import json

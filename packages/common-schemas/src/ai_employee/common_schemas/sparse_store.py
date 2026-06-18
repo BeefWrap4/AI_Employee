@@ -159,12 +159,14 @@ class OpenSearchSparseStore:
         body: list[dict[str, Any]] = []
         for doc in documents:
             body.append({"index": {"_index": index_name, "_id": doc["chunk_id"]}})
-            body.append({
-                "chunk_id": doc["chunk_id"],
-                "doc_id": doc.get("doc_id", ""),
-                "content": doc.get("content", ""),
-                "section_path": doc.get("section_path", ""),
-            })
+            body.append(
+                {
+                    "chunk_id": doc["chunk_id"],
+                    "doc_id": doc.get("doc_id", ""),
+                    "content": doc.get("content", ""),
+                    "section_path": doc.get("section_path", ""),
+                }
+            )
 
         try:
             client.bulk(body=body, refresh=True)
@@ -182,7 +184,10 @@ class OpenSearchSparseStore:
         client = self._get_client()
         if client is None:
             return self._get_fallback().search(
-                index_name, query, doc_ids_filter=doc_ids_filter, top_k=top_k,
+                index_name,
+                query,
+                doc_ids_filter=doc_ids_filter,
+                top_k=top_k,
             )
 
         search_body: dict[str, Any] = {
@@ -203,28 +208,31 @@ class OpenSearchSparseStore:
         }
 
         if doc_ids_filter is not None:
-            search_body["query"]["bool"]["filter"] = [
-                {"terms": {"doc_id": doc_ids_filter}}
-            ]
+            search_body["query"]["bool"]["filter"] = [{"terms": {"doc_id": doc_ids_filter}}]
 
         try:
             resp = client.search(index=index_name, body=search_body)
         except Exception:
             logger.warning("OpenSearch search failed; falling back to stub", exc_info=True)
             return self._get_fallback().search(
-                index_name, query, doc_ids_filter=doc_ids_filter, top_k=top_k,
+                index_name,
+                query,
+                doc_ids_filter=doc_ids_filter,
+                top_k=top_k,
             )
 
         results: list[dict[str, Any]] = []
         for hit in resp["hits"]["hits"]:
             source = hit["_source"]
-            results.append({
-                "chunk_id": source["chunk_id"],
-                "doc_id": source.get("doc_id", ""),
-                "content": source.get("content", ""),
-                "section_path": source.get("section_path", ""),
-                "score": hit["_score"],
-            })
+            results.append(
+                {
+                    "chunk_id": source["chunk_id"],
+                    "doc_id": source.get("doc_id", ""),
+                    "content": source.get("content", ""),
+                    "section_path": source.get("section_path", ""),
+                    "score": hit["_score"],
+                }
+            )
         return results
 
 
@@ -236,4 +244,4 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def _tokenize(text: str) -> set[str]:
-    return set(t.lower() for t in _TOKEN_RE.findall(text))
+    return {t.lower() for t in _TOKEN_RE.findall(text)}

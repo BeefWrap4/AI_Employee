@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def test_list_agent_templates_exposes_first_three_mvp_templates() -> None:

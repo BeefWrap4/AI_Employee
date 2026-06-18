@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from ai_employee.common_schemas.security import (
     UnsafeSourceUriError,
     assert_safe_source_uri,

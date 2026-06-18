@@ -6,6 +6,7 @@ authenticate inter-service calls.  Claims follow the standard
 ``sub`` / ``roles`` / ``scopes`` / ``exp`` / ``iat`` / ``aud`` / ``iss``
 shape.
 """
+
 from __future__ import annotations
 
 import os
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import jwt as _pyjwt
-from jwt import InvalidTokenError, ExpiredSignatureError
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 DEFAULT_ALGORITHM = "HS256"
 DEFAULT_ISSUER = "ai-employee"

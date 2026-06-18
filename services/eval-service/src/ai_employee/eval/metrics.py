@@ -80,8 +80,14 @@ def compute(results: list[EvalResult], top_ks: list[int]) -> EvalMetrics:
         if r.error or r.status_code == 0:
             m.errored += 1
             m.per_item.append(
-                {"qid": r.qid, "verdict": "error", "expected": r.expected_doc_id,
-                 "returned": [], "latency_ms": r.latency_ms, "error": r.error}
+                {
+                    "qid": r.qid,
+                    "verdict": "error",
+                    "expected": r.expected_doc_id,
+                    "returned": [],
+                    "latency_ms": r.latency_ms,
+                    "error": r.error,
+                }
             )
             continue
 
@@ -90,15 +96,26 @@ def compute(results: list[EvalResult], top_ks: list[int]) -> EvalMetrics:
             if r.status_code == 404:
                 m.refusal_correct += 1
                 m.per_item.append(
-                    {"qid": r.qid, "verdict": "refusal", "expected": None,
-                     "returned": [], "status_code": 404, "latency_ms": r.latency_ms}
+                    {
+                        "qid": r.qid,
+                        "verdict": "refusal",
+                        "expected": None,
+                        "returned": [],
+                        "status_code": 404,
+                        "latency_ms": r.latency_ms,
+                    }
                 )
             else:
                 m.refusal_violations += 1
                 m.per_item.append(
-                    {"qid": r.qid, "verdict": "refusal_violation", "expected": None,
-                     "returned": r.returned_doc_ids, "status_code": r.status_code,
-                     "latency_ms": r.latency_ms}
+                    {
+                        "qid": r.qid,
+                        "verdict": "refusal_violation",
+                        "expected": None,
+                        "returned": r.returned_doc_ids,
+                        "status_code": r.status_code,
+                        "latency_ms": r.latency_ms,
+                    }
                 )
             continue
 
@@ -110,8 +127,13 @@ def compute(results: list[EvalResult], top_ks: list[int]) -> EvalMetrics:
         if r.expected_doc_id and r.returned_doc_ids and r.expected_doc_id in r.returned_doc_ids:
             covered += 1
         m.per_item.append(
-            {"qid": r.qid, "verdict": verdict, "expected": r.expected_doc_id,
-             "returned": r.returned_doc_ids, "latency_ms": r.latency_ms}
+            {
+                "qid": r.qid,
+                "verdict": verdict,
+                "expected": r.expected_doc_id,
+                "returned": r.returned_doc_ids,
+                "latency_ms": r.latency_ms,
+            }
         )
 
     m.eligible_for_hit = len(hit_eligible)

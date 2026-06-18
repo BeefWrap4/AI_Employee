@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-
 from ai_employee.common_schemas.embedding import (
     EmbeddingProvider,
     QwenEmbeddingProvider,
@@ -25,7 +24,9 @@ def _emb_payload(n: int, dim: int = 1024) -> dict:
     return {
         "object": "list",
         "model": "text-embedding-v3",
-        "data": [{"object": "embedding", "embedding": [0.01 * i] * dim, "index": i} for i in range(n)],
+        "data": [
+            {"object": "embedding", "embedding": [0.01 * i] * dim, "index": i} for i in range(n)
+        ],
         "usage": {"prompt_tokens": 10, "total_tokens": 10},
     }
 

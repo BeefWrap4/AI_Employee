@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from ai_employee.common_schemas.acl import resolve_visible_docs
 from ai_employee.knowledge_api.store import SQLiteStore
 
@@ -75,7 +74,9 @@ def test_returns_sorted_by_doc_id(store: SQLiteStore) -> None:
 
 
 def test_excludes_unpublished_documents(store: SQLiteStore) -> None:
-    doc_id = store.create_document("未发布", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1")
+    doc_id = store.create_document(
+        "未发布", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1"
+    )
     store.transition_status(doc_id, "parsing")
     store.write_chunks(
         doc_id,

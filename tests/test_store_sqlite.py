@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from ai_employee.knowledge_api.store import SQLiteStore
 
 
@@ -58,8 +57,18 @@ def test_write_chunks_populates_chunks_and_fts(store: SQLiteStore) -> None:
     store.write_chunks(
         doc_id,
         chunks=[
-            {"chunk_id": f"chunk_{doc_id}_001", "chunk_no": 1, "content": "RRC 建立失败先查告警", "section_path": "root"},
-            {"chunk_id": f"chunk_{doc_id}_002", "chunk_no": 2, "content": "传输误码先查光功率", "section_path": "root"},
+            {
+                "chunk_id": f"chunk_{doc_id}_001",
+                "chunk_no": 1,
+                "content": "RRC 建立失败先查告警",
+                "section_path": "root",
+            },
+            {
+                "chunk_id": f"chunk_{doc_id}_002",
+                "chunk_no": 2,
+                "content": "传输误码先查光功率",
+                "section_path": "root",
+            },
         ],
         embeddings=[[0.1] * 8, [0.2] * 8],
         embedding_model="stub",
@@ -97,11 +106,20 @@ def test_get_unknown_document_raises_404(store: SQLiteStore) -> None:
 
 
 def test_fts_search_returns_matching_chunk(store: SQLiteStore) -> None:
-    doc_id = store.create_document("SOP", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1")
+    doc_id = store.create_document(
+        "SOP", "/tmp/x", "text/plain", {"network_type": "5g"}, ["wireless"], "v1"
+    )
     store.transition_status(doc_id, "parsing")
     store.write_chunks(
         doc_id,
-        [{"chunk_id": "c1", "chunk_no": 1, "content": "RRC 建立失败先查告警", "section_path": "root"}],
+        [
+            {
+                "chunk_id": "c1",
+                "chunk_no": 1,
+                "content": "RRC 建立失败先查告警",
+                "section_path": "root",
+            }
+        ],
         [[0.0] * 8],
         "stub",
     )
@@ -122,8 +140,9 @@ def test_set_source_uri_updates_path(store: SQLiteStore, tmp_path: Path) -> None
     assert store.get_document(doc_id)["source_uri"] == str(target.resolve())
 
 
-def _make_qa_log(store: SQLiteStore, trace_id: str, session: str, question: str,
-                  chunks: list, answer: str = "A") -> None:
+def _make_qa_log(
+    store: SQLiteStore, trace_id: str, session: str, question: str, chunks: list, answer: str = "A"
+) -> None:
     store.write_qa_log(
         qa_log_id=f"qa_{trace_id}",
         session_id=session,
@@ -194,7 +213,12 @@ def test_list_feedbacks_pagination_and_filter(store: SQLiteStore) -> None:
 def test_list_documents_filters_by_status(store: SQLiteStore) -> None:
     d1 = store.create_document("Pub", "/tmp/p", "text/plain", {}, ["a"], "v1")
     store.transition_status(d1, "parsing")
-    store.write_chunks(d1, [{"chunk_id": f"c_{d1}", "chunk_no": 1, "content": "x", "section_path": "root"}], [[0.0] * 8], "stub")
+    store.write_chunks(
+        d1,
+        [{"chunk_id": f"c_{d1}", "chunk_no": 1, "content": "x", "section_path": "root"}],
+        [[0.0] * 8],
+        "stub",
+    )
     # write_chunks 已将状态置为 ready
     store.transition_status(d1, "published")
     d2 = store.create_document("Up", "/tmp/u", "text/plain", {}, ["a"], "v1")

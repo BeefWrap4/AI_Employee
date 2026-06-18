@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from ai_employee.knowledge_api.store import SQLiteStore
 
 

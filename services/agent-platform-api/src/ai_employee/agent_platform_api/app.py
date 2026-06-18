@@ -2,19 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import PlainTextResponse
-
-from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.agent_platform_api.eval_compare import compare_reports
+from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.agent_platform_api.inspection import (
     run_inspection,
     write_inspection_log,
 )
 from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
-    AgentPlatformStore,
     TEMPLATES,
+    AgentPlatformStore,
     create_run,
     decide_approval_task,
     list_templates,
@@ -25,8 +22,8 @@ from ai_employee.agent_platform_api.runtime import (
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
     AgentRunListResponse,
-    AgentRunResumeResponse,
     AgentRunResponse,
+    AgentRunResumeResponse,
     AgentRunSummary,
     AgentRunTraceResponse,
     AgentTemplateListResponse,
@@ -41,16 +38,20 @@ from ai_employee.agent_platform_api.schemas import (
     ToolRegistration,
     ToolResponse,
 )
-from ai_employee.common_schemas.tool_registry import (
-    ToolRegistry as _McpToolRegistry,
-    ToolSpec as _McpToolSpec,
-)
-from ai_employee.observability import render_prometheus_text
 from ai_employee.common_schemas.eval import (
     UnifiedReport,
     to_unified_rag,
     to_unified_rca,
 )
+from ai_employee.common_schemas.tool_registry import (
+    ToolRegistry as _McpToolRegistry,
+)
+from ai_employee.common_schemas.tool_registry import (
+    ToolSpec as _McpToolSpec,
+)
+from ai_employee.observability import render_prometheus_text
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import PlainTextResponse
 
 SERVICE_VERSION = "0.1.0"
 EVAL_TOP_KS = [1, 3, 5]
@@ -117,9 +118,7 @@ def create_app(
                     "run_id": run_id,
                 },
             )
-        previous_node = (
-            run.node_trace[-1].node_name if run.node_trace else "TemplateLoaded"
-        )
+        previous_node = run.node_trace[-1].node_name if run.node_trace else "TemplateLoaded"
         updated = resume_run_from_node(state, run_id)
         persisted = run_to_persist_dict(updated)
         persisted["new_events"] = [
@@ -180,13 +179,9 @@ def create_app(
                 detail={"error_code": "agent_run_not_found", "run_id": run_id},
             )
         template = TEMPLATES[run.template_id]
-        approval_tasks = [
-            task for task in state.approval_tasks.values() if task.run_id == run_id
-        ]
+        approval_tasks = [task for task in state.approval_tasks.values() if task.run_id == run_id]
         registered_tools = [
-            tool
-            for tool in state.tools.values()
-            if tool.tool_name in template.tool_names
+            tool for tool in state.tools.values() if tool.tool_name in template.tool_names
         ]
         return AgentRunTraceResponse(
             run=run,
@@ -229,9 +224,7 @@ def create_app(
         "/api/v1/approval-tasks/{task_id}/decision",
         response_model=ApprovalTask,
     )
-    def decide_approval(
-        task_id: str, payload: ApprovalDecisionRequest
-    ) -> ApprovalTask:
+    def decide_approval(task_id: str, payload: ApprovalDecisionRequest) -> ApprovalTask:
         task = state.approval_tasks.get(task_id)
         if task is None:
             raise HTTPException(
@@ -347,9 +340,7 @@ def create_app(
             "top3_coverage": unified.top3_coverage,
             "evidence_coverage": unified.evidence_coverage,
         }
-        eval_state.complete_eval_run(
-            eval_run_id, report=unified.to_dict(), summary=summary
-        )
+        eval_state.complete_eval_run(eval_run_id, report=unified.to_dict(), summary=summary)
         record = eval_state.get_eval_run(eval_run_id)
         return _record_to_response(record)
 
@@ -407,7 +398,8 @@ def create_app(
 
     @app.post("/api/v1/inspect/{service_name}")
     def inspect_service(
-        service_name: str, check_items: str | None = None,
+        service_name: str,
+        check_items: str | None = None,
     ) -> dict[str, object]:
         items = (
             [item.strip() for item in check_items.split(",") if item.strip()]
@@ -437,14 +429,16 @@ def create_app(
         """
         registry = _McpToolRegistry()
         for tool in state.tools.values():
-            registry.register(_McpToolSpec(
-                name=tool.tool_name,
-                description=tool.description,
-                input_schema=tool.input_schema,
-                output_schema=tool.output_schema,
-                risk_level=tool.risk_level,
-                service_name=tool.service_name,
-            ))
+            registry.register(
+                _McpToolSpec(
+                    name=tool.tool_name,
+                    description=tool.description,
+                    input_schema=tool.input_schema,
+                    output_schema=tool.output_schema,
+                    risk_level=tool.risk_level,
+                    service_name=tool.service_name,
+                )
+            )
         return registry.to_mcp_list()
 
     return app

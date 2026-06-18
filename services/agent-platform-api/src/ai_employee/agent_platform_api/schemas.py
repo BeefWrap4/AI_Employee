@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 RunStatus = Literal["running", "completed", "waiting_approval", "failed"]
 ApprovalStatus = Literal["not_required", "pending", "approved", "rejected"]
 TemplateStatus = Literal["published", "disabled"]

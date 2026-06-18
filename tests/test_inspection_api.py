@@ -1,9 +1,9 @@
 """Inspection agent API endpoint tests."""
+
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _client(tmp_path) -> TestClient:

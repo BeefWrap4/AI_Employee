@@ -10,6 +10,7 @@ Operates on the unified :class:`UnifiedReport` payload stored in the
 RCA eval reports.  Missing metrics are reported as ``null`` so callers
 can distinguish a regression from a metric that was not measured.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,11 +40,7 @@ def load_unified_report(record: dict[str, Any]) -> UnifiedReport:
     ``report_json`` payload (e.g. a failed eval that did not produce one).
     """
     raw = record.get("report_json") or {}
-    eval_type = (
-        raw.get("eval_type")
-        or record.get("eval_type")
-        or "rag"
-    )
+    eval_type = raw.get("eval_type") or record.get("eval_type") or "rag"
     return UnifiedReport(
         eval_type=eval_type,
         total=int(raw.get("total", 0)),
@@ -84,9 +81,7 @@ def compare_reports(
     for name in metrics:
         a_val = getattr(a, name)
         b_val = getattr(b, name)
-        delta = (
-            None if a_val is None or b_val is None else round(b_val - a_val, 6)
-        )
+        delta = None if a_val is None or b_val is None else round(b_val - a_val, 6)
         deltas.append(
             {
                 "metric": name,

@@ -15,14 +15,12 @@ the cross-service contracts:
 These are contract tests: they verify the public HTTP surface and the
 data that flows between services, not internal implementation details.
 """
+
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app as create_platform_app
 from ai_employee.agent_platform_api.eval_store import EvalStore
 from ai_employee.agent_platform_api.run_store import AgentRunStore
@@ -36,6 +34,7 @@ from ai_employee.rca_agent.app import create_app as create_rca_app
 from ai_employee.rca_agent.runtime import RcaStore
 from ai_employee.tool_registry.app import create_app as create_tools_app
 from ai_employee.tool_registry.store import ToolRegistryStore
+from fastapi.testclient import TestClient
 
 SECRET = "e2e-test-secret-please-rotate-32bytes!!"
 
@@ -97,7 +96,8 @@ def _admin_headers() -> dict[str, str]:
 
 def _operator_headers() -> dict[str, str]:
     token = issue_token(
-        subject="e2e-operator", roles=["operator"],
+        subject="e2e-operator",
+        roles=["operator"],
         scopes=["tool:invoke", "knowledge:read", "knowledge:write"],
         secret=SECRET,
     )
@@ -113,7 +113,8 @@ def test_knowledge_ingest_publish_query_loop(tmp_path) -> None:
     data_dir = tmp_path / "kdata"
     (data_dir / "raw").mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(
-        db_path=str(tmp_path / "k.sqlite3"), data_dir=str(data_dir),
+        db_path=str(tmp_path / "k.sqlite3"),
+        data_dir=str(data_dir),
     )
     store.init_schema()
     client = TestClient(create_knowledge_app(store=store, worker_client=_InProcessWorker()))
@@ -128,11 +129,13 @@ def test_knowledge_ingest_publish_query_loop(tmp_path) -> None:
             "version": "v1",
             "mime_type": "text/markdown",
         },
-        files={"file": (
-            "sop.md",
-            "# RRC\n\nRRC 建立失败先查告警 KPI。".encode("utf-8"),
-            "text/markdown",
-        )},
+        files={
+            "file": (
+                "sop.md",
+                "# RRC\n\nRRC 建立失败先查告警 KPI。".encode(),
+                "text/markdown",
+            )
+        },
     )
     assert upload.status_code == 202, upload.text
     doc_id = upload.json()["doc_id"]
@@ -156,7 +159,6 @@ def test_knowledge_ingest_publish_query_loop(tmp_path) -> None:
     assert "answer" in body
     assert body["citations"], "expected cited evidence in the answer"
     assert body["citations"][0]["doc_id"] == doc_id
-
 
 
 # --------------------------------------------------------------------------- #
@@ -280,19 +282,33 @@ def test_eval_compare_loop(tmp_path) -> None:
     client = TestClient(create_platform_app(eval_store=eval_store))
 
     a = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.5, top3_coverage=0.7,
-        evidence_coverage=0.6, refusal_accuracy=0.8, latency_p95_ms=100.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.5,
+        top3_coverage=0.7,
+        evidence_coverage=0.6,
+        refusal_accuracy=0.8,
+        latency_p95_ms=100.0,
     )
     b = UnifiedReport(
-        eval_type="rag", total=10, top1_coverage=0.6, top3_coverage=0.75,
-        evidence_coverage=0.65, refusal_accuracy=0.82, latency_p95_ms=95.0,
+        eval_type="rag",
+        total=10,
+        top1_coverage=0.6,
+        top3_coverage=0.75,
+        evidence_coverage=0.65,
+        refusal_accuracy=0.82,
+        latency_p95_ms=95.0,
     )
     aid = eval_store.create_eval_run(
-        eval_type="rag", template_id="knowledge_qa", golden_path="x.jsonl",
+        eval_type="rag",
+        template_id="knowledge_qa",
+        golden_path="x.jsonl",
     )
     eval_store.complete_eval_run(aid, report=a.to_dict(), summary={"total": 10})
     bid = eval_store.create_eval_run(
-        eval_type="rag", template_id="knowledge_qa", golden_path="x.jsonl",
+        eval_type="rag",
+        template_id="knowledge_qa",
+        golden_path="x.jsonl",
     )
     eval_store.complete_eval_run(bid, report=b.to_dict(), summary={"total": 10})
 
@@ -351,7 +367,9 @@ def test_tool_registry_register_invoke_loop(tmp_path) -> None:
 
 
 def test_inspection_loop(tmp_path) -> None:
-    client = TestClient(create_platform_app(run_store=AgentRunStore(db_path=str(tmp_path / "r.sqlite3"))))
+    client = TestClient(
+        create_platform_app(run_store=AgentRunStore(db_path=str(tmp_path / "r.sqlite3")))
+    )
     resp = client.post("/api/v1/inspect/knowledge-api")
     assert resp.status_code == 200, resp.text
     body = resp.json()

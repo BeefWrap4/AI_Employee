@@ -1,22 +1,19 @@
 """auth-policy tests: JWT issue/verify, RBAC, tool risk policy."""
+
 from __future__ import annotations
 
-import time
-
 import pytest
-
 from ai_employee.auth_policy import (
-    JWTError,
-    JWTExpired,
-    JWTInvalid,
     PERM_AGENT_APPROVE,
     PERM_INSPECT,
     PERM_KNOWLEDGE_READ,
     PERM_KNOWLEDGE_WRITE,
     PERM_RCA_APPROVE,
-    PERM_RCA_WRITE,
     PERM_TOOL_INVOKE,
     PERM_TOOL_REGISTER,
+    JWTError,
+    JWTExpired,
+    JWTInvalid,
     TokenClaims,
     can,
     can_access_resource,
@@ -28,7 +25,6 @@ from ai_employee.auth_policy import (
     permissions_for_roles,
     verify_token,
 )
-
 
 SECRET = "test-secret-please-rotate"
 
@@ -89,8 +85,14 @@ def test_issue_requires_subject() -> None:
 
 def test_token_claims_helpers() -> None:
     claims = TokenClaims(
-        sub="u1", roles=["operator"], scopes=["knowledge:read"],
-        exp=0, iat=0, iss="x", aud="y", raw={},
+        sub="u1",
+        roles=["operator"],
+        scopes=["knowledge:read"],
+        exp=0,
+        iat=0,
+        iss="x",
+        aud="y",
+        raw={},
     )
     assert claims.has_role("operator")
     assert not claims.has_role("admin")
@@ -98,8 +100,14 @@ def test_token_claims_helpers() -> None:
     assert not claims.has_any_scope(["rca:approve"])
     # wildcard
     wild = TokenClaims(
-        sub="u2", roles=[], scopes=["*"],
-        exp=0, iat=0, iss="x", aud="y", raw={},
+        sub="u2",
+        roles=[],
+        scopes=["*"],
+        exp=0,
+        iat=0,
+        iss="x",
+        aud="y",
+        raw={},
     )
     assert wild.has_scope("anything")
     assert wild.has_any_scope(["a", "b", "c"])
@@ -144,8 +152,11 @@ def test_can_any_satisfied_by_one() -> None:
 
 def test_can_access_resource_allows_owner() -> None:
     decision = can_access_resource(
-        ["viewer"], [], PERM_KNOWLEDGE_WRITE,
-        resource_owner="alice", subject="alice",
+        ["viewer"],
+        [],
+        PERM_KNOWLEDGE_WRITE,
+        resource_owner="alice",
+        subject="alice",
     )
     assert decision.allowed
     assert "owner" in decision.reason
@@ -153,8 +164,11 @@ def test_can_access_resource_allows_owner() -> None:
 
 def test_can_access_resource_denies_non_owner() -> None:
     decision = can_access_resource(
-        ["viewer"], [], PERM_KNOWLEDGE_WRITE,
-        resource_owner="alice", subject="bob",
+        ["viewer"],
+        [],
+        PERM_KNOWLEDGE_WRITE,
+        resource_owner="alice",
+        subject="bob",
     )
     assert not decision.allowed
 

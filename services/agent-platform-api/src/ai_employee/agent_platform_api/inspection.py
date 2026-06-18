@@ -7,6 +7,7 @@ fixtures; real HTTP probes are wired via env flags (``INSPECT_*``) so
 production deployments can talk to live services without changing
 callers.
 """
+
 from __future__ import annotations
 
 import json
@@ -131,13 +132,18 @@ class FixtureInspectionCheck:
     risk_level = "read_only"
 
     def run(self, target: str) -> list[dict[str, Any]]:
-        return list(_FIXTURE_FINDINGS.get(target, [
-            {
-                "check_name": "service_health",
-                "severity": "ok",
-                "detail": f"No live adapter for {target}; fixture returned no findings.",
-            }
-        ]))
+        return list(
+            _FIXTURE_FINDINGS.get(
+                target,
+                [
+                    {
+                        "check_name": "service_health",
+                        "severity": "ok",
+                        "detail": f"No live adapter for {target}; fixture returned no findings.",
+                    }
+                ],
+            )
+        )
 
 
 def _truthy(value: str | None) -> bool:

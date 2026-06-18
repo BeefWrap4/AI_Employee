@@ -14,12 +14,10 @@ Handlers are bound at registration time (in-memory) and also recorded
 declaratively in SQLite so the registry survives restarts.  Built-in
 demo tools (e.g. ``echo``) are registered on startup for smoke testing.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
-from fastapi import Depends, FastAPI, HTTPException, status
-from pydantic import BaseModel, Field
 
 from ai_employee.auth_policy import (
     PERM_AGENT_APPROVE,
@@ -35,6 +33,8 @@ from ai_employee.common_schemas.tool_registry import (
     ToolSpec,
 )
 from ai_employee.tool_registry.store import ToolRegistryStore
+from fastapi import Depends, FastAPI, HTTPException, status
+from pydantic import BaseModel, Field
 
 SERVICE_VERSION = "0.1.0"
 
@@ -107,15 +107,17 @@ def create_app(
     # Persist the built-in tools so GET reflects them even before any
     # explicit registration call.
     for spec in registry_state.list():
-        store_state.upsert({
-            "name": spec.name,
-            "description": spec.description,
-            "input_schema": spec.input_schema,
-            "output_schema": spec.output_schema,
-            "risk_level": spec.risk_level,
-            "service_name": spec.service_name,
-            "version": spec.version,
-        })
+        store_state.upsert(
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "input_schema": spec.input_schema,
+                "output_schema": spec.output_schema,
+                "risk_level": spec.risk_level,
+                "service_name": spec.service_name,
+                "version": spec.version,
+            }
+        )
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -157,9 +159,7 @@ def create_app(
     )
     def register_tool(
         payload: ToolRegistrationRequest,
-        claims: TokenClaims | None = Depends(
-            require_internal_or_jwt([PERM_TOOL_REGISTER])
-        ),
+        claims: TokenClaims | None = Depends(require_internal_or_jwt([PERM_TOOL_REGISTER])),
     ) -> dict[str, Any]:
         if payload.risk_level not in _risk_levels():
             raise HTTPException(
@@ -172,15 +172,17 @@ def create_app(
             )
         spec = _to_spec(payload)
         registry_state.register(spec, replace=True)
-        store_state.upsert({
-            "name": payload.name,
-            "description": payload.description,
-            "input_schema": payload.input_schema,
-            "output_schema": payload.output_schema,
-            "risk_level": payload.risk_level,
-            "service_name": payload.service_name,
-            "version": payload.version,
-        })
+        store_state.upsert(
+            {
+                "name": payload.name,
+                "description": payload.description,
+                "input_schema": payload.input_schema,
+                "output_schema": payload.output_schema,
+                "risk_level": payload.risk_level,
+                "service_name": payload.service_name,
+                "version": payload.version,
+            }
+        )
         return {
             "name": payload.name,
             "registered": True,
@@ -191,9 +193,7 @@ def create_app(
     def invoke_tool(
         name: str,
         payload: ToolInvokeRequest,
-        claims: TokenClaims | None = Depends(
-            require_internal_or_jwt([PERM_TOOL_INVOKE])
-        ),
+        claims: TokenClaims | None = Depends(require_internal_or_jwt([PERM_TOOL_INVOKE])),
     ) -> dict[str, Any]:
         row = store_state.get(name)
         if row is None:
@@ -204,11 +204,14 @@ def create_app(
         # Enforce risk-level-specific permission.
         risk_level = row["risk_level"]
         required = (
-            PERM_AGENT_APPROVE if risk_level == "approval_required"
-            else PERM_TOOL_INVOKE if risk_level == "read_only"
+            PERM_AGENT_APPROVE
+            if risk_level == "approval_required"
+            else PERM_TOOL_INVOKE
+            if risk_level == "read_only"
             else "*"
         )
         from ai_employee.auth_policy import can_any
+
         if claims is not None:
             decision = can_any(claims.roles, claims.scopes, [required])
             if not decision.allowed:

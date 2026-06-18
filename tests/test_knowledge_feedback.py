@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.rca_agent.app import create_app
 from ai_employee.rca_agent.knowledge_feedback import generate_candidates_from_report
 from ai_employee.rca_agent.schemas import (
@@ -11,6 +9,7 @@ from ai_employee.rca_agent.schemas import (
     IncidentResponse,
     RcaReportResponse,
 )
+from fastapi.testclient import TestClient
 
 
 def _alarm(alarm_id: str, site_id: str, alarm_code: str = "LINK_DEGRADE") -> dict:
@@ -267,8 +266,7 @@ def test_list_candidates_filter_by_review_status_and_incident_id() -> None:
         client.get(f"/api/v1/rca/reports/{one['report_id']}").json()["hypotheses"]
     )
     assert all(
-        item["source_incident_id"] == one["incident_id"]
-        for item in by_incident.json()["items"]
+        item["source_incident_id"] == one["incident_id"] for item in by_incident.json()["items"]
     )
 
     by_status = client.get("/api/v1/candidate-knowledge?review_status=pending")

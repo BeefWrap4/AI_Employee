@@ -1,5 +1,4 @@
 import pytest
-
 from ai_employee.knowledge_api.store import (
     ALLOWED_TRANSITIONS,
     IllegalTransitionError,

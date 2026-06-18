@@ -1,12 +1,10 @@
 """Inspection agent unit tests."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from ai_employee.agent_platform_api.inspection import (
-    FixtureInspectionCheck,
     HttpHealthCheck,
     build_inspection_check,
     run_inspection,
@@ -86,5 +84,6 @@ def test_write_inspection_log_appends_jsonl(tmp_path) -> None:
     contents = file_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(contents) == 1
     import json as _json
+
     parsed = _json.loads(contents[0])
     assert parsed["target"] == "knowledge-api"

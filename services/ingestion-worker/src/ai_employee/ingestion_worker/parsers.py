@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io as _io
 from dataclasses import dataclass, field
-from typing import Union
 
 from bs4 import BeautifulSoup
 from markdown_it import MarkdownIt
@@ -15,7 +14,7 @@ class ParsedSection:
 
 
 class _BaseParser:
-    def parse(self, source: Union[str, bytes]) -> list[ParsedSection]:
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
         raise NotImplementedError
 
 
@@ -120,7 +119,7 @@ class HtmlParser(_BaseParser):
 class PdfParser(_BaseParser):
     """PDF：使用 pymupdf 提取文本，按页分组，section_path 为 "Page {n}"。"""
 
-    def parse(self, source: Union[str, bytes]) -> list[ParsedSection]:
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
         import fitz
 
         if isinstance(source, str):
@@ -152,7 +151,7 @@ class PdfParser(_BaseParser):
 class DocxParser(_BaseParser):
     """DOCX：使用 python-docx 按段落遍历，heading 样式构建 section_path，正文段落作为 blocks。"""
 
-    def parse(self, source: Union[str, bytes]) -> list[ParsedSection]:
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
         import docx as _docx
 
         if isinstance(source, str):
@@ -174,9 +173,7 @@ class DocxParser(_BaseParser):
             if sections and sections[-1].section_path == current_path():
                 sections[-1].blocks.append(text)
             else:
-                sections.append(
-                    ParsedSection(section_path=current_path(), blocks=[text])
-                )
+                sections.append(ParsedSection(section_path=current_path(), blocks=[text]))
 
         for para in doc.paragraphs:
             text = para.text.strip()
@@ -201,7 +198,7 @@ class DocxParser(_BaseParser):
 class XlsxParser(_BaseParser):
     """XLSX：使用 openpyxl 读取每个 sheet，首行为表头，其余行转 "col: value" 文本块。"""
 
-    def parse(self, source: Union[str, bytes]) -> list[ParsedSection]:
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
         import openpyxl
 
         if isinstance(source, str):
@@ -237,9 +234,7 @@ class XlsxParser(_BaseParser):
                         blocks.append(block)
 
                 if blocks:
-                    sections.append(
-                        ParsedSection(section_path=sheet_name, blocks=blocks)
-                    )
+                    sections.append(ParsedSection(section_path=sheet_name, blocks=blocks))
         finally:
             wb.close()
 
@@ -252,7 +247,7 @@ class NotImplementedParser(_BaseParser):
     def __init__(self, mime_type: str) -> None:
         self.mime_type = mime_type
 
-    def parse(self, source: Union[str, bytes]) -> list[ParsedSection]:
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
         raise NotImplementedError(f"mime_unsupported: {self.mime_type}")
 
 

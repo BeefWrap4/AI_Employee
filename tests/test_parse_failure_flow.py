@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import json
-from typing import Any
-
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from ai_employee.common_schemas.knowledge import ParseResponse, ParsedChunk
-from ai_employee.knowledge_api.app import create_app as create_api_app
-from ai_employee.knowledge_api.store import SQLiteStore
+from ai_employee.common_schemas.knowledge import ParsedChunk, ParseResponse
 from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
+from fastapi.testclient import TestClient
 
 
 class FailingWorkerClient(WorkerClient):

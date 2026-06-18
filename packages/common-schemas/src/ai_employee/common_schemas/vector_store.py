@@ -63,8 +63,7 @@ def _safe_import_pymilvus() -> None:
         import pymilvus  # noqa: F401
     except ImportError as exc:
         raise ImportError(
-            "pymilvus is required for MilvusVectorStore. "
-            "Install it with: pip install pymilvus"
+            "pymilvus is required for MilvusVectorStore. " "Install it with: pip install pymilvus"
         ) from exc
 
 
@@ -167,7 +166,7 @@ class MilvusVectorStore:
         col = self._collection(collection_name)
         # Build the insert data in columnar format
         rows: list[list[Any]] = [[], [], [], [], [], [], [], [], []]
-        for meta, vec in zip(metadata, vectors):
+        for meta, vec in zip(metadata, vectors, strict=False):
             rows[0].append(meta.get("chunk_id", ""))
             rows[1].append(meta.get("doc_id", ""))
             rows[2].append(meta.get("chunk_no", 0))
@@ -197,8 +196,14 @@ class MilvusVectorStore:
             limit=top_k,
             expr=filter_expr,
             output_fields=[
-                "chunk_id", "doc_id", "chunk_no", "content",
-                "section_path", "page_no", "embedding_model", "acl_tags",
+                "chunk_id",
+                "doc_id",
+                "chunk_no",
+                "content",
+                "section_path",
+                "page_no",
+                "embedding_model",
+                "acl_tags",
             ],
         )
         hits: list[dict[str, Any]] = []
@@ -251,18 +256,20 @@ class StubVectorStore:
         if collection_name not in self._collections:
             return
         coll = self._collections[collection_name]
-        for meta, vec in zip(metadata, vectors):
-            coll["rows"].append({
-                "chunk_id": meta.get("chunk_id", ""),
-                "doc_id": meta.get("doc_id", ""),
-                "chunk_no": meta.get("chunk_no", 0),
-                "content": meta.get("content", ""),
-                "section_path": meta.get("section_path", "root"),
-                "page_no": meta.get("page_no", 1),
-                "embedding": vec,
-                "embedding_model": meta.get("embedding_model", ""),
-                "acl_tags": meta.get("acl_tags", []),
-            })
+        for meta, vec in zip(metadata, vectors, strict=False):
+            coll["rows"].append(
+                {
+                    "chunk_id": meta.get("chunk_id", ""),
+                    "doc_id": meta.get("doc_id", ""),
+                    "chunk_no": meta.get("chunk_no", 0),
+                    "content": meta.get("content", ""),
+                    "section_path": meta.get("section_path", "root"),
+                    "page_no": meta.get("page_no", 1),
+                    "embedding": vec,
+                    "embedding_model": meta.get("embedding_model", ""),
+                    "acl_tags": meta.get("acl_tags", []),
+                }
+            )
 
     def search(
         self,
@@ -287,17 +294,17 @@ class StubVectorStore:
 
         hits: list[dict[str, Any]] = []
         for sim, row in scored[:top_k]:
-            hits.append({
-                **{k: v for k, v in row.items() if k != "embedding"},
-                "distance": sim,
-                "confidence": max(0.0, min(1.0, (sim + 1.0) / 2.0)),
-            })
+            hits.append(
+                {
+                    **{k: v for k, v in row.items() if k != "embedding"},
+                    "distance": sim,
+                    "confidence": max(0.0, min(1.0, (sim + 1.0) / 2.0)),
+                }
+            )
         return hits
 
     @staticmethod
-    def _apply_filter(
-        rows: list[dict[str, Any]], filter_expr: str | None
-    ) -> list[dict[str, Any]]:
+    def _apply_filter(rows: list[dict[str, Any]], filter_expr: str | None) -> list[dict[str, Any]]:
         if not filter_expr:
             return list(rows)
 
@@ -347,9 +354,7 @@ def build_vector_store(
         logger.info("Vector store: Milvus connected at %s:%s", store.host, store.port)
         return store
     except Exception as exc:
-        logger.warning(
-            "Vector store: Milvus unavailable (%s), using stub store", exc
-        )
+        logger.warning("Vector store: Milvus unavailable (%s), using stub store", exc)
         return StubVectorStore()
 
 
@@ -361,7 +366,7 @@ def build_vector_store(
 def _cosine(a: list[float], b: list[float]) -> float:
     if len(a) != len(b) or not a:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     if na == 0 or nb == 0:

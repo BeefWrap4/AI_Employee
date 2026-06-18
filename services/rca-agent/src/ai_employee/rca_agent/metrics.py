@@ -13,6 +13,7 @@ These counters are populated by the runtime + app layer via
 :meth:`RcaStore.record_report_generated`. The :func:`compute_metrics`
 helper turns them into a JSON-friendly dict for the eval center.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
