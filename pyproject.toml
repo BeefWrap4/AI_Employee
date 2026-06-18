@@ -39,6 +39,7 @@ dev = [
   "hvac>=2.4",
   "aiokafka>=0.11",
   "neo4j>=5.20",
+  "influxdb-client>=1.43",
 ]
 
 [build-system]
