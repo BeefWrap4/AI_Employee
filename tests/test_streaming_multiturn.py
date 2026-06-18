@@ -91,9 +91,13 @@ def test_compute_metrics_includes_faithfulness_and_relevance() -> None:
     assert metrics.faithfulness == 1.0
     # q1 has overlapping tokens (rrc, 建立失败, 检查, 告警, kpi, 应)
     assert metrics.answer_relevance > 0
-    # q2 contributes no faithfulness / relevance (denominator is 0)
+    # q1 contributes faithfulness (keywords); q2 has no keywords/chunks
+    # so only q1 is faithfulness-eligible.
     assert metrics.faithfulness_eligible == 1
-    assert metrics.answer_relevance_eligible == 1
+    # R18-4: both q1 (expected_text) and q2 (question-only) are
+    # answer-relevance eligible — the question-vs-answer recall runs
+    # on every result with a non-empty question + answer.
+    assert metrics.answer_relevance_eligible == 2
 
 
 def test_compute_metrics_without_ground_truth_keeps_zero() -> None:

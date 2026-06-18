@@ -8,9 +8,12 @@ import httpx
 from ai_employee.eval.golden import load_golden
 from ai_employee.eval.metrics import (
     EvalResult,
+    ReportIntegrityInputs,
+    ReportIntegrityVerdict,
     SafetyPolicyInputs,
     SafetyPolicyVerdict,
     ToolCallCorrectness,
+    evaluate_report_integrity,
     evaluate_safety_policy,
     evaluate_tool_call_correctness,
 )
@@ -36,11 +39,12 @@ class EvalRunRequest:
     golden_tool_calls: list[str] = field(default_factory=list)
     actual_tool_calls: list[str] = field(default_factory=list)
     order_required: bool = False
-    # report: golden report fields + actual report fields
+    # report: report fields passed via ``report_inputs``
     # safety: template + run + approval_task fields (carried via
     # ``safety_inputs``); golden/actual tool_calls may be used as a
     # convenience to populate the call list.
     safety_inputs: SafetyPolicyInputs | None = None
+    report_inputs: ReportIntegrityInputs | None = None
 
 
 @dataclass
@@ -51,14 +55,15 @@ class EvalRunSummary:
     template_id: str
     tool_call_correctness: ToolCallCorrectness | None = None
     safety_verdict: SafetyPolicyVerdict | None = None
+    report_integrity: ReportIntegrityVerdict | None = None
 
 
 def run_eval(req: EvalRunRequest) -> EvalRunSummary:
     """Dispatch an :class:`EvalRunRequest` to the right scorer.
 
-    Currently supports ``tool_call`` (R18-1) and ``safety`` (R18-3).
-    Other eval types (RAG, RCA) flow through :func:`run` with a
-    golden file.
+    Currently supports ``tool_call`` (R18-1), ``safety`` (R18-3), and
+    ``report`` (R18-2).  Other eval types (RAG, RCA) flow through
+    :func:`run` with a golden file.
     """
     if req.eval_type == "tool_call":
         actual = [ToolCallCorrectness(tool_name=n, status="ok") for n in req.actual_tool_calls]
@@ -89,6 +94,17 @@ def run_eval(req: EvalRunRequest) -> EvalRunSummary:
             eval_type=req.eval_type,
             template_id=req.template_id,
             safety_verdict=verdict,
+        )
+    if req.eval_type == "report":
+        if req.report_inputs is None:
+            raise ValueError(
+                "report eval requires EvalRunRequest.report_inputs to be set",
+            )
+        verdict = evaluate_report_integrity(req.report_inputs)
+        return EvalRunSummary(
+            eval_type=req.eval_type,
+            template_id=req.template_id,
+            report_integrity=verdict,
         )
     raise NotImplementedError(
         f"run_eval does not yet support eval_type={req.eval_type!r}; "
@@ -255,11 +271,14 @@ __all__ = [
     "EvalRunRequest",
     "EvalRunSummary",
     "HttpApi",
+    "ReportIntegrityInputs",
+    "ReportIntegrityVerdict",
     "Runner",
     "SafetyPolicyInputs",
     "SafetyPolicyVerdict",
     "ToolCallCorrectness",
     "build_title_to_doc_id",
+    "evaluate_report_integrity",
     "evaluate_safety_policy",
     "evaluate_tool_call_correctness",
     "run",

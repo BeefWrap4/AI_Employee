@@ -507,6 +507,139 @@ def evaluate_safety_policy(inputs: SafetyPolicyInputs) -> SafetyPolicyVerdict:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Report integrity (R18-2 / spec §5.7 + §6.6)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class ReportIntegrityInputs:
+    """Inputs to the report-integrity eval (decoupled from RcaStore).
+
+    Fields mirror the spec §6.6 RCA report shape; the eval verifies
+    each is present and structurally valid.
+    """
+
+    title: str = ""
+    summary: str = ""
+    # ``root_causes`` is a list of dicts; each must have ``description``
+    # (str) and ``supporting_evidence_ids`` (non-empty list[str]).
+    root_causes: list[dict] = field(default_factory=list)
+    # ``evidence_chain`` is a list of dicts; each must carry a citation
+    # (``source`` non-empty OR ``chunk_id`` non-empty) and ``content``.
+    evidence_chain: list[dict] = field(default_factory=list)
+    top_n: int = 0
+    review_status: str = ""
+    # Spec §6.6 also requires an impact range and key events timeline;
+    # either as a list of {ts, event} or a non-empty string.
+    affected_scope: str = ""
+    timeline: list[dict] = field(default_factory=list)
+    # Citation source (e.g. "RCA agent") or empty if per-evidence
+    # sources are used.
+    source: str = ""
+
+
+@dataclass
+class ReportIntegrityVerdict:
+    """Outcome of the report-integrity eval."""
+
+    passed: bool
+    completeness: float  # 0..1 — present_required / total_required
+    missing_required: list[str] = field(default_factory=list)
+    structural_issues: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "completeness": self.completeness,
+            "missing_required": list(self.missing_required),
+            "structural_issues": list(self.structural_issues),
+        }
+
+
+_REQUIRED_REPORT_FIELDS = (
+    "title",
+    "summary",
+    "root_causes",
+    "evidence_chain",
+    "top_n",
+    "review_status",
+    "affected_scope",
+    "timeline",
+    "source",
+)
+
+
+def _has_citation(evidence: dict) -> bool:
+    """An evidence entry is cited if it carries ``source`` or ``chunk_id``."""
+    if not isinstance(evidence, dict):
+        return False
+    return bool(evidence.get("source")) or bool(evidence.get("chunk_id"))
+
+
+def evaluate_report_integrity(
+    inputs: ReportIntegrityInputs,
+) -> ReportIntegrityVerdict:
+    """Verify an RCA report's structural completeness (R18-2 / spec §5.7 + §6.6).
+
+    Each of the 9 required fields is checked.  ``root_causes`` and
+    ``evidence_chain`` also require non-empty sub-arrays, and each
+    evidence must carry a citation (source or chunk_id).  Each root
+    cause must list supporting_evidence_ids.  ``completeness`` is
+    the fraction of required fields present; ``passed`` is True iff
+    completeness == 1.0.
+    """
+    missing: list[str] = []
+    issues: list[str] = []
+
+    if not inputs.title:
+        missing.append("title")
+    if not inputs.summary:
+        missing.append("summary")
+    if not inputs.root_causes:
+        missing.append("root_causes")
+    else:
+        for i, rc in enumerate(inputs.root_causes):
+            if not (isinstance(rc, dict) and rc.get("description")):
+                issues.append(f"root_causes[{i}].description is empty")
+            ev_ids = rc.get("supporting_evidence_ids") if isinstance(rc, dict) else None
+            if not ev_ids:
+                issues.append(
+                    f"root_causes[{i}].supporting_evidence_ids is empty",
+                )
+    if not inputs.evidence_chain:
+        missing.append("evidence_chain")
+    else:
+        for i, ev in enumerate(inputs.evidence_chain):
+            if not (isinstance(ev, dict) and ev.get("content")):
+                issues.append(f"evidence_chain[{i}].content is empty")
+            if not _has_citation(ev):
+                issues.append(
+                    f"evidence_chain[{i}] missing citation (source or chunk_id)",
+                )
+    if inputs.top_n < 1:
+        missing.append("top_n")
+    if not inputs.review_status:
+        missing.append("review_status")
+    if not inputs.affected_scope:
+        missing.append("affected_scope")
+    if not inputs.timeline:
+        missing.append("timeline")
+    if not inputs.source:
+        missing.append("source")
+
+    completeness = 1.0 - len(missing) / len(_REQUIRED_REPORT_FIELDS)
+    # Structural issues also fail the verdict even if top-level fields
+    # are all present (e.g. an empty supporting_evidence_ids list).
+    passed = not missing and not issues
+    return ReportIntegrityVerdict(
+        passed=passed,
+        completeness=completeness,
+        missing_required=missing,
+        structural_issues=issues,
+    )
+
+
 def _percentile(values: list[float], p: float) -> float:
     """线性插值分位数（0<=p<=100）。空列表返回 0.0。"""
     if not values:
