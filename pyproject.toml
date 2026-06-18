@@ -37,6 +37,7 @@ dev = [
   "alembic>=1.13",
   "celery>=5.3",
   "hvac>=2.4",
+  "aiokafka>=0.11",
 ]
 
 [build-system]
