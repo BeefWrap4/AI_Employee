@@ -189,6 +189,51 @@ services:
       - "3200:3200"  # tempo query
       - "14268:14268"
 
+  # ------------------------------------------------------------------------ #
+  # R21 service isolation (spec §9): standalone approval-service and
+  # mcp-gateway.  agent-platform-api points at them via APPROVAL_SERVICE_URL
+  # / MCP_GATEWAY_URL when the in-memory fallback isn't desired.
+  # ------------------------------------------------------------------------ #
+
+  approval-service:
+    # Owns approval task persistence + state machine (R21; spec §9
+    # ``approval-service``).  Backed by the shared postgres instance in
+    # prod; uses an on-disk SQLite for local docker-compose.
+    build:
+      context: ../..
+      dockerfile: services/approval-service/Dockerfile
+    environment:
+      APP_PORT: "8040"
+      PLATFORM_DATA_DIR: /var/data
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+    volumes:
+      - approval-data:/var/data
+    ports:
+      - "8040:8040"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8040/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp-gateway:
+    # Unified MCP-compatible tool gateway (R21; spec §9 ``mcp-gateway``).
+    # Owns tool registration, discovery, invocation + per-tool
+    # circuit breaker.
+    build:
+      context: ../..
+      dockerfile: services/mcp-gateway/Dockerfile
+    environment:
+      APP_PORT: "8050"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+    ports:
+      - "8050:8050"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8050/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres-data:
   minio-data:
@@ -199,3 +244,4 @@ volumes:
   neo4j-data:
   influxdb-data:
   tempo-data:
+  approval-data:
