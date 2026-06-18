@@ -1,17 +1,32 @@
-import React, { useEffect, useState } from 'react'
-import { Card, Col, Row, Statistic, Alert, Typography } from 'antd'
+import React, { useEffect, useMemo, useState } from 'react'
+import ReactECharts from 'echarts-for-react'
+import { Card, Col, Row, Statistic, Alert, Typography, Space } from 'antd'
 import { rcaApi, platformApi } from '../api.js'
 
 // Top-level operations dashboard. Surfaces the RCA operational metrics
 // (tool success, acceptance, compression, gen time) plus a raw
-// Prometheus metrics dump from the platform API.
+// Prometheus metrics dump from the platform API, plus ECharts trend
+// charts from the rolling /api/v1/metrics/platform/timeseries feed.
 export default function DashboardView() {
   const [metrics, setMetrics] = useState(null)
   const [promText, setPromText] = useState('')
+  const [timeseries, setTimeseries] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
+    const loadTimeseries = () =>
+      fetch('/api/v1/metrics/platform/timeseries', {
+        headers: { Accept: 'application/json' },
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`timeseries ${r.status}`))))
+        .then((body) => {
+          if (!cancelled) setTimeseries(body)
+        })
+        .catch((err) => {
+          if (!cancelled) setError(`Timeseries: ${err.message}`)
+        })
+
     Promise.allSettled([rcaApi.metrics(), platformApi.metrics()]).then(
       ([rcaRes, promRes]) => {
         if (cancelled) return
@@ -20,10 +35,103 @@ export default function DashboardView() {
         if (promRes.status === 'fulfilled') setPromText(promRes.value)
       },
     )
+    loadTimeseries()
+    // Light auto-refresh while the dashboard is visible.
+    const t = setInterval(loadTimeseries, 15_000)
     return () => {
       cancelled = true
+      clearInterval(t)
     }
   }, [])
+
+  // Build ECharts option objects from the timeseries samples.  Memoised so
+  // each chart only recomputes when the underlying sample list changes.
+  const lineOption = useMemo(() => {
+    const samples = timeseries?.samples ?? []
+    const labels = samples.map((s) => (s.timestamp || '').slice(11, 19))
+    return {
+      tooltip: { trigger: 'axis' },
+      legend: { top: 4, type: 'scroll' },
+      grid: { left: 48, right: 24, top: 36, bottom: 32 },
+      xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: [
+        {
+          name: 'Run success rate',
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          data: samples.map((s) => s.agent_run_success_rate ?? 0),
+        },
+        {
+          name: 'Report acceptance rate',
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          data: samples.map((s) => s.report_acceptance_rate ?? 0),
+        },
+      ],
+    }
+  }, [timeseries])
+
+  const latencyOption = useMemo(() => {
+    const samples = timeseries?.samples ?? []
+    const labels = samples.map((s) => (s.timestamp || '').slice(11, 19))
+    return {
+      tooltip: { trigger: 'axis' },
+      legend: { top: 4, type: 'scroll' },
+      grid: { left: 56, right: 24, top: 36, bottom: 32 },
+      xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value', name: 'ms' },
+      series: [
+        {
+          name: 'Model latency p95 (ms)',
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          areaStyle: { opacity: 0.15 },
+          data: samples.map((s) => s.model_latency_p95_ms ?? 0),
+        },
+        {
+          name: 'Tool latency p95 (ms)',
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          areaStyle: { opacity: 0.15 },
+          data: samples.map((s) => s.tool_latency_p95_ms ?? 0),
+        },
+      ],
+    }
+  }, [timeseries])
+
+  const approvalOption = useMemo(() => {
+    const samples = timeseries?.samples ?? []
+    const labels = samples.map((s) => (s.timestamp || '').slice(11, 19))
+    return {
+      tooltip: { trigger: 'axis' },
+      legend: { top: 4, type: 'scroll' },
+      grid: { left: 56, right: 24, top: 36, bottom: 32 },
+      xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value', name: 'seconds' },
+      series: [
+        {
+          name: 'Approval wait p95 (s)',
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          areaStyle: { opacity: 0.15 },
+          data: samples.map((s) => s.approval_wait_time_p95_s ?? 0),
+        },
+        {
+          name: 'Fallback rate',
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          data: samples.map((s) => s.fallback_rate ?? 0),
+        },
+      ],
+    }
+  }, [timeseries])
 
   return (
     <div>
@@ -65,6 +173,43 @@ export default function DashboardView() {
           </Card>
         </Col>
       </Row>
+
+      <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 16 }}>
+        <Card title="运行成功率趋势 (ECharts)">
+          <ReactECharts
+            option={lineOption}
+            notMerge
+            lazyUpdate
+            style={{ height: 240, width: '100%' }}
+            opts={{ renderer: 'canvas' }}
+          />
+        </Card>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Card title="模型/工具 p95 延迟">
+              <ReactECharts
+                option={latencyOption}
+                notMerge
+                lazyUpdate
+                style={{ height: 240, width: '100%' }}
+                opts={{ renderer: 'canvas' }}
+              />
+            </Card>
+          </Col>
+          <Col span={12}>
+            <Card title="审批等待 p95 + Fallback 率">
+              <ReactECharts
+                option={approvalOption}
+                notMerge
+                lazyUpdate
+                style={{ height: 240, width: '100%' }}
+                opts={{ renderer: 'canvas' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      </Space>
+
       <Card title="Prometheus 指标 (/metrics)" style={{ marginTop: 16 }}>
         <Typography.Paragraph>
           <pre style={{ maxHeight: 320, overflow: 'auto', margin: 0 }}>

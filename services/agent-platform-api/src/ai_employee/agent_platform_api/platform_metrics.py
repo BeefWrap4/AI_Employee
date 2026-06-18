@@ -15,11 +15,16 @@ The registry is process-local.  Metrics are surfaced in Prometheus text
 format via the existing ``/metrics`` endpoint by registering an
 ai_employee.observability ``MetricRegistry`` and emitting samples
 periodically (and on read).
+
+A rolling timeseries of headline indicators is kept for the dashboard
+trend charts (ECharts line).  Samples are captured once per
+``record_*`` call and capped at ``_TIMESERIES_MAXLEN``.
 """
 from __future__ import annotations
 
 import math
 import threading
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -45,30 +50,43 @@ class PlatformMetrics:
             self.runs_succeeded += 1
         else:
             self.runs_failed += 1
+        _record_timeseries_sample()
 
     def record_approval(self, wait_seconds: float) -> None:
         self.approvals_total += 1
         self.approval_waits_s.append(wait_seconds)
+        _record_timeseries_sample()
 
     def record_model_latency(self, latency_ms: float) -> None:
         self.model_latencies_ms.append(latency_ms)
+        _record_timeseries_sample()
 
     def record_tool_latency(self, latency_ms: float) -> None:
         self.tool_latencies_ms.append(latency_ms)
+        _record_timeseries_sample()
 
     def record_event(self, *, fallback: bool) -> None:
         self.total_events += 1
         if fallback:
             self.fallback_events += 1
+        _record_timeseries_sample()
 
     def record_review(self, *, accepted: bool) -> None:
         self.reports_reviewed += 1
         if accepted:
             self.reports_accepted += 1
+        _record_timeseries_sample()
 
+
+# --------------------------------------------------------------------------- #
+# Timeseries history (for ECharts trend charts on the dashboard).
+# --------------------------------------------------------------------------- #
 
 _GLOBAL = PlatformMetrics()
-_LOCK = threading.Lock()
+_GLOBAL_LOCK = threading.Lock()
+_TIMESERIES_MAXLEN = 120
+_TIMESERIES: deque[dict[str, Any]] = deque(maxlen=_TIMESERIES_MAXLEN)
+_TIMESERIES_LOCK = threading.Lock()
 
 
 def metrics() -> PlatformMetrics:
@@ -87,9 +105,41 @@ def _percentile(values: list[float], p: float) -> float:
     return float(s[lo] + (s[hi] - s[lo]) * (rank - lo))
 
 
+def _record_timeseries_sample() -> None:
+    """Snapshot the headline indicators and append to ``_TIMESERIES``.
+
+    Cheap O(1) — duplicates the running aggregates without touching them.
+    Lock-protected because ``record_*`` may be called from request threads.
+    """
+    with _GLOBAL_LOCK:
+        sample = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_run_success_rate": (
+                round(_GLOBAL.runs_succeeded / _GLOBAL.runs_total, 6)
+                if _GLOBAL.runs_total
+                else 1.0
+            ),
+            "model_latency_p95_ms": round(_percentile(_GLOBAL.model_latencies_ms, 95), 6),
+            "tool_latency_p95_ms": round(_percentile(_GLOBAL.tool_latencies_ms, 95), 6),
+            "approval_wait_time_p95_s": round(_percentile(_GLOBAL.approval_waits_s, 95), 6),
+            "report_acceptance_rate": (
+                round(_GLOBAL.reports_accepted / _GLOBAL.reports_reviewed, 6)
+                if _GLOBAL.reports_reviewed
+                else 0.0
+            ),
+            "fallback_rate": (
+                round(_GLOBAL.fallback_events / _GLOBAL.total_events, 6)
+                if _GLOBAL.total_events
+                else 0.0
+            ),
+        }
+    with _TIMESERIES_LOCK:
+        _TIMESERIES.append(sample)
+
+
 def snapshot_dict() -> dict[str, Any]:
     """Return a snapshot dict for the Prometheus text-format renderer."""
-    with _LOCK:
+    with _GLOBAL_LOCK:
         m = PlatformMetrics(
             runs_total=_GLOBAL.runs_total,
             runs_succeeded=_GLOBAL.runs_succeeded,
@@ -132,11 +182,28 @@ def snapshot_dict() -> dict[str, Any]:
     }
 
 
+def snapshot_timeseries() -> dict[str, Any]:
+    """Return the rolling timeseries of headline indicators for the dashboard.
+
+    ``samples`` is a list of dicts with one entry per ``record_*`` call (up to
+    ``maxlen`` entries; older samples are evicted automatically).
+    """
+    with _TIMESERIES_LOCK:
+        samples = list(_TIMESERIES)
+    return {
+        "samples": samples,
+        "maxlen": _TIMESERIES_MAXLEN,
+        "snapshot_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def reset() -> None:
     """Reset global metrics (test helper)."""
     global _GLOBAL
-    with _LOCK:
+    with _GLOBAL_LOCK:
         _GLOBAL = PlatformMetrics()
+    with _TIMESERIES_LOCK:
+        _TIMESERIES.clear()
 
 
 __all__ = [
@@ -144,4 +211,5 @@ __all__ = [
     "metrics",
     "reset",
     "snapshot_dict",
+    "snapshot_timeseries",
 ]

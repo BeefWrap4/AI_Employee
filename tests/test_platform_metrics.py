@@ -6,8 +6,10 @@ from fastapi.testclient import TestClient
 from ai_employee.agent_platform_api import platform_metrics
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.platform_metrics import (
+    metrics as metrics_obj,
     reset,
     snapshot_dict,
+    snapshot_timeseries,
 )
 
 
@@ -63,6 +65,52 @@ def test_fallback_rate_computed() -> None:
     m.record_event(fallback=False)
     snap = snapshot_dict()
     assert snap["fallback_rate"] == pytest.approx(1 / 3)
+
+
+def test_snapshot_timeseries_empty_after_reset() -> None:
+    reset()
+    ts = snapshot_timeseries()
+    assert ts["samples"] == []
+    assert ts["maxlen"] > 0
+
+
+def test_snapshot_timeseries_records_after_runs() -> None:
+    reset()
+    m = metrics_obj()
+    m.record_run(succeeded=True)
+    m.record_approval(2.5)
+    m.record_model_latency(180)
+    m.record_tool_latency(60)
+    ts = snapshot_timeseries()
+    assert len(ts["samples"]) >= 1
+    sample = ts["samples"][-1]
+    assert sample["agent_run_success_rate"] == 1.0
+    assert sample["model_latency_p95_ms"] == 180.0
+    assert sample["tool_latency_p95_ms"] == 60.0
+    assert sample["approval_wait_time_p95_s"] == 2.5
+    assert "timestamp" in sample
+
+
+def test_snapshot_timeseries_caps_to_maxlen() -> None:
+    reset()
+    m = metrics_obj()
+    # Drive more samples than maxlen to confirm FIFO eviction.
+    maxlen = snapshot_timeseries()["maxlen"]
+    for _ in range(maxlen + 25):
+        m.record_run(succeeded=True)
+    ts = snapshot_timeseries()
+    assert len(ts["samples"]) == maxlen
+
+
+def test_platform_timeseries_endpoint_returns_samples() -> None:
+    reset()
+    client = TestClient(create_app())
+    resp = client.get("/api/v1/metrics/platform/timeseries")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "samples" in body
+    assert "maxlen" in body
+    assert isinstance(body["samples"], list)
 
 
 import pytest

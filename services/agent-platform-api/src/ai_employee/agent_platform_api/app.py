@@ -11,6 +11,7 @@ from ai_employee.agent_platform_api.inspection import (
 from ai_employee.agent_platform_api.platform_metrics import (
     metrics as platform_metrics,
     snapshot_dict,
+    snapshot_timeseries,
 )
 from ai_employee.agent_platform_api.rate_limit import build_limiter
 from ai_employee.agent_platform_api.run_store import AgentRunStore
@@ -500,6 +501,11 @@ def create_app(
     @app.get("/api/v1/metrics/platform")
     def platform_metrics_endpoint() -> dict[str, object]:
         return snapshot_dict()
+
+    @app.get("/api/v1/metrics/platform/timeseries")
+    def platform_metrics_timeseries_endpoint() -> dict[str, object]:
+        """Rolling timeseries of headline indicators for dashboard trend charts."""
+        return snapshot_timeseries()
 
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics() -> str:
