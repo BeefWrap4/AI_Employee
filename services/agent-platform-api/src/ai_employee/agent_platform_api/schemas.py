@@ -9,7 +9,10 @@ ApprovalStatus = Literal["not_required", "pending", "approved", "rejected"]
 TemplateStatus = Literal["published", "disabled"]
 ApprovalTaskStatus = Literal["pending", "approved", "rejected"]
 ApprovalDecision = Literal["approved", "rejected"]
-ToolRiskLevel = Literal["read_only", "approval_required", "high_risk"]
+ToolRiskLevel = Literal[
+    "readonly", "suggest", "approval_required", "forbidden",
+    "read_only", "high_risk",
+]
 ToolStatus = Literal["active", "disabled"]
 ToolHealthStatus = Literal["unknown", "healthy", "unhealthy"]
 EvalType = Literal["rag", "rca"]

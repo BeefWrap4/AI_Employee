@@ -59,7 +59,11 @@ class ToolInvokeRequest(BaseModel):
 
 
 def _risk_levels() -> set[str]:
-    return {"read_only", "approval_required", "high_risk"}
+    # 4-tier spec §5.3 risk levels + legacy aliases for backward compat.
+    return {
+        "readonly", "suggest", "approval_required", "forbidden",
+        "read_only", "high_risk",
+    }
 
 
 def _to_spec(payload: ToolRegistrationRequest, handler=None) -> ToolSpec:
@@ -221,14 +225,32 @@ def create_app(
             )
         # Enforce risk-level-specific permission.
         risk_level = row["risk_level"]
+        from ai_employee.auth_policy import (
+            PERM_ADMIN,
+            can_any,
+            normalise_risk_level,
+        )
+
+        # Forbidden: tool cannot be invoked by anyone through this service.
+        if normalise_risk_level(risk_level) == "forbidden":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "tool_forbidden",
+                    "tool_name": name,
+                    "message": (
+                        "tool is marked forbidden; invocation is disabled"
+                    ),
+                },
+            )
+
         required = (
             PERM_AGENT_APPROVE
-            if risk_level == "approval_required"
+            if normalise_risk_level(risk_level) == "approval_required"
+            else PERM_ADMIN
+            if normalise_risk_level(risk_level) == "forbidden"
             else PERM_TOOL_INVOKE
-            if risk_level == "read_only"
-            else "*"
         )
-        from ai_employee.auth_policy import can_any
 
         if claims is not None:
             decision = can_any(claims.roles, claims.scopes, [required])

@@ -6,6 +6,7 @@ import pytest
 from ai_employee.auth_policy import (
     PERM_AGENT_APPROVE,
     PERM_INSPECT,
+    PERM_ADMIN,
     PERM_KNOWLEDGE_READ,
     PERM_KNOWLEDGE_WRITE,
     PERM_RCA_APPROVE,
@@ -177,9 +178,15 @@ def test_can_access_resource_denies_non_owner() -> None:
 
 
 def test_risk_level_permissions() -> None:
-    assert permission_for_risk_level("read_only") == PERM_TOOL_INVOKE
+    # Canonical 4-tier (spec §5.3).
+    assert permission_for_risk_level("readonly") == PERM_TOOL_INVOKE
+    assert permission_for_risk_level("suggest") == PERM_TOOL_INVOKE
     assert permission_for_risk_level("approval_required") == PERM_AGENT_APPROVE
-    assert permission_for_risk_level("high_risk") == "*"
+    assert permission_for_risk_level("forbidden") == PERM_ADMIN
+    # Legacy aliases still resolved.
+    assert permission_for_risk_level("read_only") == PERM_TOOL_INVOKE
+    assert permission_for_risk_level("high_risk") == PERM_AGENT_APPROVE
+
 
 
 def test_unknown_risk_level_raises() -> None:

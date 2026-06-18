@@ -40,7 +40,7 @@ class ToolSpec:
     description: str
     input_schema: JsonDict
     output_schema: JsonDict
-    risk_level: str = "read_only"  # "read_only" | "approval_required" | "high_risk"
+    risk_level: str = "readonly"  # spec §5.3: readonly | suggest | approval_required | forbidden
     handler: Callable[..., JsonDict] | None = field(default=None, repr=False)
     service_name: str | None = None
     version: str = "v1"

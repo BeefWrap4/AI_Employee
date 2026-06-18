@@ -409,6 +409,7 @@ def generate_hypotheses(
             root_cause_type="transmission_link_degradation",
             description="Transmission link degradation is the most likely root cause of access failures.",
             supporting_evidence_ids=[*metric_ids, *topology_ids, *knowledge_ids, *ticket_ids],
+            contradicting_evidence_ids=[],
             confidence=0.78,
             next_check=[
                 "Confirm port error counters with the transmission team.",
@@ -421,6 +422,7 @@ def generate_hypotheses(
             root_cause_type="wireless_access_anomaly",
             description="Wireless access anomaly is likely, but transmission evidence still needs confirmation.",
             supporting_evidence_ids=[*metric_ids, *log_ids, *knowledge_ids],
+            contradicting_evidence_ids=[],
             confidence=0.62,
             next_check=["Check cell KPI trend and neighboring-cell alarms."],
         )
@@ -430,9 +432,15 @@ def generate_hypotheses(
         description="Recent configuration changes could contribute and should be ruled out.",
         supporting_evidence_ids=([log_ids[1]] if len(log_ids) >= 2 else list(log_ids))
         + ([ticket_ids[-1]] if ticket_ids else []),
+        contradicting_evidence_ids=list(metric_ids) + list(topology_ids),
         confidence=0.46,
         next_check=["Compare parameter changes before and after the alarm window."],
     )
+    # Retroactively populate each hypothesis's contradicting list with
+    # the *other* hypothesis's supporting evidence so the trade-off
+    # surfaces for human review (spec §6.5).
+    primary.contradicting_evidence_ids = list(secondary.supporting_evidence_ids)
+    secondary.contradicting_evidence_ids = list(primary.supporting_evidence_ids)
     return [primary, secondary]
 
 

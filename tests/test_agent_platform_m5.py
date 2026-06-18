@@ -4,21 +4,28 @@ from ai_employee.agent_platform_api.app import create_app
 from fastapi.testclient import TestClient
 
 
-def test_list_agent_templates_exposes_first_three_mvp_templates() -> None:
+def test_list_agent_templates_exposes_five_mvp_templates() -> None:
     client = TestClient(create_app())
 
     response = client.get("/api/v1/agent-templates")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 3
+    assert body["total"] == 5
     assert [item["template_id"] for item in body["items"]] == [
         "knowledge_qa",
         "rca",
         "inspection",
+        "change_assessment",
+        "ticket_summary",
     ]
     assert body["items"][0]["agent_name"] == "Knowledge QA Agent"
     assert body["items"][1]["requires_approval"] is True
+    # change_assessment requires approval; ticket_summary does not.
+    assert body["items"][3]["template_id"] == "change_assessment"
+    assert body["items"][3]["requires_approval"] is True
+    assert body["items"][4]["template_id"] == "ticket_summary"
+    assert body["items"][4]["requires_approval"] is False
 
 
 def test_create_agent_run_returns_trace_and_can_be_fetched() -> None:

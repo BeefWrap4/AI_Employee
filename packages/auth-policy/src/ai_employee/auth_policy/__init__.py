@@ -25,6 +25,7 @@ from ai_employee.auth_policy.jwt import (
 from ai_employee.auth_policy.policy import (
     ACTION_PERMISSIONS,
     RISK_LEVEL_PERMISSIONS,
+    normalise_risk_level,
     permission_for_action,
     permission_for_risk_level,
 )
@@ -80,6 +81,7 @@ __all__ = [
     "can_any",
     "decode_unsafe",
     "issue_token",
+    "normalise_risk_level",
     "permission_for_action",
     "permission_for_risk_level",
     "permissions_for",

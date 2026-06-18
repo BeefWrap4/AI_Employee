@@ -85,6 +85,62 @@ TEMPLATES: dict[str, AgentTemplate] = {
         tool_names=["tool-registry.readonly.inspection"],
         requires_approval=False,
     ),
+    "change_assessment": AgentTemplate(
+        template_id="change_assessment",
+        agent_name="Change Assessment Agent",
+        version="v1",
+        status="published",
+        description=(
+            "Assess risk of cutover / parameter changes by cross-checking "
+            "CMDB, historical tickets, and knowledge base SOPs."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "change_id": {"type": "string"},
+                "change_type": {"type": "string"},
+                "affected_ne_ids": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["change_id"],
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "risk_level": {"type": "string"},
+                "risk_factors": {"type": "array"},
+            },
+        },
+        tool_names=["cmdb.lookup", "ticket.history.search", "knowledge-api.chat.query"],
+        requires_approval=True,
+    ),
+    "ticket_summary": AgentTemplate(
+        template_id="ticket_summary",
+        agent_name="Ticket Summary Agent",
+        version="v1",
+        status="published",
+        description=(
+            "Summarize and review a closed ticket: condense timeline, root "
+            "cause, and remediation into a structured postmortem."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "ticket_id": {"type": "string"},
+            },
+            "required": ["ticket_id"],
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "root_cause": {"type": "string"},
+                "remediation": {"type": "string"},
+            },
+        },
+        tool_names=["ticket.fetch", "knowledge-api.chat.query"],
+        requires_approval=False,
+    ),
 }
 
 
@@ -230,8 +286,30 @@ def _output_for_template(template_id: str, payload: dict) -> dict:
             "summary": "RCA run created hypotheses and is waiting for expert approval.",
             "hypotheses": [],
         }
+    if template_id == "inspection":
+        return {
+            "summary": "Inspection run completed read-only checks.",
+            "findings": [],
+        }
+    if template_id == "change_assessment":
+        return {
+            "summary": (
+                f"Change assessment for {payload.get('change_id', 'unknown')} "
+                "completed; awaiting expert review."
+            ),
+            "risk_level": "unknown",
+            "risk_factors": [],
+        }
+    if template_id == "ticket_summary":
+        return {
+            "summary": (
+                f"Ticket {payload.get('ticket_id', 'unknown')} summary prepared."
+            ),
+            "root_cause": "",
+            "remediation": "",
+        }
     return {
-        "summary": "Inspection run completed read-only checks.",
+        "summary": f"{template_id} run completed.",
         "findings": [],
     }
 
