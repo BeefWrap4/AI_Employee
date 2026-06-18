@@ -160,6 +160,114 @@ class TesseractOcrBackend:
         return OcrResult(text=text, pages=1, backend="tesseract")
 
 
+# --------------------------------------------------------------------------- #
+# Qwen-VL-OCR (multimodal VLM via SiliconFlow chat-completions)
+# --------------------------------------------------------------------------- #
+
+# Default Qwen-VL model id hosted on SiliconFlow.  The VL-Instruct family
+# performs OCR well when prompted to extract text; override via
+# ``SILICONFLOW_OCR_MODEL``.  (SiliconFlow also exposes a dedicated
+# ``qwen-vl-ocr`` alias on some accounts — set the env to use it.)
+_DEFAULT_QWEN_VL_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
+_OCR_PROMPT = (
+    "You are an OCR engine. Extract ALL visible text from the image "
+    "verbatim, preserving line breaks. Output only the recognized text, "
+    "no commentary. (识别并提取图片中所有可见文字，保留换行，仅输出文本。)"
+)
+
+
+def _b64_data_url(data: bytes) -> str:
+    import base64
+
+    return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
+class QwenVlOcrBackend:
+    """OCR via the Qwen-VL multimodal model on SiliconFlow.
+
+    Sends a chat-completions request whose user message carries the image
+    (base64 ``data:`` URL) + an extract-text instruction, then parses the
+    assistant's reply into an :class:`OcrResult`.  Reuses
+    ``SILICONFLOW_API_KEY`` / ``SILICONFLOW_BASE_URL`` so the OCR backend
+    lights up for free once the platform key is set.
+
+    Degrades to an empty result on any error (missing key, HTTP failure,
+    transport error, empty content) so ingestion never crashes.
+    """
+
+    name = "qwen_vl_ocr"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        self.api_key = api_key if api_key is not None else os.getenv("SILICONFLOW_API_KEY", "")
+        self.base_url = (
+            base_url
+            or os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+        ).rstrip("/")
+        self.model = (
+            model
+            or os.getenv("SILICONFLOW_OCR_MODEL")
+            or _DEFAULT_QWEN_VL_MODEL
+        )
+        self.timeout = timeout_seconds
+        # Available iff a key is configured; the VLM itself is always
+        # hosted, so there's no local-dep probe like rapidocr/tesseract.
+        self.available = bool(self.api_key)
+
+    def ocr(self, source: bytes | str) -> OcrResult:
+        if not self.available:
+            return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+        data = _to_bytes(source)
+        if not data:
+            return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+        import httpx
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": _b64_data_url(data)}},
+                        {"type": "text", "text": _OCR_PROMPT},
+                    ],
+                }
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            resp = httpx.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=self.timeout,
+            )
+        except Exception:
+            return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+        if resp.status_code >= 400:
+            return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+        try:
+            body = resp.json() or {}
+            choices = body.get("choices") or []
+            if not choices:
+                return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+            content = choices[0].get("message", {}).get("content", "") or ""
+        except Exception:
+            return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+        if not content.strip():
+            return OcrResult(text="", pages=0, backend="qwen_vl_ocr")
+        return OcrResult(text=content, pages=1, backend="qwen_vl_ocr")
+
+
 def _to_bytes(source: bytes | str) -> bytes:
     if isinstance(source, bytes):
         return source
@@ -175,12 +283,20 @@ def _to_bytes(source: bytes | str) -> bytes:
 
 
 def build_ocr_backend() -> OcrBackend:
-    """Pick an OCR backend from ``OCR_BACKEND`` env (default disabled)."""
+    """Pick an OCR backend from ``OCR_BACKEND`` env (default disabled).
+
+    Options: ``rapidocr`` | ``tesseract`` | ``qwen_vl_ocr`` | ``disabled``.
+    ``qwen_vl_ocr`` uses the Qwen-VL multimodal model on SiliconFlow
+    (needs ``SILICONFLOW_API_KEY``); the local-CPU backends need their
+    own deps.
+    """
     name = os.getenv("OCR_BACKEND", "disabled").strip().lower()
     if name == "rapidocr":
         return RapidOcrBackend()
     if name == "tesseract":
         return TesseractOcrBackend()
+    if name in {"qwen_vl_ocr", "qwen-vl-ocr", "qwen_vl", "qwen2_vl_ocr"}:
+        return QwenVlOcrBackend()
     return DisabledOcrBackend()
 
 
@@ -219,6 +335,7 @@ __all__ = [
     "OcrBackend",
     "OcrParser",
     "OcrResult",
+    "QwenVlOcrBackend",
     "RapidOcrBackend",
     "TesseractOcrBackend",
     "build_ocr_backend",
