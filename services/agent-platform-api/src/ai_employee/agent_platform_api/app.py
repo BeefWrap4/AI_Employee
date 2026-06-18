@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 
 from ai_employee.agent_platform_api.eval_compare import compare_reports
@@ -68,7 +69,7 @@ from ai_employee.common_schemas.tool_registry import (
 )
 from ai_employee.observability import render_prometheus_text
 from fastapi import FastAPI, HTTPException, Request, WebSocket, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 SERVICE_VERSION = "0.1.0"
 EVAL_TOP_KS = [1, 3, 5]
@@ -141,6 +142,31 @@ def create_app(
             "version": SERVICE_VERSION,
             "runtime": "in_memory",
         }
+
+    @app.get("/health/ready")
+    def health_ready() -> JSONResponse:
+        """Readiness probe — checks configured downstream deps.
+
+        Returns 200 when all deps are healthy, 503 otherwise so k8s
+        stops routing traffic to this pod (without restarting it).
+        Deps are configured via env: ``SQLITE_PATH`` (sqlite),
+        ``REDIS_URL`` (redis).  Missing env = dep not configured.
+        """
+        from ai_employee.agent_platform_api.health import (
+            ReadinessResult,
+            check_redis,
+            check_sqlite,
+        )
+        checks = []
+        sqlite_path = os.environ.get("SQLITE_PATH")
+        if sqlite_path:
+            checks.append(check_sqlite(sqlite_path))
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            checks.append(check_redis(redis_url))
+        result = ReadinessResult(checks=checks)
+        status_code = 200 if result.ready else 503
+        return JSONResponse(status_code=status_code, content=result.to_dict())
 
     @app.get("/api/v1/agent-templates", response_model=AgentTemplateListResponse)
     def get_agent_templates() -> AgentTemplateListResponse:

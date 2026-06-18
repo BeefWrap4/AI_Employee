@@ -53,10 +53,11 @@ spec:
               mountPath: /var/lib/ai-employee/platform
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 8030
             initialDelaySeconds: 5
             periodSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               cpu: "100m"
