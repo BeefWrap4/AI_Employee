@@ -385,7 +385,7 @@ def compute(
         # Faithfulness (R18-4 / spec §5.6): RAGAS-style claim-grounding
         # when retrieved_chunks are present; legacy keyword path otherwise.
         if r.retrieved_chunks:
-            score, supported, total = evaluate_faithfulness(
+            score, _supported, total = evaluate_faithfulness(
                 r.answer, r.retrieved_chunks, judge=claim_judge,
             )
             if total > 0:

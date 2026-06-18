@@ -399,7 +399,7 @@ def test_llm_judge_unavailable_judge_skipped() -> None:
         def score_claim(self, claim: str, context: list[str]):
             return None  # judge unavailable
 
-    score, supported, total = evaluate_faithfulness(
+    score, supported, _total = evaluate_faithfulness(
         answer="声明.",
         retrieved_chunks=["声明在这里."],
         judge=_Judge(),
