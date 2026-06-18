@@ -206,6 +206,46 @@ def create_app(
         doc = store.get_document(doc_id)
         return _document_response(doc, f"trace_{doc_id}_get", None)
 
+    @app.get("/api/v1/documents/{doc_id}/upload-progress")
+    async def upload_progress_stream(doc_id: str):  # type: ignore[no-untyped-def]
+        """SSE stream of upload progress for ``doc_id``.
+
+        Replays the latest snapshot then streams new progress events
+        until the client disconnects or the upload completes/fails.
+        Terminates after one snapshot when no progress is recorded
+        yet (``stage == 'unknown'``) so unknown doc_id requests don't
+        hang.
+        """
+        import asyncio
+        import json
+
+        from fastapi.responses import StreamingResponse
+
+        from ai_employee.knowledge_api.upload_progress import build_progress_tracker
+
+        tracker = build_progress_tracker()
+        initial = tracker.get(doc_id)
+        queue = tracker.subscribe(doc_id)
+
+        async def event_source():
+            try:
+                # Emit the initial snapshot; terminate if it's a terminal
+                # state (completed/failed) or unknown (no upload recorded).
+                yield f"data: {json.dumps(initial.to_dict(), ensure_ascii=False)}\n\n"
+                if initial.stage in {"completed", "failed", "unknown"}:
+                    return
+                while True:
+                    progress = await queue.get()
+                    yield f"data: {json.dumps(progress.to_dict(), ensure_ascii=False)}\n\n"
+                    if progress.stage in {"completed", "failed"}:
+                        return
+            except asyncio.CancelledError:  # noqa: PERF203
+                raise
+            finally:
+                tracker.unsubscribe(doc_id=doc_id, queue=queue)
+
+        return StreamingResponse(event_source(), media_type="text/event-stream")
+
     @app.get(
         "/api/v1/documents/{doc_id}/chunks",
         response_model=DocumentChunksResponse,
