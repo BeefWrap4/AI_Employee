@@ -6,6 +6,7 @@ Spec §5.4 HITL transfer (R20 governance flavour):
   Permission: only the current approver / requested_by or an admin may transfer.
   History: every transfer appends to ``transfers`` (chronological).
 """
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app

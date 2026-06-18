@@ -9,6 +9,7 @@ This is the governance-track supplement, distinct from the legacy
 ``pending_supplement`` status).  R20 standardises the unified status
 machine: ``supplement_pending``.
 """
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app

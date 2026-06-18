@@ -107,12 +107,15 @@ def create_app(
     @app.middleware("http")
     async def tenant_middleware(request, call_next):
         from starlette.responses import JSONResponse
+
         explicit = request.query_params.get("tenant_id")
         header_tenant = request.headers.get("X-Tenant-ID")
         claims_sub = request.headers.get("X-User-Sub")  # populated by auth layer
         try:
             ctx = resolve_tenant_context(
-                explicit=explicit, header_tenant=header_tenant, claims_sub=claims_sub,
+                explicit=explicit,
+                header_tenant=header_tenant,
+                claims_sub=claims_sub,
             )
         except ValueError as exc:
             return JSONResponse(
@@ -135,11 +138,14 @@ def create_app(
             get_current_tenant_id,
             resolve_tenant_context,
         )
+
         explicit = request.query_params.get("tenant_id")
         header_tenant = request.headers.get("X-Tenant-ID")
         claims_sub = request.headers.get("X-User-Sub")
         ctx = resolve_tenant_context(
-            explicit=explicit, header_tenant=header_tenant, claims_sub=claims_sub,
+            explicit=explicit,
+            header_tenant=header_tenant,
+            claims_sub=claims_sub,
         )
         return {
             "tenant_id": get_current_tenant_id(),
@@ -157,11 +163,13 @@ def create_app(
         }
 
     from ai_employee.agent_platform_api.audit_api import mount_audit_endpoints
+
     mount_audit_endpoints(app)
 
     from ai_employee.agent_platform_api.rate_limit_middleware import (
         install_rate_limiter,
     )
+
     install_rate_limiter(app)
 
     @app.get("/health/ready")
@@ -178,6 +186,7 @@ def create_app(
             check_redis,
             check_sqlite,
         )
+
         checks = []
         sqlite_path = os.environ.get("SQLITE_PATH")
         if sqlite_path:
@@ -210,7 +219,7 @@ def create_app(
             )
         run = create_run(state, payload)
         run_state.upsert_run(run_to_persist_dict(run))
-        platform_metrics().record_run(succeeded=(run.status != 'failed'))
+        platform_metrics().record_run(succeeded=(run.status != "failed"))
         return run
 
     @app.post(
@@ -377,15 +386,12 @@ def create_app(
                 _created = _task.created_at
                 if _created.endswith("Z"):
                     _created = _created.replace("Z", "+00:00")
-                _wait = (
-                    _dt.now(_dt.timezone.utc)
-                    - _dt.fromisoformat(_created)
-                ).total_seconds()
+                _wait = (_dt.now(_dt.timezone.utc) - _dt.fromisoformat(_created)).total_seconds()
                 if _wait >= 0:
                     platform_metrics().record_approval(_wait)
         except Exception:
             pass
-        platform_metrics().record_review(accepted=(payload.decision == 'approved'))
+        platform_metrics().record_review(accepted=(payload.decision == "approved"))
         run = state.runs.get(task.run_id)
         if run is not None:
             run_state.upsert_run(run_to_persist_dict(run))
@@ -396,11 +402,14 @@ def create_app(
         response_model=ApprovalTask,
     )
     def supplement_request(
-        task_id: str, payload: ApprovalSupplementRequest,
+        task_id: str,
+        payload: ApprovalSupplementRequest,
     ) -> ApprovalTask:
         return request_supplement(
-            state, task_id=task_id,
-            question=payload.question, requested_by=payload.requested_by,
+            state,
+            task_id=task_id,
+            question=payload.question,
+            requested_by=payload.requested_by,
         )
 
     @app.post(
@@ -408,12 +417,15 @@ def create_app(
         response_model=ApprovalTask,
     )
     def supplement_answer(
-        task_id: str, payload: ApprovalSupplementAnswer,
+        task_id: str,
+        payload: ApprovalSupplementAnswer,
     ) -> ApprovalTask:
         try:
             return answer_supplement(
-                state, task_id=task_id,
-                answer=payload.answer, answered_by=payload.answered_by,
+                state,
+                task_id=task_id,
+                answer=payload.answer,
+                answered_by=payload.answered_by,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -426,11 +438,15 @@ def create_app(
         response_model=ApprovalTask,
     )
     def route_task(
-        task_id: str, payload: ApprovalRouteRequest,
+        task_id: str,
+        payload: ApprovalRouteRequest,
     ) -> ApprovalTask:
         return route_approval(
-            state, task_id=task_id, routed_to=payload.routed_to,
-            routed_by=payload.routed_by, reason=payload.reason,
+            state,
+            task_id=task_id,
+            routed_to=payload.routed_to,
+            routed_by=payload.routed_by,
+            reason=payload.reason,
         )
 
     @app.post(
@@ -438,10 +454,12 @@ def create_app(
         response_model=ApprovalTask,
     )
     def timeout_task(
-        task_id: str, payload: ApprovalTimeoutRequest,
+        task_id: str,
+        payload: ApprovalTimeoutRequest,
     ) -> ApprovalTask:
         return expire_approval(
-            state, task_id=task_id,
+            state,
+            task_id=task_id,
             escalation_reviewer=payload.escalation_reviewer,
         )
 
@@ -450,7 +468,8 @@ def create_app(
         response_model=ApprovalTask,
     )
     def delegate_task(
-        task_id: str, payload: ApprovalDelegateRequest,
+        task_id: str,
+        payload: ApprovalDelegateRequest,
     ) -> ApprovalTask:
         from ai_employee.agent_platform_api.runtime import delegate_approval
 
@@ -461,8 +480,11 @@ def create_app(
                 detail={"error_code": "approval_task_not_found", "task_id": task_id},
             )
         return delegate_approval(
-            state, task_id=task_id, delegate=payload.delegate,
-            delegated_by=payload.delegated_by, reason=payload.reason,
+            state,
+            task_id=task_id,
+            delegate=payload.delegate,
+            delegated_by=payload.delegated_by,
+            reason=payload.reason,
         )
 
     # ------------------------------------------------------------------ #
@@ -474,11 +496,14 @@ def create_app(
         response_model=ApprovalTask,
     )
     def supplement_governance(
-        task_id: str, payload: ApprovalSupplementGovernanceRequest,
+        task_id: str,
+        payload: ApprovalSupplementGovernanceRequest,
     ) -> ApprovalTask:
         try:
             return request_supplement_governance(
-                state, task_id=task_id, note=payload.note,
+                state,
+                task_id=task_id,
+                note=payload.note,
                 attachments=[a.model_dump() for a in payload.attachments],
                 requested_by=payload.requested_by,
             )
@@ -502,13 +527,16 @@ def create_app(
         response_model=ApprovalTask,
     )
     def supplement_resolve(
-        task_id: str, payload: ApprovalSupplementResolveRequest,
+        task_id: str,
+        payload: ApprovalSupplementResolveRequest,
     ) -> ApprovalTask:
         try:
             return resolve_supplement_governance(
-                state, task_id=task_id,
+                state,
+                task_id=task_id,
                 attachments=[a.model_dump() for a in payload.attachments],
-                note=payload.note, resolved_by=payload.resolved_by,
+                note=payload.note,
+                resolved_by=payload.resolved_by,
             )
         except ApprovalTaskNotFound:
             raise HTTPException(
@@ -530,12 +558,16 @@ def create_app(
         response_model=ApprovalTask,
     )
     def transfer_governance(
-        task_id: str, payload: ApprovalTransferRequest,
+        task_id: str,
+        payload: ApprovalTransferRequest,
     ) -> ApprovalTask:
         try:
             return transfer_approval(
-                state, task_id=task_id, new_approver=payload.new_approver,
-                reason=payload.reason, transferred_by=payload.transferred_by,
+                state,
+                task_id=task_id,
+                new_approver=payload.new_approver,
+                reason=payload.reason,
+                transferred_by=payload.transferred_by,
                 is_admin=payload.is_admin,
             )
         except ApprovalTaskNotFound:
@@ -567,12 +599,16 @@ def create_app(
         response_model=ApprovalTask,
     )
     def escalate_governance(
-        task_id: str, payload: ApprovalEscalateRequest,
+        task_id: str,
+        payload: ApprovalEscalateRequest,
     ) -> ApprovalTask:
         try:
             return escalate_approval(
-                state, task_id=task_id, escalated_to=payload.escalated_to,
-                reason=payload.reason, escalated_by=payload.escalated_by,
+                state,
+                task_id=task_id,
+                escalated_to=payload.escalated_to,
+                reason=payload.reason,
+                escalated_by=payload.escalated_by,
             )
         except ApprovalTaskNotFound:
             raise HTTPException(

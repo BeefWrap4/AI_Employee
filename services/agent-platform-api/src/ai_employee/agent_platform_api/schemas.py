@@ -36,8 +36,12 @@ ApprovalTaskStatus = Literal[
 ]
 ApprovalDecision = Literal["approved", "rejected"]
 ToolRiskLevel = Literal[
-    "readonly", "suggest", "approval_required", "forbidden",
-    "read_only", "high_risk",
+    "readonly",
+    "suggest",
+    "approval_required",
+    "forbidden",
+    "read_only",
+    "high_risk",
 ]
 ToolStatus = Literal["active", "disabled"]
 ToolHealthStatus = Literal["unknown", "healthy", "unhealthy"]
@@ -198,6 +202,7 @@ class ApprovalDelegateRequest(BaseModel):
 
 class SupplementAttachment(BaseModel):
     """A material attachment supplied during the supplement flow."""
+
     name: str
     uri: str
     content_type: str | None = None
@@ -208,6 +213,7 @@ class ApprovalSupplementGovernanceRequest(BaseModel):
 
     Moves the task ``pending -> supplement_pending``.
     """
+
     note: str
     attachments: list[SupplementAttachment] = Field(default_factory=list)
     requested_by: str
@@ -215,6 +221,7 @@ class ApprovalSupplementGovernanceRequest(BaseModel):
 
 class ApprovalSupplementResolveRequest(BaseModel):
     """R20-1: requester supplies the material, task returns to ``pending``."""
+
     attachments: list[SupplementAttachment] = Field(default_factory=list)
     note: str | None = None
     resolved_by: str
@@ -226,6 +233,7 @@ class ApprovalTransferRequest(BaseModel):
     Only the current approver / requested_by or an admin may transfer.
     Records an entry in ``transfers`` and sets ``current_approver``.
     """
+
     new_approver: str
     reason: str
     transferred_by: str
@@ -234,6 +242,7 @@ class ApprovalTransferRequest(BaseModel):
 
 class ApprovalEscalateRequest(BaseModel):
     """R20-3: manually escalate an overdue approval."""
+
     escalated_to: str | None = None
     reason: str | None = None
     escalated_by: str | None = None
@@ -241,12 +250,14 @@ class ApprovalEscalateRequest(BaseModel):
 
 class RetryPolicyModel(BaseModel):
     """Per-tool retry policy (spec §5.3)."""
+
     max_attempts: int = Field(default=1, ge=1, le=10)
     backoff_seconds: float = Field(default=0.0, ge=0.0, le=60.0)
 
 
 class CircuitBreakerModel(BaseModel):
     """Per-tool circuit breaker (spec §5.3)."""
+
     failure_threshold: int = Field(default=5, ge=1, le=100)
     cooldown_seconds: float = Field(default=60.0, ge=1.0, le=3600.0)
 

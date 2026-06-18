@@ -214,8 +214,10 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
     )
     store.runs[run_id] = run
     record_event(
-        action="run.created", actor=payload.requested_by,
-        target_type="agent_run", target_id=run_id,
+        action="run.created",
+        actor=payload.requested_by,
+        target_type="agent_run",
+        target_id=run_id,
         payload={"template_id": template.template_id, "status": status},
     )
     if requires_approval:
@@ -255,8 +257,10 @@ def decide_approval_task(
     )
     store.approval_tasks[task_id] = updated_task
     record_event(
-        action="approval.decided", actor=decided_by,
-        target_type="approval_task", target_id=task_id,
+        action="approval.decided",
+        actor=decided_by,
+        target_type="approval_task",
+        target_id=task_id,
         payload={"decision": decision, "comment": comment},
     )
     run = store.runs[task.run_id]
@@ -320,9 +324,7 @@ def answer_supplement(
 
     task = store.approval_tasks[task_id]
     if task.status != "pending_supplement":
-        raise ValueError(
-            f"task {task_id} is not in pending_supplement (got {task.status!r})"
-        )
+        raise ValueError(f"task {task_id} is not in pending_supplement (got {task.status!r})")
     updated = task.model_copy(
         update={
             "status": "pending",
@@ -384,8 +386,6 @@ def expire_approval(
             update={"status": "failed", "approval_status": "expired"}
         )
     return updated
-
-
 
 
 def delegate_approval(
@@ -472,8 +472,10 @@ def request_supplement_governance(
     )
     store.approval_tasks[task_id] = updated
     record_event(
-        action="approval.supplement_requested", actor=requested_by,
-        target_type="approval_task", target_id=task_id,
+        action="approval.supplement_requested",
+        actor=requested_by,
+        target_type="approval_task",
+        target_id=task_id,
         payload={"note": note, "attachments": len(attachments)},
     )
     return updated
@@ -510,8 +512,10 @@ def resolve_supplement_governance(
     )
     store.approval_tasks[task_id] = updated
     record_event(
-        action="approval.supplement_resolved", actor=resolved_by,
-        target_type="approval_task", target_id=task_id,
+        action="approval.supplement_resolved",
+        actor=resolved_by,
+        target_type="approval_task",
+        target_id=task_id,
         payload={"attachments": len(attachments)},
     )
     return updated
@@ -536,8 +540,9 @@ def transfer_approval(
     task = store.approval_tasks.get(task_id)
     if task is None:
         raise ApprovalTaskNotFound(task_id)
-    authorised = is_admin or transferred_by == task.current_approver \
-        or transferred_by == task.requested_by
+    authorised = (
+        is_admin or transferred_by == task.current_approver or transferred_by == task.requested_by
+    )
     if not authorised:
         raise ApprovalTransferForbidden(transferred_by)
     if task.status in ("approved", "rejected", "expired"):
@@ -565,8 +570,10 @@ def transfer_approval(
     )
     store.approval_tasks[task_id] = updated
     record_event(
-        action="approval.transferred", actor=transferred_by,
-        target_type="approval_task", target_id=task_id,
+        action="approval.transferred",
+        actor=transferred_by,
+        target_type="approval_task",
+        target_id=task_id,
         payload={"new_approver": new_approver, "reason": reason, "is_admin": is_admin},
     )
     return updated
@@ -606,8 +613,10 @@ def escalate_approval(
     updated = task.model_copy(update=update)
     store.approval_tasks[task_id] = updated
     record_event(
-        action="approval.escalated", actor=escalated_by or "system",
-        target_type="approval_task", target_id=task_id,
+        action="approval.escalated",
+        actor=escalated_by or "system",
+        target_type="approval_task",
+        target_id=task_id,
         payload={"escalated_to": target, "reason": reason},
     )
     return updated
@@ -630,8 +639,10 @@ def register_tool(store: AgentPlatformStore, payload: ToolRegistration) -> ToolR
     tool = ToolResponse(**payload.model_dump(), health_status="unknown")
     store.tools[tool.tool_name] = tool
     record_event(
-        action="tool.registered", actor=payload.tool_name,
-        target_type="tool", target_id=tool.tool_name,
+        action="tool.registered",
+        actor=payload.tool_name,
+        target_type="tool",
+        target_id=tool.tool_name,
         payload={"service_name": tool.service_name, "risk_level": tool.risk_level},
     )
     return tool
@@ -665,9 +676,7 @@ def _output_for_template(template_id: str, payload: dict) -> dict:
         }
     if template_id == "ticket_summary":
         return {
-            "summary": (
-                f"Ticket {payload.get('ticket_id', 'unknown')} summary prepared."
-            ),
+            "summary": (f"Ticket {payload.get('ticket_id', 'unknown')} summary prepared."),
             "root_cause": "",
             "remediation": "",
         }
@@ -764,6 +773,7 @@ def resume_run_from_node(
     store.runs[run_id] = updated
     return updated
 
+
 def select_runtime():
     """Pick the agent runtime backend from env (spec P3 §4 LangGraph v1).
 
@@ -774,8 +784,10 @@ def select_runtime():
     layer can stay backend-agnostic.
     """
     import os
-    backend = os.environ.get('RUNTIME_BACKEND', 'dag').lower()
-    if backend == 'langgraph':
+
+    backend = os.environ.get("RUNTIME_BACKEND", "dag").lower()
+    if backend == "langgraph":
         from ai_employee.agent_platform_api.langgraph_runtime import build_langgraph_runtime
+
         return build_langgraph_runtime()
     return None  # sentinel: caller uses the default self-built DAG

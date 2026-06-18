@@ -13,6 +13,7 @@ CronJob — the call site decides the cadence.  The notifier is a
 callable seam so tests can capture dispatches without a real message
 bus.
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,7 +51,8 @@ def default_timeout_seconds() -> int:
     except (TypeError, ValueError):
         logger.warning(
             "APPROVAL_TIMEOUT_SECONDS=%r is not an int; falling back to %s",
-            raw, DEFAULT_TIMEOUT_SECONDS,
+            raw,
+            DEFAULT_TIMEOUT_SECONDS,
         )
         return DEFAULT_TIMEOUT_SECONDS
     if value <= 0:
@@ -80,7 +82,9 @@ def notify_escalation_reviewer(
     if notifier is None:
         logger.info(
             "approval.escalation.notify task_id=%s to=%s reason=%s",
-            task_id, escalated_to, reason,
+            task_id,
+            escalated_to,
+            reason,
         )
     else:
         notifier(payload)

@@ -8,6 +8,7 @@ Spec §5.4 HITL timeout escalation (R20 governance flavour):
   - Manual trigger: POST /api/v1/approvals/{task_id}/escalate
     {escalated_to?, reason?, escalated_by?}
 """
+
 from __future__ import annotations
 
 import time
@@ -110,9 +111,7 @@ def _store_with_pending_task(created_at_iso: str | None = None) -> tuple[AgentPl
         store,
         AgentRunCreate(template_id="rca", requested_by="alice", input={"incident_id": "inc"}),
     )
-    task_id = next(
-        tid for tid, t in store.approval_tasks.items() if t.run_id == run.run_id
-    )
+    task_id = next(tid for tid, t in store.approval_tasks.items() if t.run_id == run.run_id)
     if created_at_iso is not None:
         task = store.approval_tasks[task_id]
         store.approval_tasks[task_id] = task.model_copy(update={"created_at": created_at_iso})
@@ -127,7 +126,9 @@ def test_scheduler_escalates_overdue_pending_task() -> None:
     old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     store, task_id = _store_with_pending_task(old)
     escalated = escalate_overdue_approvals(
-        store, timeout_seconds=3600, escalate_to="escalation-lead",
+        store,
+        timeout_seconds=3600,
+        escalate_to="escalation-lead",
     )
     assert task_id in escalated
     task = store.approval_tasks[task_id]
@@ -139,7 +140,9 @@ def test_scheduler_skips_fresh_pending_task() -> None:
     """A just-created task is within the SLA window and not escalated."""
     store, task_id = _store_with_pending_task()
     escalated = escalate_overdue_approvals(
-        store, timeout_seconds=3600, escalate_to="escalation-lead",
+        store,
+        timeout_seconds=3600,
+        escalate_to="escalation-lead",
     )
     assert escalated == []
     assert store.approval_tasks[task_id].status == "pending"
@@ -154,11 +157,16 @@ def test_scheduler_skips_already_decided_task_even_if_old() -> None:
     from ai_employee.agent_platform_api.runtime import decide_approval_task
 
     decide_approval_task(
-        store, task_id=task_id, decision="approved",
-        decided_by="alice", comment="ok",
+        store,
+        task_id=task_id,
+        decision="approved",
+        decided_by="alice",
+        comment="ok",
     )
     escalated = escalate_overdue_approvals(
-        store, timeout_seconds=3600, escalate_to="escalation-lead",
+        store,
+        timeout_seconds=3600,
+        escalate_to="escalation-lead",
     )
     assert escalated == []
     assert store.approval_tasks[task_id].status == "approved"
@@ -170,7 +178,9 @@ def test_scheduler_respects_custom_timeout_threshold() -> None:
     # Wait just over a second so the task is older than 1s.
     time.sleep(1.05)
     escalated = escalate_overdue_approvals(
-        store, timeout_seconds=1, escalate_to="escalation-lead",
+        store,
+        timeout_seconds=1,
+        escalate_to="escalation-lead",
     )
     assert task_id in escalated
     assert store.approval_tasks[task_id].status == "escalated"
