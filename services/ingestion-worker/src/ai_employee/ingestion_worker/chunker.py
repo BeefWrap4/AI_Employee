@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 
 from ai_employee.common_schemas.knowledge import ParsedChunk
@@ -9,6 +10,30 @@ _MERGE_MAX_LEN = 15
 _MERGE_MAX_BLOCKS = 3
 _ALARM_CODE_RE = re.compile(r"[A-Z]{2,}-\d{2,}")
 _BOUNDARY_CHARS = ("。", "！", "?", "\n", "；")
+
+# Sliding-window strategy config (R17-2 / spec §5.3).  Defaults to the
+# sliding strategy with a window matching the legacy _MAX_CHUNK_LEN and
+# a 10% overlap so context carries across boundaries.
+_DEFAULT_WINDOW = 800
+_DEFAULT_OVERLAP = 80
+
+
+def _strategy() -> str:
+    return os.getenv("CHUNK_STRATEGY", "sliding").strip().lower()
+
+
+def _window_size() -> int:
+    try:
+        return max(64, int(os.getenv("CHUNK_WINDOW_SIZE", str(_DEFAULT_WINDOW))))
+    except ValueError:
+        return _DEFAULT_WINDOW
+
+
+def _overlap() -> int:
+    try:
+        return max(0, int(os.getenv("CHUNK_OVERLAP", str(_DEFAULT_OVERLAP))))
+    except ValueError:
+        return _DEFAULT_OVERLAP
 
 
 def _split_long_block(text: str, max_len: int) -> list[str]:
@@ -86,9 +111,34 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
     """把 ParsedSection 列表切成 ParsedChunk 列表。
 
     策略：段落级 → 窗口合并 → 超长截断 → 告警码保护。
+
+    超长块切分按 ``CHUNK_STRATEGY`` 选择（R17-2 / spec §5.3）：
+
+    * ``sliding``（默认）—— 滑动窗口重叠分段，``CHUNK_WINDOW_SIZE`` /
+      ``CHUNK_OVERLAP`` 控制窗口与重叠量，相邻 chunk 共享重叠文本，告警码
+      保护仍在（``sliding_window_chunk`` 在窗口边界回退到句号/换行）。
+    * ``boundary`` —— 旧行为，``_split_long_block`` 按句号/换行硬切无重叠。
     """
+    strategy = _strategy()
+    window = _window_size()
+    overlap = _overlap()
     chunks: list[ParsedChunk] = []
     seq = 0
+
+    def _split_merged(merged: str) -> list[str]:
+        if strategy == "sliding":
+            pieces = sliding_window_chunk(merged, window_size=window, overlap=overlap)
+            # sliding_window_chunk already respects window size; only apply
+            # the hard-cut alarm-code guard as a safety net on any piece
+            # that still exceeds the window (boundary back-off can overshoot).
+            out: list[str] = []
+            for p in pieces:
+                if len(p) <= window:
+                    out.append(p)
+                else:
+                    out.extend(_split_long_block(p, window))
+            return out
+        return _split_long_block(merged, _MAX_CHUNK_LEN)
 
     for section in sections:
         buffer: list[str] = []
@@ -99,7 +149,7 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
             if not buffer:
                 return
             merged = " ".join(buffer)
-            for piece in _split_long_block(merged, _MAX_CHUNK_LEN):
+            for piece in _split_merged(merged):
                 seq += 1
                 chunks.append(
                     ParsedChunk(
