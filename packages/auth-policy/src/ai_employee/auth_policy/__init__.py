@@ -45,6 +45,10 @@ from ai_employee.auth_policy.rbac import (
     permissions_for,
     permissions_for_roles,
 )
+from ai_employee.auth_policy.fastapi_dep import (
+    require_internal_or_jwt,
+    require_jwt,
+)
 
 __all__ = [
     "ACTION_PERMISSIONS",
@@ -80,5 +84,7 @@ __all__ = [
     "permission_for_risk_level",
     "permissions_for",
     "permissions_for_roles",
+    "require_internal_or_jwt",
+    "require_jwt",
     "verify_token",
 ]
