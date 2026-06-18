@@ -32,7 +32,9 @@ from ai_employee.common_schemas.tool_registry import (
     ToolRegistry,
     ToolSpec,
 )
+from ai_employee.tool_registry.circuit_breaker import CircuitBreaker, CircuitOpenError
 from ai_employee.tool_registry.store import ToolRegistryStore
+from ai_employee.tool_registry.tool_call_log import ToolCallLogStore
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -47,6 +49,9 @@ class ToolRegistrationRequest(BaseModel):
     risk_level: str = "read_only"
     service_name: str | None = None
     version: str = "v1"
+    timeout_ms: int = 5000
+    retry_policy: dict[str, Any] = Field(default_factory=lambda: {"max_retries": 0})
+    health_check_url: str | None = None
 
 
 class ToolInvokeRequest(BaseModel):
@@ -66,6 +71,9 @@ def _to_spec(payload: ToolRegistrationRequest, handler=None) -> ToolSpec:
         risk_level=payload.risk_level,
         service_name=payload.service_name,
         version=payload.version,
+        timeout_ms=payload.timeout_ms,
+        retry_policy=payload.retry_policy,
+        health_check_url=payload.health_check_url,
         handler=handler,
     )
 
@@ -99,10 +107,14 @@ def create_app(
     store: ToolRegistryStore | None = None,
     *,
     registry: ToolRegistry | None = None,
+    call_log_store: ToolCallLogStore | None = None,
+    circuit_breaker: CircuitBreaker | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Tool Registry", version=SERVICE_VERSION)
     registry_state = registry or ToolRegistry()
     store_state = store or ToolRegistryStore()
+    call_log_state = call_log_store or ToolCallLogStore()
+    breaker_state = circuit_breaker or CircuitBreaker()
     _register_builtin_tools(registry_state)
     # Persist the built-in tools so GET reflects them even before any
     # explicit registration call.
@@ -138,6 +150,9 @@ def create_app(
                     risk_level=row["risk_level"],
                     service_name=row.get("service_name"),
                     version=row.get("version", "v1"),
+                    timeout_ms=int(row.get("timeout_ms", 5000) or 5000),
+                    retry_policy=row.get("retry_policy") or {"max_retries": 0},
+                    health_check_url=row.get("health_check_url"),
                 ),
                 replace=True,
             )
@@ -181,6 +196,9 @@ def create_app(
                 "risk_level": payload.risk_level,
                 "service_name": payload.service_name,
                 "version": payload.version,
+                "timeout_ms": payload.timeout_ms,
+                "retry_policy": payload.retry_policy,
+                "health_check_url": payload.health_check_url,
             }
         )
         return {
@@ -250,18 +268,104 @@ def create_app(
                     ),
                 },
             )
+        run_id = claims.sub if claims else "internal"
+        import json as _json
+        import time as _time
+
+        start = _time.monotonic()
+        status_str = "success"
+        error_code: str | None = None
+        result: dict[str, Any] | None = None
         try:
-            result = registry_state.invoke(name, payload.arguments)
+            def _do_invoke() -> dict[str, Any]:
+                return registry_state.invoke(name, payload.arguments)
+
+            # Circuit breaker wraps the call.
+            try:
+                result = breaker_state.call(name, _do_invoke)
+            except CircuitOpenError:
+                status_str = "failed"
+                error_code = "CIRCUIT_OPEN"
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error_code": "circuit_open",
+                        "tool_name": name,
+                        "message": "tool circuit breaker is open; retry later",
+                    },
+                )
+        except HTTPException:
+            raise
         except ToolInvocationError as exc:
+            status_str = "failed"
+            error_code = "INVOCATION_ERROR"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error_code": "tool_invocation_error", "message": str(exc)},
             ) from exc
+        except Exception as exc:
+            status_str = "failed"
+            error_code = type(exc).__name__.upper()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"error_code": "tool_failed", "message": str(exc)},
+            ) from exc
+        finally:
+            latency_ms = int((_time.monotonic() - start) * 1000)
+            try:
+                call_log_state.record(
+                    run_id=run_id,
+                    tool_name=name,
+                    input=payload.arguments,
+                    output_summary=_json.dumps(result, ensure_ascii=False)[:500] if result else "",
+                    status=status_str,
+                    latency_ms=latency_ms,
+                    error_code=error_code,
+                )
+            except Exception:
+                pass  # logging must never break the response
         return {
             "tool_name": name,
             "result": result,
             "invoked_by": claims.sub if claims else "internal",
+            "latency_ms": latency_ms,
         }
+
+    @app.get("/api/v1/tools/{name}/health")
+    def tool_health(name: str) -> dict[str, Any]:
+        """Probe a tool's declared health-check URL (spec §5.3)."""
+        row = store_state.get(name)
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "tool_not_found", "tool_name": name},
+            )
+        url = row.get("health_check_url")
+        state = breaker_state.state(name)
+        if not url:
+            return {"tool_name": name, "healthy": state == "closed", "circuit_state": state,
+                    "detail": "no health_check_url configured"}
+        import httpx
+
+        try:
+            resp = httpx.get(url, timeout=3.0)
+            healthy = 200 <= resp.status_code < 300
+        except Exception as exc:
+            return {"tool_name": name, "healthy": False, "circuit_state": state,
+                    "detail": f"health probe failed: {exc}"}
+        return {"tool_name": name, "healthy": healthy, "circuit_state": state,
+                "status_code": resp.status_code}
+
+    @app.get("/api/v1/tool-call-log")
+    def list_call_log(
+        run_id: str | None = None, tool_name: str | None = None,
+        page: int = 1, page_size: int = 50,
+    ) -> dict[str, Any]:
+        if run_id:
+            rows = call_log_state.list_for_run(run_id)
+            return {"items": rows, "total": len(rows), "page": 1, "page_size": len(rows)}
+        rows, total = call_log_state.list(tool_name=tool_name, page=page, page_size=page_size)
+        return {"items": rows, "total": total, "page": page, "page_size": page_size}
 
     return app
 

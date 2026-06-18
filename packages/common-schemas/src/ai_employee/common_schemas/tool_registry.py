@@ -44,6 +44,10 @@ class ToolSpec:
     handler: Callable[..., JsonDict] | None = field(default=None, repr=False)
     service_name: str | None = None
     version: str = "v1"
+    # Governance fields (spec §5.3 tool metadata).
+    timeout_ms: int = 5000
+    retry_policy: JsonDict = field(default_factory=lambda: {"max_retries": 0})
+    health_check_url: str | None = None
 
     def to_mcp_tool(self) -> JsonDict:
         """Render as an MCP ``tools/list`` entry."""
@@ -55,6 +59,9 @@ class ToolSpec:
             "metadata": {
                 "risk_level": self.risk_level,
                 "service_name": self.service_name,
+                "timeout_ms": self.timeout_ms,
+                "retry_policy": self.retry_policy,
+                "health_check_url": self.health_check_url,
             },
         }
 

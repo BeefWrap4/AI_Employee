@@ -58,6 +58,15 @@ class ToolRegistryStore:
     def init_schema(self) -> None:
         with self._lock, self._connect() as conn:
             conn.executescript(_SCHEMA)
+            # Idempotent column migrations for governance fields added later.
+            for col, decl in (
+                ("timeout_ms", "INTEGER NOT NULL DEFAULT 5000"),
+                ("retry_policy", "TEXT NOT NULL DEFAULT '{}'"),
+                ("health_check_url", "TEXT"),
+            ):
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(tools)").fetchall()}
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE tools ADD COLUMN {col} {decl}")
             conn.commit()
 
     def upsert(self, payload: dict[str, Any]) -> None:
@@ -70,8 +79,9 @@ class ToolRegistryStore:
                 conn.execute(
                     """INSERT INTO tools
                        (name, description, input_schema, output_schema,
-                        risk_level, service_name, version, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        risk_level, service_name, version, timeout_ms,
+                        retry_policy, health_check_url, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         payload["name"],
                         payload["description"],
@@ -80,6 +90,9 @@ class ToolRegistryStore:
                         payload["risk_level"],
                         payload.get("service_name"),
                         payload.get("version", "v1"),
+                        int(payload.get("timeout_ms", 5000)),
+                        json.dumps(payload.get("retry_policy", {"max_retries": 0}), ensure_ascii=False),
+                        payload.get("health_check_url"),
                         now,
                         now,
                     ),
@@ -88,7 +101,9 @@ class ToolRegistryStore:
                 conn.execute(
                     """UPDATE tools
                        SET description = ?, input_schema = ?, output_schema = ?,
-                           risk_level = ?, service_name = ?, version = ?, updated_at = ?
+                           risk_level = ?, service_name = ?, version = ?,
+                           timeout_ms = ?, retry_policy = ?, health_check_url = ?,
+                           updated_at = ?
                        WHERE name = ?""",
                     (
                         payload["description"],
@@ -97,6 +112,9 @@ class ToolRegistryStore:
                         payload["risk_level"],
                         payload.get("service_name"),
                         payload.get("version", "v1"),
+                        int(payload.get("timeout_ms", 5000)),
+                        json.dumps(payload.get("retry_policy", {"max_retries": 0}), ensure_ascii=False),
+                        payload.get("health_check_url"),
                         now,
                         payload["name"],
                     ),
@@ -128,7 +146,7 @@ class ToolRegistryStore:
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
-    for key in ("input_schema", "output_schema"):
+    for key in ("input_schema", "output_schema", "retry_policy"):
         raw = data.get(key)
         if isinstance(raw, str) and raw:
             try:
