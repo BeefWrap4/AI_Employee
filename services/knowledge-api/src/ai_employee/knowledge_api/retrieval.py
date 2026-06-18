@@ -4,6 +4,7 @@ import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ai_employee.common_schemas.acl import resolve_visible_docs
 from ai_employee.common_schemas.embedding import (
@@ -20,7 +21,11 @@ from ai_employee.common_schemas.vector_store import (
     build_vector_store,
 )
 from ai_employee.knowledge_api.store import SQLiteStore
+from ai_employee.knowledge_api.query_normalize import normalize_query
 from fastapi import HTTPException, status
+
+if TYPE_CHECKING:  # pragma: no cover - type-only import
+    from ai_employee.knowledge_api.reranker import Reranker
 
 
 @dataclass
@@ -43,11 +48,13 @@ class RetrievalService:
         sparse_store: OpenSearchSparseStore | StubSparseStore | None = None,
         vector_store: VectorStore | None = None,
         query_rewriter: Callable[[str], str] | None = None,
+        reranker: "Reranker | None" = None,
     ) -> None:
         self.store = store
         self.query_provider = query_provider or StubEmbeddingProvider(dim=8)
         self.top_k = top_k
         self.query_rewriter = query_rewriter
+        self.reranker = reranker
         # Determine sparse store: injected > OPENSEARCH_ENABLED env > Stub fallback
         if sparse_store is not None:
             self.sparse_store: OpenSearchSparseStore | StubSparseStore = sparse_store
@@ -83,12 +90,18 @@ class RetrievalService:
 
         effective = set(scopes or []) | set(scope_or or [])
 
+        # Query Normalize (spec §5.4 stage 1): augment the question with
+        # extracted telecom entities so alarm codes / NE ids written inline
+        # are guaranteed to surface in BM25 recall.  The original question is
+        # preserved (prefixed) so phrasing is retained for vector recall.
+        normalized = normalize_query(question)
+
         # BM25 full-text recall: prefer OpenSearch if enabled and data is there.
         # Fall back to SQLite FTS5 when OpenSearch is not enabled or returns nothing.
         bm25_rows: list[dict] = []
         os_results = self.sparse_store.search(
             "knowledge_base",
-            question,
+            normalized,
             doc_ids_filter=doc_ids,
             top_k=20,
         )
@@ -102,7 +115,7 @@ class RetrievalService:
                     bm25_rows.append(chunk)
         else:
             # No OpenSearch results: fall back to FTS5.
-            bm25_rows = self.store.search_fts(question, doc_ids, limit=20)
+            bm25_rows = self.store.search_fts(normalized, doc_ids, limit=20)
 
         fts_rows = self._filter_chunk_acl(bm25_rows, effective)
 
@@ -214,6 +227,12 @@ class RetrievalService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "no_knowledge_in_scope"},
             )
+        # Rerank (spec §5.4 stage 6): second-stage re-ordering of the
+        # fused Top-K candidates.  When no reranker is injected the hits
+        # keep their fusion order; the reranker (stub or cross-encoder)
+        # updates confidence in place.
+        if self.reranker is not None:
+            hits = self.reranker.rerank(question, hits, top_k)
         return hits
 
     def _filter_chunk_acl(self, rows: list[dict], effective_scopes: set[str]) -> list[dict]:

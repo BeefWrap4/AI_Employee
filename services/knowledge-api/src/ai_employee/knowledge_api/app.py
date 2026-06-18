@@ -87,7 +87,11 @@ def create_app(
         )
     # 查询侧 embedding 与 worker 侧共享同一 provider，保证维度一致
     query_provider, query_degraded = build_provider()
-    retrieval = RetrievalService(store, query_provider=query_provider)
+    from ai_employee.knowledge_api.reranker import build_reranker
+
+    retrieval = RetrievalService(
+        store, query_provider=query_provider, reranker=build_reranker()
+    )
     # 暴露 retrieval 让测试可注入 query provider
     app.state.retrieval = retrieval
     auth = require_internal_token(cfg["internal_token"])
