@@ -67,7 +67,7 @@ from ai_employee.common_schemas.tool_registry import (
     ToolSpec as _McpToolSpec,
 )
 from ai_employee.observability import render_prometheus_text
-from fastapi import FastAPI, HTTPException, WebSocket, status
+from fastapi import FastAPI, HTTPException, Request, WebSocket, status
 from fastapi.responses import PlainTextResponse
 
 SERVICE_VERSION = "0.1.0"
@@ -83,6 +83,55 @@ def create_app(
     state = store or AgentPlatformStore()
     eval_state = eval_store or EvalStore()
     run_state = run_store or AgentRunStore()
+
+    from ai_employee.agent_platform_api.tenant import (
+        resolve_tenant_context,
+        set_current_tenant_id,
+        reset_current_tenant,
+    )
+
+    @app.middleware("http")
+    async def tenant_middleware(request, call_next):
+        from starlette.responses import JSONResponse
+        explicit = request.query_params.get("tenant_id")
+        header_tenant = request.headers.get("X-Tenant-ID")
+        claims_sub = request.headers.get("X-User-Sub")  # populated by auth layer
+        try:
+            ctx = resolve_tenant_context(
+                explicit=explicit, header_tenant=header_tenant, claims_sub=claims_sub,
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=400,
+                content={"error_code": "invalid_tenant_id", "message": str(exc)},
+            )
+        token = set_current_tenant_id(ctx.tenant_id)
+        try:
+            response = await call_next(request)
+        finally:
+            reset_current_tenant(token)
+        # Echo resolved tenant for client visibility.
+        response.headers["X-Tenant-ID"] = ctx.tenant_id
+        return response
+
+    @app.get("/api/v1/tenant/whoami")
+    def tenant_whoami(request: Request) -> dict[str, object]:
+        """Return the resolved tenant context for the current request."""
+        from ai_employee.agent_platform_api.tenant import (
+            get_current_tenant_id,
+            resolve_tenant_context,
+        )
+        explicit = request.query_params.get("tenant_id")
+        header_tenant = request.headers.get("X-Tenant-ID")
+        claims_sub = request.headers.get("X-User-Sub")
+        ctx = resolve_tenant_context(
+            explicit=explicit, header_tenant=header_tenant, claims_sub=claims_sub,
+        )
+        return {
+            "tenant_id": get_current_tenant_id(),
+            "user_id": ctx.user_id,
+            "source": ctx.source,
+        }
 
     @app.get("/health")
     def health() -> dict[str, str]:

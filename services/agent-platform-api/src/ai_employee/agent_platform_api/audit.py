@@ -146,12 +146,26 @@ def record_event(
     target_id: str,
     payload: dict[str, Any] | None = None,
 ) -> AuditEvent:
-    """Convenience wrapper around the singleton audit log."""
+    """Convenience wrapper around the singleton audit log.
+
+    Automatically attaches ``tenant_id`` from the current request
+    context (set by the tenant middleware) so every audit event is
+    attributable to a tenant without the caller having to thread it
+    through.
+    """
+    from ai_employee.agent_platform_api.tenant import get_current_tenant_id
+    enriched = dict(payload or {})
+    enriched.setdefault("tenant_id", get_current_tenant_id())
     return audit_log().append(
         action=action, actor=actor,
         target_type=target_type, target_id=target_id,
-        payload=payload,
+        payload=enriched,
     )
+
+
+def reset_audit_log() -> None:
+    """Clear the singleton audit log (test helper)."""
+    _log.reset()
 
 
 __all__ = [
@@ -160,4 +174,5 @@ __all__ = [
     "InMemoryAuditLog",
     "audit_log",
     "record_event",
+    "reset_audit_log",
 ]

@@ -20,10 +20,17 @@ keeps database column widths predictable.
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 
 _DEFAULT_TENANT = "public"
 _TENANT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+# ContextVar so runtime / audit calls deep in the call stack can pick
+# up the tenant without threading it through every function signature.
+_current_tenant: ContextVar[str] = ContextVar(
+    "ai_employee_current_tenant", default=_DEFAULT_TENANT,
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +41,20 @@ class TenantContext:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def get_current_tenant_id() -> str:
+    """Return the tenant_id bound to the current request context (default ``public``)."""
+    return _current_tenant.get()
+
+
+def set_current_tenant_id(tenant_id: str) -> object:
+    """Bind ``tenant_id`` to the current context and return a token for :func:`reset_current_tenant`."""
+    return _current_tenant.set(tenant_id)
+
+
+def reset_current_tenant(token: object) -> None:
+    _current_tenant.reset(token)  # type: ignore[arg-type]
 
 
 def parse_tenant_from_subject(claims_sub: str | None, *, default: str = _DEFAULT_TENANT) -> str:
@@ -89,6 +110,9 @@ def resolve_tenant_context(
 
 __all__ = [
     "TenantContext",
+    "get_current_tenant_id",
     "parse_tenant_from_subject",
+    "reset_current_tenant",
     "resolve_tenant_context",
+    "set_current_tenant_id",
 ]
