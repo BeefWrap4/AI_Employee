@@ -84,6 +84,9 @@ def build_incident(
     store: RcaStore,
     raw_alarms: list[RawAlarmEvent],
     time_window_minutes: int = 30,
+    *,
+    topology_window_minutes: int = 0,
+    parent_child_lag_seconds: int = 300,
 ) -> IncidentResponse:
     """Normalize, dedup, and correlate raw alarms into incident(s).
 
@@ -93,7 +96,15 @@ def build_incident(
       3. Group survivors into incidents by site_id + time window
          (alarms within ``time_window_minutes`` of the group's first
          alarm belong together).
-      4. Pick a primary alarm per incident (highest severity, then
+      4. **Parent-child rule**: a child alarm (declared via
+         ``raw_payload['parent_alarm_id']``) on the same site/cell within
+         ``parent_child_lag_seconds`` of its parent merges into the
+         parent's group, even when the gap exceeds ``time_window_minutes``.
+      5. **Topology rule**: an alarm whose site appears in another
+         alarm's ``raw_payload['upstream_site_ids']`` and that fires within
+         ``topology_window_minutes`` of the downstream alarm is absorbed
+         into the downstream's incident (UPSTREAM correlation).
+      6. Pick a primary alarm per incident (highest severity, then
          earliest start_time); the rest are companion alarms.
 
     Returns the *primary* incident (the one containing the first alarm).
@@ -103,6 +114,10 @@ def build_incident(
     events = [normalize_alarm(store, alarm) for alarm in raw_alarms]
     deduped = _dedup_by_fingerprint(events)
     groups = _group_by_site_and_window(deduped, time_window_minutes)
+    if parent_child_lag_seconds > 0:
+        groups = _merge_parent_child(groups, parent_child_lag_seconds)
+    if topology_window_minutes > 0:
+        groups = _merge_by_topology(groups, topology_window_minutes)
     incidents = [_build_incident_record(store, group) for group in groups]
     for incident in incidents:
         store.incidents[incident.incident_id] = incident
@@ -150,6 +165,157 @@ def _group_by_site_and_window(
     # Order groups by the earliest alarm so the primary incident is stable.
     groups.sort(key=lambda g: g[0].start_time)
     return groups
+
+
+# --------------------------------------------------------------------------- #
+# Parent-child + topology convergence rules (spec §6.2)
+# --------------------------------------------------------------------------- #
+
+
+def _alarm_parent_id(event: AlarmEvent) -> str | None:
+    """Pull ``parent_alarm_id`` out of the raw payload (if any)."""
+    return event.raw_payload.get("parent_alarm_id") if isinstance(event.raw_payload, dict) else None
+
+
+def _alarm_upstream_sites(event: AlarmEvent) -> list[str]:
+    """Pull ``upstream_site_ids`` out of the raw payload (if any)."""
+    sites = event.raw_payload.get("upstream_site_ids") if isinstance(event.raw_payload, dict) else None
+    if isinstance(sites, list):
+        return [str(s) for s in sites]
+    return []
+
+
+def _find_in_group(group: list[AlarmEvent], alarm_id: str) -> AlarmEvent | None:
+    for ev in group:
+        if ev.alarm_id == alarm_id:
+            return ev
+    return None
+
+
+def _merge_parent_child(
+    groups: list[list[AlarmEvent]], lag_seconds: int,
+) -> list[list[AlarmEvent]]:
+    """Absorb child alarms into their parent group's incident.
+
+    A child is matched to a parent by ``raw_payload['parent_alarm_id']``
+    (same ``alarm_id`` string).  Child must share ``site_id`` and
+    ``cell_id`` (or both have ``None`` cells) with the parent and start
+    no later than ``lag_seconds`` after the parent's ``start_time``.
+    Groups are merged by id-index so a chain (parent→child→grandchild)
+    collapses into one group.
+    """
+    if not groups or lag_seconds <= 0:
+        return groups
+
+    parent_index: dict[str, int] = {}
+    for gi, group in enumerate(groups):
+        for ev in group:
+            # Register *every* alarm's id as a potential parent reference.
+            parent_index[ev.alarm_id] = gi
+
+    child_target: dict[int, int] = {}
+    for gi, group in enumerate(groups):
+        for ev in group:
+            pid = _alarm_parent_id(ev)
+            if pid is None:
+                continue
+            pgi = parent_index.get(pid)
+            if pgi is None or pgi == gi:
+                continue
+            parent = _find_in_group(groups[pgi], pid)
+            if parent is None:
+                continue
+            if parent.site_id != ev.site_id:
+                continue
+            if (parent.cell_id or None) != (ev.cell_id or None):
+                continue
+            parent_t = _parse_time(parent.start_time)
+            child_t = _parse_time(ev.start_time)
+            if parent_t is None or child_t is None:
+                continue
+            delta = (child_t - parent_t).total_seconds()
+            if delta < 0 or delta > lag_seconds:
+                continue
+            child_target[gi] = pgi
+
+    return _apply_group_merges(groups, child_target)
+
+
+def _merge_by_topology(
+    groups: list[list[AlarmEvent]], window_minutes: int,
+) -> list[list[AlarmEvent]]:
+    """Absorb alarms on UPSTREAM sites into the downstream's group.
+
+    For each alarm A that declares ``upstream_site_ids`` containing the
+    site of another alarm B, if B's ``start_time`` is within
+    ``window_minutes`` of A, B is moved into A's group.
+    """
+    if not groups or window_minutes <= 0:
+        return groups
+
+    merges: dict[int, int] = {}
+    window_sec = window_minutes * 60
+    for gi, group in enumerate(groups):
+        for ev_a in group:
+            upstreams = set(_alarm_upstream_sites(ev_a))
+            if not upstreams:
+                continue
+            for gj, group_j in enumerate(groups):
+                if gj == gi or gj in merges:
+                    continue
+                for ev_b in group_j:
+                    if ev_b.site_id not in upstreams:
+                        continue
+                    ta = _parse_time(ev_a.start_time)
+                    tb = _parse_time(ev_b.start_time)
+                    if ta is None or tb is None:
+                        continue
+                    if abs((tb - ta).total_seconds()) > window_sec:
+                        continue
+                    merges[gj] = gi
+                    break
+
+    return _apply_group_merges(groups, merges)
+
+
+_EPOCH_END = datetime(9999, 12, 31, 23, 59, 59)
+
+
+def _apply_group_merges(
+    groups: list[list[AlarmEvent]],
+    merges: dict[int, int],
+) -> list[list[AlarmEvent]]:
+    """Apply ``{source_group_index: target_group_index}`` map.
+
+    Resolves chains (A→B→C all collapse into A) and avoids cycles.
+    Returns a new list of groups (target groups keep their original
+    order; absorbed groups are dropped).
+    """
+    if not merges:
+        return groups
+
+    def _root(idx: int, _depth: int = 0) -> int:
+        target = merges.get(idx)
+        if target is None or target == idx:
+            return idx
+        if _depth > 32:  # safety against accidental cycles
+            return idx
+        return _root(target, _depth + 1)
+
+    buckets: dict[int, list[AlarmEvent]] = {}
+    for gi, group in enumerate(groups):
+        root = _root(gi)
+        buckets.setdefault(root, []).extend(group)
+
+    # Order by the earliest alarm in each surviving bucket.
+    surviving = sorted(
+        buckets.items(),
+        key=lambda kv: min(
+            (_parse_time(e.start_time) for e in kv[1]),
+            default=None,
+        ) or _EPOCH_END,
+    )
+    return [events for _, events in surviving]
 
 
 def _build_incident_record(store: RcaStore, events: list[AlarmEvent]) -> IncidentResponse:
