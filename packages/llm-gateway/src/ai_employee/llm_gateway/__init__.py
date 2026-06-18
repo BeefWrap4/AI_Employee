@@ -13,13 +13,27 @@ from ai_employee.llm_gateway.client import (
     SiliconFlowClient,
     build_siliconflow_client,
 )
+from ai_employee.llm_gateway.model_registry import (
+    ModelSpec,
+    build_siliconflow_client_for_task,
+    build_url_for_task,
+    get_model_for_task,
+    list_models,
+    list_models_for_task,
+)
 from ai_employee.llm_gateway.prompt import PromptTemplate
 from ai_employee.llm_gateway.retry import retry
 
 __all__ = [
     "LlmClient",
+    "ModelSpec",
     "PromptTemplate",
     "SiliconFlowClient",
     "build_siliconflow_client",
+    "build_siliconflow_client_for_task",
+    "build_url_for_task",
+    "get_model_for_task",
+    "list_models",
+    "list_models_for_task",
     "retry",
 ]
