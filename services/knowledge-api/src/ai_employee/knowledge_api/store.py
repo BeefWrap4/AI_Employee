@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     embedding_json TEXT,
     embedding_model TEXT,
     acl_tags_json TEXT NOT NULL DEFAULT '[]',
+    table_id TEXT,
+    row_id TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
 );
@@ -192,6 +194,8 @@ class SQLiteStore:
                 "acl_tags_json",
                 "TEXT NOT NULL DEFAULT '[]'",
             )
+            _ensure_column(conn, "chunks", "table_id", "TEXT")
+            _ensure_column(conn, "chunks", "row_id", "TEXT")
             conn.commit()
         # 启动期 FTS5 探活
         try:
@@ -337,8 +341,9 @@ class SQLiteStore:
                 conn.execute(
                     """INSERT INTO chunks
                        (chunk_id, doc_id, chunk_no, content, section_path, page_no,
-                        embedding_json, embedding_model, acl_tags_json, created_at)
-                       VALUES (?,?,?,?,?, 1, ?, ?, ?, ?)""",
+                        embedding_json, embedding_model, acl_tags_json,
+                        table_id, row_id, created_at)
+                       VALUES (?,?,?,?,?, 1, ?, ?, ?, ?, ?, ?)""",
                     (
                         chunk["chunk_id"],
                         doc_id,
@@ -348,6 +353,8 @@ class SQLiteStore:
                         json.dumps(vec, ensure_ascii=False),
                         embedding_model,
                         acl_json,
+                        chunk.get("table_id"),
+                        chunk.get("row_id"),
                         now,
                     ),
                 )
@@ -639,6 +646,7 @@ def _document_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _chunk_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    keys = set(row.keys())
     return {
         "chunk_id": row["chunk_id"],
         "doc_id": row["doc_id"],
@@ -649,6 +657,8 @@ def _chunk_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "embedding": json.loads(row["embedding_json"]) if row["embedding_json"] else None,
         "embedding_model": row["embedding_model"],
         "acl_tags": json.loads(row["acl_tags_json"]) if row["acl_tags_json"] else [],
+        "table_id": row["table_id"] if "table_id" in keys else None,
+        "row_id": row["row_id"] if "row_id" in keys else None,
     }
 
 

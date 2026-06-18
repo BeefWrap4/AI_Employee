@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     embedding_json TEXT,
     embedding_model TEXT,
     acl_tags_json TEXT NOT NULL DEFAULT '[]',
+    table_id TEXT,
+    row_id TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
 );
@@ -237,6 +239,8 @@ class PgKnowledgeStore:
         acl_tags: list[str] | None = None,
         embedding: list[float] | None = None,
         embedding_model: str | None = None,
+        table_id: str | None = None,
+        row_id: str | None = None,
     ) -> str:
         with self._lock:
             self._db.execute(
@@ -248,11 +252,13 @@ class PgKnowledgeStore:
             self._db.execute(
                 """INSERT INTO chunks
                    (chunk_id, doc_id, chunk_no, content, section_path, page_no,
-                    embedding_json, embedding_model, acl_tags_json, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?, ?)""",
+                    embedding_json, embedding_model, acl_tags_json,
+                    table_id, row_id, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?, ?, ?, ?)""",
                 (
                     chunk_id, doc_id, chunk_no, content, section_path, page_no,
-                    emb_json, embedding_model, acl_json, _now(),
+                    emb_json, embedding_model, acl_json,
+                    table_id, row_id, _now(),
                 ),
             )
             self._db.commit()
@@ -321,6 +327,8 @@ def _chunk_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "embedding": json.loads(row["embedding_json"]) if row.get("embedding_json") else None,
         "embedding_model": row.get("embedding_model"),
         "acl_tags": json.loads(row["acl_tags_json"]) if row.get("acl_tags_json") else [],
+        "table_id": row.get("table_id"),
+        "row_id": row.get("row_id"),
         "created_at": row["created_at"],
     }
 

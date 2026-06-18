@@ -24,6 +24,9 @@ class ParsedChunk(BaseModel):
     section_path: str = "root"
     page_no: int = 1
     embedding: list[float] | None = None
+    # Table structure provenance (spec §5.2).  None for plain prose.
+    table_id: str | None = None
+    row_id: str | None = None
 
 
 class ChunkRecord(BaseModel):
@@ -37,6 +40,9 @@ class ChunkRecord(BaseModel):
     page_no: int = 1
     embedding: list[float] | None = None
     embedding_model: str | None = None
+    # Table structure provenance (spec §5.2).  None for plain prose.
+    table_id: str | None = None
+    row_id: str | None = None
 
 
 class Citation(BaseModel):

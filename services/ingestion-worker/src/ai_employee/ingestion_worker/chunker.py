@@ -141,14 +141,23 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
         return _split_long_block(merged, _MAX_CHUNK_LEN)
 
     for section in sections:
-        buffer: list[str] = []
+        table_id = section.table_id
+        row_ids = section.row_ids or []
+        # Merge buffer now tracks (block_text, row_id) pairs so table
+        # provenance carries through to each emitted chunk.
+        buffer: list[tuple[str, str | None]] = []
         buffer_len = 0
 
-        def flush(path: str) -> None:
+        def flush(path: str, tbl_id: str | None) -> None:
             nonlocal seq, buffer, buffer_len
             if not buffer:
                 return
-            merged = " ".join(buffer)
+            merged = " ".join(b for b, _ in buffer)
+            # When the buffer holds a single table row, propagate its row_id;
+            # merged rows lose per-row identity (table_id still carries).
+            row_id: str | None = None
+            if len(buffer) == 1:
+                row_id = buffer[0][1]
             for piece in _split_merged(merged):
                 seq += 1
                 chunks.append(
@@ -157,23 +166,34 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
                         chunk_no=seq,
                         content=piece,
                         section_path=path,
+                        table_id=tbl_id,
+                        row_id=row_id,
                     )
                 )
             buffer = []
             buffer_len = 0
 
-        for block in section.blocks:
+        for idx, block in enumerate(section.blocks):
             block = block.strip()
             if not block:
                 continue
+            row_id = row_ids[idx] if idx < len(row_ids) else None
             prospective_len = buffer_len + len(block) + 1
-            if buffer and prospective_len <= _MERGE_MAX_LEN and len(buffer) < _MERGE_MAX_BLOCKS:
-                buffer.append(block)
+            # Table rows keep their per-row identity (one chunk per row) so
+            # row_id stays meaningful; only prose blocks merge together.
+            can_merge = (
+                table_id is None
+                and buffer
+                and prospective_len <= _MERGE_MAX_LEN
+                and len(buffer) < _MERGE_MAX_BLOCKS
+            )
+            if can_merge:
+                buffer.append((block, row_id))
                 buffer_len = prospective_len
             else:
-                flush(section.section_path)
-                buffer = [block]
+                flush(section.section_path, table_id)
+                buffer = [(block, row_id)]
                 buffer_len = len(block)
-        flush(section.section_path)
+        flush(section.section_path, table_id)
 
     return chunks

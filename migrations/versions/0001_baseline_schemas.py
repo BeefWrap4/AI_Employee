@@ -79,6 +79,8 @@ def upgrade() -> None:
             embedding_json TEXT,
             embedding_model TEXT,
             acl_tags_json TEXT NOT NULL DEFAULT '[]',
+            table_id TEXT,
+            row_id TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
         )
