@@ -20,7 +20,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from ai_employee.observability.langfuse_emitter import LangfuseEmitter
 
 _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 _DEFAULT_MODEL = "qwen-plus"
+_SILICONFLOW_DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 _DEFAULT_MAX_TOKENS = 1024
 
 
@@ -214,3 +216,88 @@ class LlmClient:
         except Exception:
             # Tracing must never break a chat() call.
             pass
+
+
+# --------------------------------------------------------------------------- #
+# SiliconFlow (硅基流动) shortcut
+# --------------------------------------------------------------------------- #
+
+
+class SiliconFlowClient(LlmClient):
+    """OpenAI-compatible client pre-configured for 硅基流动.
+
+    Inherits retry / Langfuse tracing from :class:`LlmClient`.  Reads
+    ``SILICONFLOW_API_KEY`` and ``SILICONFLOW_BASE_URL`` from the
+    environment; explicit constructor args override the env.
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: float = 30.0,
+        max_retries: int = 2,
+        langfuse_emitter: LangfuseEmitter | None = None,
+    ) -> None:
+        resolved_base = (
+            base_url
+            or os.getenv("SILICONFLOW_BASE_URL")
+            or _SILICONFLOW_BASE_URL
+        )
+        resolved_key = (
+            api_key
+            or os.getenv("SILICONFLOW_API_KEY")
+            or os.getenv("LLM_API_KEY")
+            or ""
+        )
+        resolved_model = (
+            model
+            or os.getenv("SILICONFLOW_MODEL")
+            or _SILICONFLOW_DEFAULT_MODEL
+        )
+        super().__init__(
+            base_url=resolved_base,
+            api_key=resolved_key,
+            model=resolved_model,
+            timeout=timeout,
+            max_retries=max_retries,
+            langfuse_emitter=langfuse_emitter,
+        )
+
+
+def build_siliconflow_client(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    timeout: float = 30.0,
+    max_retries: int = 2,
+    langfuse_emitter: LangfuseEmitter | None = None,
+) -> SiliconFlowClient:
+    """Build a SiliconFlow client; raise if no API key is configured.
+
+    Unlike :class:`LlmClient` (which silently defaults to DashScope),
+    this factory fails fast when ``SILICONFLOW_API_KEY`` is missing —
+    a deliberate design choice to prevent accidental cross-vendor
+    usage during the demo / Alibaba Cloud deployment.
+    """
+    resolved_key = (
+        api_key
+        or os.getenv("SILICONFLOW_API_KEY")
+        or os.getenv("LLM_API_KEY")
+    )
+    if not resolved_key:
+        raise RuntimeError(
+            "SILICONFLOW_API_KEY is not set; refusing to build "
+            "SiliconFlowClient. Set SILICONFLOW_API_KEY in the "
+            "environment or pass api_key explicitly.",
+        )
+    return SiliconFlowClient(
+        base_url=base_url,
+        api_key=resolved_key,
+        model=model,
+        timeout=timeout,
+        max_retries=max_retries,
+        langfuse_emitter=langfuse_emitter,
+    )
