@@ -34,7 +34,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import httpx
 from ai_employee.agent_platform_api import runtime
-from ai_employee.agent_platform_api.schemas import ApprovalTask
+from ai_employee.agent_platform_api.schemas import ApprovalTask, ToolResponse
 
 
 @runtime_checkable
@@ -104,6 +104,337 @@ class ApprovalServiceClient(Protocol):
         reason: str | None,
         escalated_by: str | None,
     ) -> ApprovalTask: ...
+
+
+# --------------------------------------------------------------------------- #
+# McpGatewayClient — R21 tool gateway delegation
+# --------------------------------------------------------------------------- #
+
+
+@runtime_checkable
+class McpGatewayClient(Protocol):
+    """Tool-registry / discovery / invocation delegation surface.
+
+    Mirrors the platform's ``/api/v1/tools`` + ``/api/v1/mcp/tools``
+    endpoints but speaks the gateway's contract (id is ``tool_name``;
+    the gateway uses ``name``).  The HTTP implementation translates
+    field names when serialising; the InMemory implementation reuses
+    the platform's ``runtime.register_tool`` for zero regression.
+    """
+
+    def list_tools(
+        self,
+        *,
+        risk_level: str | None,
+        status: str | None,
+        service_name: str | None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any]: ...
+
+    def list_mcp_tools(self, *, service_name: str | None) -> dict[str, Any]: ...
+
+    def get_tool(self, tool_name: str) -> ToolResponse | None: ...
+
+    def register(self, payload: dict[str, Any]) -> ToolResponse: ...
+
+
+class _McpError(Exception):
+    """Carries the upstream status code + body for re-mapping."""
+
+    def __init__(self, status_code: int, body: dict[str, Any]) -> None:
+        super().__init__(f"mcp-gateway returned {status_code}")
+        self.status_code = status_code
+        self.body = body
+
+
+class InMemoryMcpGatewayClient:
+    """Delegates to the existing ``runtime.register_tool`` against the store.
+
+    Used when ``MCP_GATEWAY_URL`` is unset.  Preserves the legacy
+    in-memory tool dict so all existing tests keep passing.
+    """
+
+    def __init__(self, store: runtime.AgentPlatformStore | None = None) -> None:
+        self._store: runtime.AgentPlatformStore | None = store
+
+    def bind(self, store: runtime.AgentPlatformStore) -> None:
+        self._store = store
+
+    @property
+    def store(self) -> runtime.AgentPlatformStore:
+        if self._store is None:
+            raise RuntimeError("InMemoryMcpGatewayClient.store not bound")
+        return self._store
+
+    def list_tools(
+        self,
+        *,
+        risk_level: str | None,
+        status: str | None,
+        service_name: str | None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any]:
+        tools = list(self.store.tools.values())
+        if risk_level is not None:
+            tools = [t for t in tools if t.risk_level == risk_level]
+        if status is not None:
+            tools = [t for t in tools if t.status == status]
+        if service_name is not None:
+            tools = [t for t in tools if t.service_name == service_name]
+        page, page_size, start, end = _page_bounds(page, page_size)
+        return {
+            "items": [t.model_dump() for t in tools[start:end]],
+            "total": len(tools),
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def list_mcp_tools(self, *, service_name: str | None) -> dict[str, Any]:
+        tools = list(self.store.tools.values())
+        if service_name is not None:
+            tools = [t for t in tools if t.service_name == service_name]
+        return {
+            "tools": [
+                {
+                    "name": t.tool_name,
+                    "description": t.description,
+                    "inputSchema": t.input_schema,
+                    "metadata": {
+                        "risk_level": t.risk_level,
+                        "service_name": t.service_name,
+                    },
+                }
+                for t in tools
+            ],
+        }
+
+    def get_tool(self, tool_name: str) -> ToolResponse | None:
+        return self.store.tools.get(tool_name)
+
+    def register(self, payload: dict[str, Any]) -> ToolResponse:
+        from ai_employee.agent_platform_api.schemas import ToolRegistration
+
+        return runtime.register_tool(self.store, ToolRegistration(**payload))
+
+
+def _page_bounds(page: int, page_size: int) -> tuple[int, int, int, int]:
+    page = max(1, int(page))
+    page_size = max(1, min(200, int(page_size)))
+    start = (page - 1) * page_size
+    end = start + page_size
+    return page, page_size, start, end
+
+
+class HttpMcpGatewayClient:
+    """Delegates tool calls to a remote mcp-gateway over HTTP."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        timeout: float = 5.0,
+        token: str | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.token = token or os.getenv("INTERNAL_TOKEN")
+
+    def _headers(self) -> dict[str, str]:
+        h = {"Content-Type": "application/json"}
+        if self.token:
+            h["X-Internal-Token"] = self.token
+        return h
+
+    def _post(self, path: str, json: dict[str, Any]) -> httpx.Response:  # pragma: no cover
+        return httpx.post(self.base_url + path, json=json, headers=self._headers(), timeout=self.timeout)
+
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:  # pragma: no cover
+        return httpx.get(self.base_url + path, params=params, headers=self._headers(), timeout=self.timeout)
+
+    def _check(self, resp: Any) -> dict[str, Any]:
+        if resp.status_code >= 400:
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"detail": {"error_code": "mcp_gateway_error", "message": resp.text}}
+            raise _McpError(resp.status_code, body)
+        try:
+            return resp.json()
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _to_gateway_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        """Translate platform field name ``tool_name`` → gateway ``name``.
+
+        Drops fields set to ``None`` (e.g. ``timeout_ms``) so the
+        gateway's Pydantic model (which expects plain ints) doesn't
+        reject the request.
+        """
+        out = {k: v for k, v in payload.items() if v is not None}
+        if "tool_name" in out and "name" not in out:
+            out["name"] = out.pop("tool_name")
+        out.pop("status", None)
+        out.pop("health_status", None)
+        return out
+
+    def list_tools(
+        self,
+        *,
+        risk_level: str | None,
+        status: str | None,
+        service_name: str | None,
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any]:
+        # The gateway doesn't currently expose the platform's rich
+        # filter set (risk_level / status), so we filter the gateway's
+        # response client-side.  ``service_name`` IS a gateway query
+        # param.
+        params: dict[str, Any] = {"service_name": service_name} if service_name else {}
+        resp = self._get("/api/v1/tools", params=params)
+        body = self._check(resp)
+        tools = body.get("tools", [])
+        # The gateway returns MCP shape; adapt to the platform
+        # ``ToolListResponse`` shape.
+        items = [
+            {
+                "tool_name": t.get("name"),
+                "description": t.get("description", ""),
+                "service_name": (t.get("metadata") or {}).get("service_name"),
+                "risk_level": (t.get("metadata") or {}).get("risk_level", "read_only"),
+                "status": "active",
+                "input_schema": t.get("inputSchema") or {},
+                "output_schema": {},
+                "health_status": "unknown",
+            }
+            for t in tools
+        ]
+        if risk_level is not None:
+            items = [i for i in items if i["risk_level"] == risk_level]
+        if status is not None:
+            items = [i for i in items if i["status"] == status]
+        page_n = max(1, int(page))
+        page_size_n = max(1, min(200, int(page_size)))
+        start = (page_n - 1) * page_size_n
+        end = start + page_size_n
+        return {
+            "items": items[start:end],
+            "total": len(items),
+            "page": page_n,
+            "page_size": page_size_n,
+        }
+
+    def list_mcp_tools(self, *, service_name: str | None) -> dict[str, Any]:
+        params: dict[str, Any] = {"service_name": service_name} if service_name else {}
+        resp = self._get("/api/v1/tools", params=params)
+        return self._check(resp)
+
+    def get_tool(self, tool_name: str) -> ToolResponse | None:
+        resp = self._get(f"/api/v1/tools/{tool_name}")
+        if resp.status_code == 404:
+            return None
+        body = self._check(resp)
+        meta = body.get("metadata") or {}
+        return ToolResponse(
+            tool_name=body.get("name", tool_name),
+            service_name=meta.get("service_name", ""),
+            description=body.get("description", ""),
+            input_schema=body.get("inputSchema") or {},
+            output_schema={},
+            risk_level=meta.get("risk_level", "read_only"),
+            status="active",
+            health_status="unknown",
+        )
+
+    def register(self, payload: dict[str, Any]) -> ToolResponse:
+        gw_payload = self._to_gateway_payload(payload)
+        resp = self._post("/api/v1/tools", json=gw_payload)
+        self._check(resp)
+        # Echo back the platform-shaped ToolResponse.
+        return ToolResponse(
+            tool_name=payload["tool_name"],
+            service_name=payload.get("service_name", ""),
+            description=payload.get("description", ""),
+            input_schema=payload.get("input_schema") or {},
+            output_schema=payload.get("output_schema") or {},
+            risk_level=payload.get("risk_level", "read_only"),
+            status=payload.get("status", "active"),
+            health_status="unknown",
+        )
+
+
+class FakeMcpGatewayClient:
+    """In-process fake that records every call and mutates a local dict."""
+
+    def __init__(self) -> None:
+        self._tools: dict[str, ToolResponse] = {}
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _record(self, name: str, **kwargs: Any) -> None:
+        self.calls.append((name, dict(kwargs)))
+
+    def seed(self, tool: ToolResponse) -> None:
+        self._tools[tool.tool_name] = tool
+
+    def list_tools(self, **_kwargs: Any) -> dict[str, Any]:
+        self._record("list_tools", **_kwargs)
+        return {
+            "items": [t.model_dump() for t in self._tools.values()],
+            "total": len(self._tools),
+            "page": 1,
+            "page_size": 50,
+        }
+
+    def list_mcp_tools(self, **_kwargs: Any) -> dict[str, Any]:
+        self._record("list_mcp_tools", **_kwargs)
+        return {
+            "tools": [
+                {
+                    "name": t.tool_name,
+                    "description": t.description,
+                    "inputSchema": t.input_schema,
+                    "metadata": {"risk_level": t.risk_level, "service_name": t.service_name},
+                }
+                for t in self._tools.values()
+            ],
+        }
+
+    def get_tool(self, tool_name: str) -> ToolResponse | None:
+        self._record("get_tool", tool_name=tool_name)
+        return self._tools.get(tool_name)
+
+    def register(self, payload: dict[str, Any]) -> ToolResponse:
+        self._record("register", **payload)
+        tool = ToolResponse(
+            tool_name=payload["tool_name"],
+            service_name=payload.get("service_name", ""),
+            description=payload.get("description", ""),
+            input_schema=payload.get("input_schema") or {},
+            output_schema=payload.get("output_schema") or {},
+            risk_level=payload.get("risk_level", "read_only"),
+            status=payload.get("status", "active"),
+            health_status="unknown",
+        )
+        self._tools[tool.tool_name] = tool
+        return tool
+
+
+def build_mcp_client(
+    store: runtime.AgentPlatformStore | None = None,
+) -> McpGatewayClient:
+    """Pick the MCP gateway client from env.
+
+    ``MCP_GATEWAY_URL`` set  → :class:`HttpMcpGatewayClient`.
+    unset                     → :class:`InMemoryMcpGatewayClient`
+                               (bound to ``store`` lazily by the app).
+    """
+    url = os.getenv("MCP_GATEWAY_URL", "").strip()
+    if url:
+        return HttpMcpGatewayClient(url)
+    return InMemoryMcpGatewayClient(store)
 
 
 # --------------------------------------------------------------------------- #

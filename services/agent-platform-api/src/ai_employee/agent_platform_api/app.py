@@ -6,8 +6,14 @@ from datetime import datetime, timezone
 
 from ai_employee.agent_platform_api.clients import (
     ApprovalServiceClient,
+    InMemoryApprovalServiceClient,
+    InMemoryMcpGatewayClient,
+    McpGatewayClient,
     _ApprovalError,
+    _McpError,
     apply_decision_run_effect,
+    build_approval_client,
+    build_mcp_client,
 )
 from ai_employee.agent_platform_api.eval_compare import compare_reports
 from ai_employee.agent_platform_api.eval_store import EvalStore
@@ -36,7 +42,6 @@ from ai_employee.agent_platform_api.runtime import (
     create_run,
     expire_approval,
     list_templates,
-    register_tool,
     request_supplement,
     resume_run_from_node,
     route_approval,
@@ -75,12 +80,6 @@ from ai_employee.common_schemas.eval import (
     to_unified_rag,
     to_unified_rca,
 )
-from ai_employee.common_schemas.tool_registry import (
-    ToolRegistry as _McpToolRegistry,
-)
-from ai_employee.common_schemas.tool_registry import (
-    ToolSpec as _McpToolSpec,
-)
 from ai_employee.observability import render_prometheus_text
 from fastapi import FastAPI, HTTPException, Request, WebSocket, status
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -96,6 +95,12 @@ def _map_approval_error(exc: _ApprovalError) -> HTTPException:
     (``{"error_code": ..., ...}``), so we forward it verbatim with the
     upstream status code.
     """
+    detail = exc.body.get("detail", exc.body)
+    return HTTPException(status_code=exc.status_code, detail=detail)
+
+
+def _map_mcp_error(exc: _McpError) -> HTTPException:
+    """Re-raise an mcp-gateway upstream error as a FastAPI HTTPException."""
     detail = exc.body.get("detail", exc.body)
     return HTTPException(status_code=exc.status_code, detail=detail)
 
@@ -123,6 +128,7 @@ def create_app(
     run_store: AgentRunStore | None = None,
     *,
     approval_client: ApprovalServiceClient | None = None,
+    mcp_client: McpGatewayClient | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Agent Platform API", version=SERVICE_VERSION)
     state = store or AgentPlatformStore()
@@ -131,17 +137,16 @@ def create_app(
 
     # R21 service isolation (spec §9): delegate approval-task state to a
     # standalone ``approval-service`` when ``APPROVAL_SERVICE_URL`` is
-    # set; fall back to in-memory otherwise.  The in-memory client is
-    # bound to this app's store so it shares state with the legacy
+    # set, and tool registry / discovery / invocation to the
+    # ``mcp-gateway`` when ``MCP_GATEWAY_URL`` is set.  In-memory clients
+    # are bound to this app's store so they share state with the legacy
     # endpoints.
-    from ai_employee.agent_platform_api.clients import (
-        InMemoryApprovalServiceClient,
-        build_approval_client,
-    )
-
     approval_state = approval_client or build_approval_client()
     if isinstance(approval_state, InMemoryApprovalServiceClient):
         approval_state.bind(state)
+    mcp_state = mcp_client or build_mcp_client(state)
+    if isinstance(mcp_state, InMemoryMcpGatewayClient):
+        mcp_state.bind(state)
 
     from ai_employee.agent_platform_api.tenant import (
         reset_current_tenant,
@@ -777,7 +782,12 @@ def create_app(
         status_code=status.HTTP_201_CREATED,
     )
     def create_tool(payload: ToolRegistration) -> ToolResponse:
-        if payload.tool_name in state.tools:
+        if payload.tool_name in state.tools and isinstance(
+            mcp_state, InMemoryMcpGatewayClient
+        ):
+            # Legacy duplicate check (in-memory only — the HTTP client
+            # lets the gateway enforce uniqueness and re-raises the
+            # upstream 409 below).
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -785,7 +795,10 @@ def create_app(
                     "tool_name": payload.tool_name,
                 },
             )
-        return register_tool(state, payload)
+        try:
+            return mcp_state.register(payload.model_dump())
+        except _McpError as exc:
+            raise _map_mcp_error(exc)
 
     @app.get("/api/v1/tools", response_model=ToolListResponse)
     def list_tools(
@@ -795,20 +808,18 @@ def create_app(
         page: int = 1,
         page_size: int = 50,
     ) -> ToolListResponse:
-        tools = list(state.tools.values())
-        if risk_level is not None:
-            tools = [tool for tool in tools if tool.risk_level == risk_level]
-        if status is not None:
-            tools = [tool for tool in tools if tool.status == status]
-        if service_name is not None:
-            tools = [tool for tool in tools if tool.service_name == service_name]
-        total = len(tools)
-        page, page_size, start, end = _page_bounds(page, page_size)
-        return ToolListResponse(
-            items=tools[start:end],
-            total=total,
+        data = mcp_state.list_tools(
+            risk_level=risk_level,
+            status=status,
+            service_name=service_name,
             page=page,
             page_size=page_size,
+        )
+        return ToolListResponse(
+            items=[ToolResponse(**item) for item in data["items"]],
+            total=data["total"],
+            page=data["page"],
+            page_size=data["page_size"],
         )
 
     # ------------------------------------------------------------------ #
@@ -975,24 +986,12 @@ def create_app(
     def list_mcp_tools() -> dict[str, object]:
         """Return the agent-platform tools in MCP ``tools/list`` shape.
 
-        Built from the in-memory ``state.tools`` plus a curated set of
-        well-known downstream tool names. The result is JSON-serialisable
-        and follows the lightweight schema in
-        ``ai_employee.common_schemas.tool_registry``.
+        R21: delegates to the mcp-gateway (in-memory or HTTP) so the
+        MCP shape is owned by the gateway service.  The in-memory
+        client builds the shape from ``state.tools``; the HTTP client
+        forwards the gateway's response verbatim.
         """
-        registry = _McpToolRegistry()
-        for tool in state.tools.values():
-            registry.register(
-                _McpToolSpec(
-                    name=tool.tool_name,
-                    description=tool.description,
-                    input_schema=tool.input_schema,
-                    output_schema=tool.output_schema,
-                    risk_level=tool.risk_level,
-                    service_name=tool.service_name,
-                )
-            )
-        return registry.to_mcp_list()
+        return mcp_state.list_mcp_tools(service_name=None)
 
     return app
 

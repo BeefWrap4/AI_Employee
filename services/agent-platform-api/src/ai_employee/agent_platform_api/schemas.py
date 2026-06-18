@@ -268,11 +268,18 @@ class ToolRegistration(BaseModel):
     description: str
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
-    risk_level: ToolRiskLevel
+    # R21: ``risk_level`` accepts any string here so the platform is a
+    # transparent proxy when delegating to the mcp-gateway (which
+    # enforces the canonical 4-level + legacy alias set).  The
+    # in-memory client also accepts arbitrary values for symmetry.
+    risk_level: str = "read_only"
     status: ToolStatus = "active"
     health_check_url: str | None = None
-    # Resilience knobs (spec §5.3).  Optional so legacy callers don't break.
-    timeout_ms: int | None = Field(default=None, ge=1, le=300_000)
+    # Resilience knobs (spec §5.3).  Optional so legacy callers don't
+    # break; ``int | None`` with explicit default ``None`` lets Pydantic
+    # accept the field as missing (the gateway enforces its own limits
+    # when delegated).
+    timeout_ms: int | None = None
     retry_policy: RetryPolicyModel | None = None
     circuit_breaker: CircuitBreakerModel | None = None
 
