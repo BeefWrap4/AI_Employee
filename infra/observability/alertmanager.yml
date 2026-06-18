@@ -1,0 +1,103 @@
+# Alertmanager configuration (spec §6.4).
+#
+# Routes alerts by severity and team:
+#   - critical + platform → PagerDuty + Slack #ops-incidents
+#   - warning + knowledge → Slack #knowledge-ops
+#   - everything else → Slack #ops-general
+#
+# Receivers carry DSN placeholders that must be supplied via Helm
+# values or env-driven secret substitution at deploy time.
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.example.com:587"
+  smtp_from: "alertmanager@example.com"
+  smtp_require_tls: true
+
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+route:
+  receiver: default
+  group_by: ["alertname", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Critical platform alerts → page on-call + post in #ops-incidents
+    - matchers:
+        - severity = "critical"
+          team = "platform"
+      receiver: platform-critical
+      group_by: ["alertname", "service", "severity"]
+      continue: false
+
+    # Knowledge team warnings → Slack
+    - matchers:
+        - team = "knowledge"
+      receiver: knowledge-warnings
+      group_by: ["alertname", "service"]
+      continue: true
+
+    # Default fallback for everything else
+    - matchers:
+        - severity = "warning"
+      receiver: ops-warning
+      group_by: ["alertname", "service"]
+
+receivers:
+  - name: default
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_GENERAL}"
+        channel: "#ops-general"
+        send_resolved: true
+        title: "{{ .CommonLabels.alertname }} — {{ .CommonLabels.severity | toUpper }}"
+        text: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
+
+  - name: platform-critical
+    pagerduty_configs:
+      - service_key: "${PAGERDUTY_SERVICE_KEY}"
+        send_resolved: true
+        description: "{{ .CommonLabels.alertname }} on {{ .CommonLabels.service }}"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_INCIDENTS}"
+        channel: "#ops-incidents"
+        send_resolved: true
+        title: ":rotating_light: {{ .CommonLabels.alertname }}"
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+
+  - name: knowledge-warnings
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_KNOWLEDGE}"
+        channel: "#knowledge-ops"
+        send_resolved: true
+        title: "{{ .CommonLabels.alertname }}"
+        text: "{{ .Annotations.description }}"
+
+  - name: ops-warning
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_GENERAL}"
+        channel: "#ops-general"
+        send_resolved: true
+        title: "{{ .CommonLabels.alertname }}"
+        text: "{{ .Annotations.summary }}"
+
+inhibit_rules:
+  # Critical alerts suppress their warning siblings on the same service.
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ["service", "alertname"]
+  # DependencyDown suppresses HighErrorRate while the dependency is the
+  # underlying cause.
+  - source_matchers:
+      - alertname = "DependencyDown"
+    target_matchers:
+      - alertname = "HighErrorRate"
+    equal: ["service"]

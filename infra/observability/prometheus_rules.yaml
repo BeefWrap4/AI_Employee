@@ -1,0 +1,116 @@
+# Prometheus alerting rules (spec §6.4).
+#
+# All alerts use the same label schema:
+#   severity: critical | warning | info
+#   team:     platform | data | knowledge
+#   service:  short name of the affected service
+#
+# Runbook URLs point at docs/runbooks/<alert>.md — create the file when
+# you add a new alert.  The presence of a runbook URL is enforced by the
+# test suite (tests/test_prometheus_rules.py).
+
+groups:
+  # ----- Platform / agent runtime ----------------------------------------
+  - name: agent_platform.rules
+    interval: 30s
+    rules:
+      - alert: HighModelLatency
+        expr: histogram_quantile(0.95, sum by (le, service) (rate(model_latency_ms_bucket[5m]))) > 2000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: agent-platform-api
+        annotations:
+          summary: "Model latency p95 > 2s for {{ $labels.service }}"
+          description: "95th percentile latency is {{ $value }}ms over the last 5 minutes."
+          runbook_url: "https://runbooks.example.com/alerts/HighModelLatency"
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_requests_total[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: agent-platform-api
+        annotations:
+          summary: "5xx error rate > 5% for {{ $labels.service }}"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+          runbook_url: "https://runbooks.example.com/alerts/HighErrorRate"
+
+      - alert: LowToolSuccessRate
+        expr: |
+          (
+            sum(rate(tool_call_total{status="failed"}[10m]))
+            /
+            clamp_min(sum(rate(tool_call_total[10m])), 1)
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: tool-registry
+        annotations:
+          summary: "Tool success rate dropped below 80%"
+          description: "Failure rate is {{ $value | humanizePercentage }}."
+          runbook_url: "https://runbooks.example.com/alerts/LowToolSuccessRate"
+
+      - alert: ApprovalBacklog
+        expr: |
+          max_over_time(approval_pending_total[15m]) > 50
+          and
+          (time() - max_over_time(approval_oldest_pending_seconds[15m])) > 1800
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: agent-platform-api
+        annotations:
+          summary: "Approval backlog > 30 minutes"
+          description: "Oldest pending approval has been waiting > 30 minutes."
+          runbook_url: "https://runbooks.example.com/alerts/ApprovalBacklog"
+
+  # ----- Dependencies ------------------------------------------------------
+  - name: agent_platform.dependencies
+    interval: 30s
+    rules:
+      - alert: DependencyDown
+        expr: |
+          (up{job="redis"} == 0)
+          or
+          (up{job="postgres"} == 0)
+          or
+          (up{job="kafka"} == 0)
+          or
+          (up{job="opensearch"} == 0)
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: infra
+        annotations:
+          summary: "Dependency {{ $labels.job }} is down"
+          description: "The {{ $labels.job }} exporter has been unreachable for 2+ minutes."
+          runbook_url: "https://runbooks.example.com/alerts/DependencyDown"
+
+      - alert: EmbeddingProviderDegraded
+        expr: |
+          (
+            sum(rate(embedding_fallback_total[10m]))
+            /
+            clamp_min(sum(rate(embedding_request_total[10m])), 1)
+          ) > 0.50
+        for: 10m
+        labels:
+          severity: warning
+          team: knowledge
+          service: knowledge-api
+        annotations:
+          summary: "Embedding provider degraded — fallback rate > 50%"
+          description: "More than half of embedding requests fell back to a stub provider."
+          runbook_url: "https://runbooks.example.com/alerts/EmbeddingProviderDegraded"
