@@ -17,11 +17,15 @@ from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
     AgentPlatformStore,
+    answer_supplement,
     create_run,
     decide_approval_task,
+    expire_approval,
     list_templates,
     register_tool,
+    request_supplement,
     resume_run_from_node,
+    route_approval,
     run_to_persist_dict,
 )
 from ai_employee.agent_platform_api.schemas import (
@@ -33,8 +37,12 @@ from ai_employee.agent_platform_api.schemas import (
     AgentRunTraceResponse,
     AgentTemplateListResponse,
     ApprovalDecisionRequest,
+    ApprovalRouteRequest,
+    ApprovalSupplementAnswer,
+    ApprovalSupplementRequest,
     ApprovalTask,
     ApprovalTaskListResponse,
+    ApprovalTimeoutRequest,
     EvalRunListItem,
     EvalRunListResponse,
     EvalRunRequest,
@@ -276,6 +284,60 @@ def create_app(
         if run is not None:
             run_state.upsert_run(run_to_persist_dict(run))
         return updated_task
+
+    @app.post(
+        "/api/v1/approval-tasks/{task_id}/supplement-request",
+        response_model=ApprovalTask,
+    )
+    def supplement_request(
+        task_id: str, payload: ApprovalSupplementRequest,
+    ) -> ApprovalTask:
+        return request_supplement(
+            state, task_id=task_id,
+            question=payload.question, requested_by=payload.requested_by,
+        )
+
+    @app.post(
+        "/api/v1/approval-tasks/{task_id}/supplement-answer",
+        response_model=ApprovalTask,
+    )
+    def supplement_answer(
+        task_id: str, payload: ApprovalSupplementAnswer,
+    ) -> ApprovalTask:
+        try:
+            return answer_supplement(
+                state, task_id=task_id,
+                answer=payload.answer, answered_by=payload.answered_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error_code": "not_pending_supplement", "message": str(exc)},
+            )
+
+    @app.post(
+        "/api/v1/approval-tasks/{task_id}/route",
+        response_model=ApprovalTask,
+    )
+    def route_task(
+        task_id: str, payload: ApprovalRouteRequest,
+    ) -> ApprovalTask:
+        return route_approval(
+            state, task_id=task_id, routed_to=payload.routed_to,
+            routed_by=payload.routed_by, reason=payload.reason,
+        )
+
+    @app.post(
+        "/api/v1/approval-tasks/{task_id}/timeout",
+        response_model=ApprovalTask,
+    )
+    def timeout_task(
+        task_id: str, payload: ApprovalTimeoutRequest,
+    ) -> ApprovalTask:
+        return expire_approval(
+            state, task_id=task_id,
+            escalation_reviewer=payload.escalation_reviewer,
+        )
 
     @app.post(
         "/api/v1/tools",

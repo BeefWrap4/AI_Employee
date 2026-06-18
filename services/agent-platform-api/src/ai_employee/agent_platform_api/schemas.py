@@ -100,6 +100,14 @@ class ApprovalTask(BaseModel):
     reason: str
     decided_by: str | None = None
     comment: str | None = None
+    # HITL extensions (spec §5.4): supplement, routing, deadline, audit.
+    supplement_request: str | None = None
+    supplement_response: str | None = None
+    assignee: str | None = None
+    routed_to: str | None = None
+    deadline_at: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class ApprovalTaskListResponse(BaseModel):
@@ -113,6 +121,26 @@ class ApprovalDecisionRequest(BaseModel):
     decision: ApprovalDecision
     decided_by: str
     comment: str | None = None
+
+
+class ApprovalSupplementRequest(BaseModel):
+    question: str
+    requested_by: str
+
+
+class ApprovalSupplementAnswer(BaseModel):
+    answer: str
+    answered_by: str
+
+
+class ApprovalRouteRequest(BaseModel):
+    routed_to: str
+    routed_by: str
+    reason: str | None = None
+
+
+class ApprovalTimeoutRequest(BaseModel):
+    escalation_reviewer: str | None = None
 
 
 class ToolRegistration(BaseModel):

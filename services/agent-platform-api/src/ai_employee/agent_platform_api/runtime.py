@@ -268,6 +268,108 @@ def decide_approval_task(
     return updated_task
 
 
+def request_supplement(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    question: str,
+    requested_by: str,
+) -> ApprovalTask:
+    """HITL supplement: reviewer asks for more info.  Moves the task to
+    ``pending_supplement`` so the requester can respond."""
+    from datetime import datetime, timezone
+
+    task = store.approval_tasks[task_id]
+    updated = task.model_copy(
+        update={
+            "status": "pending_supplement",
+            "supplement_request": question,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    return updated
+
+
+def answer_supplement(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    answer: str,
+    answered_by: str,
+) -> ApprovalTask:
+    """Agent / requester responds to the supplement.  Task returns to
+    ``pending`` so the reviewer can decide again."""
+    from datetime import datetime, timezone
+
+    task = store.approval_tasks[task_id]
+    if task.status != "pending_supplement":
+        raise ValueError(
+            f"task {task_id} is not in pending_supplement (got {task.status!r})"
+        )
+    updated = task.model_copy(
+        update={
+            "status": "pending",
+            "supplement_response": answer,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    return updated
+
+
+def route_approval(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    routed_to: str,
+    routed_by: str,
+    reason: str | None,
+) -> ApprovalTask:
+    """HITL routing: re-assign a pending approval to another reviewer
+    (e.g. when the original assignee is on leave)."""
+    from datetime import datetime, timezone
+
+    task = store.approval_tasks[task_id]
+    updated = task.model_copy(
+        update={
+            "routed_to": routed_to,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    _ = (routed_by, reason)
+    return updated
+
+
+def expire_approval(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    escalation_reviewer: str | None,
+) -> ApprovalTask:
+    """HITL timeout: mark the task expired.  If an escalation reviewer is
+    provided, also route to them.  The associated run moves to ``failed``
+    so the requester can re-issue."""
+    from datetime import datetime, timezone
+
+    task = store.approval_tasks[task_id]
+    updated = task.model_copy(
+        update={
+            "status": "expired",
+            "routed_to": escalation_reviewer,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    if task.run_id in store.runs:
+        run = store.runs[task.run_id]
+        store.runs[task.run_id] = run.model_copy(
+            update={"status": "failed", "approval_status": "expired"}
+        )
+    return updated
+
+
 def register_tool(store: AgentPlatformStore, payload: ToolRegistration) -> ToolResponse:
     tool = ToolResponse(**payload.model_dump(), health_status="unknown")
     store.tools[tool.tool_name] = tool
