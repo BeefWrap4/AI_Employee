@@ -22,16 +22,24 @@ from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
     AgentPlatformStore,
+    ApprovalSupplementStateConflict,
+    ApprovalTaskNotFound,
+    ApprovalTaskNotSupplementable,
+    ApprovalTransferForbidden,
     answer_supplement,
     create_run,
     decide_approval_task,
+    escalate_approval,
     expire_approval,
     list_templates,
     register_tool,
     request_supplement,
+    request_supplement_governance,
+    resolve_supplement_governance,
     resume_run_from_node,
     route_approval,
     run_to_persist_dict,
+    transfer_approval,
 )
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
@@ -43,12 +51,16 @@ from ai_employee.agent_platform_api.schemas import (
     AgentTemplateListResponse,
     ApprovalDecisionRequest,
     ApprovalDelegateRequest,
+    ApprovalEscalateRequest,
     ApprovalRouteRequest,
     ApprovalSupplementAnswer,
+    ApprovalSupplementGovernanceRequest,
     ApprovalSupplementRequest,
+    ApprovalSupplementResolveRequest,
     ApprovalTask,
     ApprovalTaskListResponse,
     ApprovalTimeoutRequest,
+    ApprovalTransferRequest,
     EvalRunListItem,
     EvalRunListResponse,
     EvalRunRequest,
@@ -446,6 +458,130 @@ def create_app(
             state, task_id=task_id, delegate=payload.delegate,
             delegated_by=payload.delegated_by, reason=payload.reason,
         )
+
+    # ------------------------------------------------------------------ #
+    # R20 governance endpoints (spec §5.4): supplement / transfer / escalate
+    # ------------------------------------------------------------------ #
+
+    @app.post(
+        "/api/v1/approvals/{task_id}/supplement",
+        response_model=ApprovalTask,
+    )
+    def supplement_governance(
+        task_id: str, payload: ApprovalSupplementGovernanceRequest,
+    ) -> ApprovalTask:
+        try:
+            return request_supplement_governance(
+                state, task_id=task_id, note=payload.note,
+                attachments=[a.model_dump() for a in payload.attachments],
+                requested_by=payload.requested_by,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalTaskNotSupplementable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_supplementable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
+
+    @app.post(
+        "/api/v1/approvals/{task_id}/supplement/resolve",
+        response_model=ApprovalTask,
+    )
+    def supplement_resolve(
+        task_id: str, payload: ApprovalSupplementResolveRequest,
+    ) -> ApprovalTask:
+        try:
+            return resolve_supplement_governance(
+                state, task_id=task_id,
+                attachments=[a.model_dump() for a in payload.attachments],
+                note=payload.note, resolved_by=payload.resolved_by,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalSupplementStateConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "not_supplement_pending",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
+
+    @app.post(
+        "/api/v1/approvals/{task_id}/transfer",
+        response_model=ApprovalTask,
+    )
+    def transfer_governance(
+        task_id: str, payload: ApprovalTransferRequest,
+    ) -> ApprovalTask:
+        try:
+            return transfer_approval(
+                state, task_id=task_id, new_approver=payload.new_approver,
+                reason=payload.reason, transferred_by=payload.transferred_by,
+                is_admin=payload.is_admin,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalTransferForbidden as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "approval_transfer_forbidden",
+                    "task_id": task_id,
+                    "actor": str(exc),
+                },
+            )
+        except ApprovalTaskNotSupplementable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_transferable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
+
+    @app.post(
+        "/api/v1/approvals/{task_id}/escalate",
+        response_model=ApprovalTask,
+    )
+    def escalate_governance(
+        task_id: str, payload: ApprovalEscalateRequest,
+    ) -> ApprovalTask:
+        try:
+            return escalate_approval(
+                state, task_id=task_id, escalated_to=payload.escalated_to,
+                reason=payload.reason, escalated_by=payload.escalated_by,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalTaskNotSupplementable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_escalatable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
 
     @app.post(
         "/api/v1/tools",

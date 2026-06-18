@@ -5,9 +5,35 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 RunStatus = Literal["running", "completed", "waiting_approval", "failed"]
-ApprovalStatus = Literal["not_required", "pending", "approved", "rejected"]
+# Unified approval status machine (R20 governance).  Tracks both the
+# legacy decision lifecycle and the R20 governance sub-states:
+#   pending -> approved | rejected
+#   pending -> supplement_pending -> pending   (R20-1 supplement)
+#   pending -> transferred -> pending          (R20-2 transfer)
+#   pending -> escalated -> pending | rejected (R20-3 escalation)
+ApprovalStatus = Literal[
+    "not_required",
+    "pending",
+    "approved",
+    "rejected",
+    "supplement_pending",
+    "transferred",
+    "escalated",
+]
 TemplateStatus = Literal["published", "disabled"]
-ApprovalTaskStatus = Literal["pending", "approved", "rejected"]
+# ApprovalTaskStatus mirrors ApprovalStatus plus the two legacy HITL
+# statuses (``pending_supplement``, ``expired``) so existing flows keep
+# validating.
+ApprovalTaskStatus = Literal[
+    "pending",
+    "approved",
+    "rejected",
+    "supplement_pending",
+    "transferred",
+    "escalated",
+    "pending_supplement",
+    "expired",
+]
 ApprovalDecision = Literal["approved", "rejected"]
 ToolRiskLevel = Literal[
     "readonly", "suggest", "approval_required", "forbidden",
@@ -112,6 +138,18 @@ class ApprovalTask(BaseModel):
     # remains a valid decider; the first decision among them wins.
     delegates: list[str] = Field(default_factory=list)
     delegated_by: str | None = None
+    # R20 governance: supplement / transfer / escalation artefacts.
+    supplement_note: str | None = None
+    supplement_attachments: list[dict[str, Any]] = Field(default_factory=list)
+    supplement_requested_by: str | None = None
+    supplement_resolved_by: str | None = None
+    # Transfer (R20-2): chronological history of reassignments.
+    transfers: list[dict[str, Any]] = Field(default_factory=list)
+    current_approver: str | None = None
+    # Escalation (R20-3): escalated_at + the escalation reviewer.
+    escalated_at: str | None = None
+    escalated_to: str | None = None
+    escalation_reason: str | None = None
 
 
 class ApprovalTaskListResponse(BaseModel):
@@ -151,6 +189,54 @@ class ApprovalDelegateRequest(BaseModel):
     delegate: str
     delegated_by: str
     reason: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# R20 governance: supplement / transfer / escalation
+# --------------------------------------------------------------------------- #
+
+
+class SupplementAttachment(BaseModel):
+    """A material attachment supplied during the supplement flow."""
+    name: str
+    uri: str
+    content_type: str | None = None
+
+
+class ApprovalSupplementGovernanceRequest(BaseModel):
+    """R20-1: request supplementary material from the requester.
+
+    Moves the task ``pending -> supplement_pending``.
+    """
+    note: str
+    attachments: list[SupplementAttachment] = Field(default_factory=list)
+    requested_by: str
+
+
+class ApprovalSupplementResolveRequest(BaseModel):
+    """R20-1: requester supplies the material, task returns to ``pending``."""
+    attachments: list[SupplementAttachment] = Field(default_factory=list)
+    note: str | None = None
+    resolved_by: str
+
+
+class ApprovalTransferRequest(BaseModel):
+    """R20-2: reassign the approval to a new approver.
+
+    Only the current approver / requested_by or an admin may transfer.
+    Records an entry in ``transfers`` and sets ``current_approver``.
+    """
+    new_approver: str
+    reason: str
+    transferred_by: str
+    is_admin: bool = False
+
+
+class ApprovalEscalateRequest(BaseModel):
+    """R20-3: manually escalate an overdue approval."""
+    escalated_to: str | None = None
+    reason: str | None = None
+    escalated_by: str | None = None
 
 
 class RetryPolicyModel(BaseModel):

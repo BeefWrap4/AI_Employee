@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from ai_employee.agent_platform_api.audit import record_event
 from ai_employee.agent_platform_api.schemas import (
@@ -220,6 +221,7 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
     if requires_approval:
         store.approval_task_count += 1
         task_id = f"approval_task_{store.approval_task_count:03d}"
+        now = datetime.now(timezone.utc).isoformat()
         store.approval_tasks[task_id] = ApprovalTask(
             task_id=task_id,
             run_id=run_id,
@@ -228,6 +230,9 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
             status="pending",
             risk_level="approval_required",
             reason="Human approval required before final write-back.",
+            created_at=now,
+            updated_at=now,
+            current_approver=payload.requested_by,
         )
     return run
 
@@ -412,6 +417,213 @@ def delegate_approval(
     store.approval_tasks[task_id] = updated
     _ = reason
     return updated
+
+
+# --------------------------------------------------------------------------- #
+# R20 governance: supplement / transfer / escalation
+# --------------------------------------------------------------------------- #
+
+
+class ApprovalTaskNotFound(LookupError):
+    """Raised when a governance action targets an unknown task id."""
+
+
+class ApprovalTaskNotSupplementable(ValueError):
+    """Raised when a supplement is requested on a non-supplementable task."""
+
+
+class ApprovalSupplementStateConflict(ValueError):
+    """Raised when a supplement resolve is attempted in the wrong state."""
+
+
+class ApprovalTransferForbidden(PermissionError):
+    """Raised when a non-authorised user attempts to transfer a task."""
+
+
+def request_supplement_governance(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    note: str,
+    attachments: list[dict],
+    requested_by: str,
+) -> ApprovalTask:
+    """R20-1: reviewer requests supplementary material.
+
+    Moves ``pending -> supplement_pending`` and records the note plus
+    requested attachments.  The requester later resolves the supplement
+    via :func:`resolve_supplement_governance`.
+    """
+    task = store.approval_tasks.get(task_id)
+    if task is None:
+        raise ApprovalTaskNotFound(task_id)
+    if task.status not in ("pending",):
+        # Already-decided / expired / escalated tasks cannot be supplemented.
+        raise ApprovalTaskNotSupplementable(task.status)
+    now = datetime.now(timezone.utc).isoformat()
+    updated = task.model_copy(
+        update={
+            "status": "supplement_pending",
+            "supplement_note": note,
+            "supplement_attachments": list(attachments),
+            "supplement_requested_by": requested_by,
+            "updated_at": now,
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    record_event(
+        action="approval.supplement_requested", actor=requested_by,
+        target_type="approval_task", target_id=task_id,
+        payload={"note": note, "attachments": len(attachments)},
+    )
+    return updated
+
+
+def resolve_supplement_governance(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    attachments: list[dict],
+    note: str | None,
+    resolved_by: str,
+) -> ApprovalTask:
+    """R20-1: requester supplies the requested material.
+
+    Moves ``supplement_pending -> pending`` so the reviewer can decide
+    again.  Merges the supplied attachments onto the task.
+    """
+    task = store.approval_tasks.get(task_id)
+    if task is None:
+        raise ApprovalTaskNotFound(task_id)
+    if task.status != "supplement_pending":
+        raise ApprovalSupplementStateConflict(task.status)
+    now = datetime.now(timezone.utc).isoformat()
+    merged = [*task.supplement_attachments, *attachments]
+    updated = task.model_copy(
+        update={
+            "status": "pending",
+            "supplement_attachments": merged,
+            "supplement_response": note,
+            "supplement_resolved_by": resolved_by,
+            "updated_at": now,
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    record_event(
+        action="approval.supplement_resolved", actor=resolved_by,
+        target_type="approval_task", target_id=task_id,
+        payload={"attachments": len(attachments)},
+    )
+    return updated
+
+
+def transfer_approval(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    new_approver: str,
+    reason: str,
+    transferred_by: str,
+    is_admin: bool = False,
+) -> ApprovalTask:
+    """R20-2: reassign the approval to a new approver.
+
+    Permission: the current approver (``current_approver`` /
+    ``requested_by``) or an admin may transfer.  Records a chronological
+    entry in ``transfers`` and updates ``current_approver``.  The task
+    stays decidable (returns to ``pending`` if it was ``transferred``).
+    """
+    task = store.approval_tasks.get(task_id)
+    if task is None:
+        raise ApprovalTaskNotFound(task_id)
+    authorised = is_admin or transferred_by == task.current_approver \
+        or transferred_by == task.requested_by
+    if not authorised:
+        raise ApprovalTransferForbidden(transferred_by)
+    if task.status in ("approved", "rejected", "expired"):
+        raise ApprovalTaskNotSupplementable(task.status)
+    now = datetime.now(timezone.utc).isoformat()
+    history = list(task.transfers)
+    history.append(
+        {
+            "from": task.current_approver or task.requested_by,
+            "to": new_approver,
+            "reason": reason,
+            "transferred_by": transferred_by,
+            "is_admin": is_admin,
+            "ts": now,
+        }
+    )
+    updated = task.model_copy(
+        update={
+            "status": "transferred",
+            "current_approver": new_approver,
+            "transfers": history,
+            "routed_to": new_approver,
+            "updated_at": now,
+        }
+    )
+    store.approval_tasks[task_id] = updated
+    record_event(
+        action="approval.transferred", actor=transferred_by,
+        target_type="approval_task", target_id=task_id,
+        payload={"new_approver": new_approver, "reason": reason, "is_admin": is_admin},
+    )
+    return updated
+
+
+def escalate_approval(
+    store: AgentPlatformStore,
+    *,
+    task_id: str,
+    escalated_to: str | None,
+    reason: str | None,
+    escalated_by: str | None,
+) -> ApprovalTask:
+    """R20-3: escalate an overdue / stuck approval.
+
+    Marks the task ``escalated``, records the escalation reviewer and
+    timestamp, and (when an escalation reviewer is supplied) routes the
+    task to them.  The associated run is *not* failed — escalation is a
+    signal that a higher-tier reviewer must now act.
+    """
+    task = store.approval_tasks.get(task_id)
+    if task is None:
+        raise ApprovalTaskNotFound(task_id)
+    if task.status in ("approved", "rejected", "expired"):
+        raise ApprovalTaskNotSupplementable(task.status)
+    now = datetime.now(timezone.utc).isoformat()
+    target = escalated_to or task.current_approver or task.requested_by
+    update = {
+        "status": "escalated",
+        "escalated_at": now,
+        "escalated_to": target,
+        "escalation_reason": reason,
+        "current_approver": target,
+        "routed_to": target,
+        "updated_at": now,
+    }
+    updated = task.model_copy(update=update)
+    store.approval_tasks[task_id] = updated
+    record_event(
+        action="approval.escalated", actor=escalated_by or "system",
+        target_type="approval_task", target_id=task_id,
+        payload={"escalated_to": target, "reason": reason},
+    )
+    return updated
+
+
+# Statuses from which a reviewer may still issue a final decision.  The
+# governance sub-states (transferred / escalated / supplement_pending
+# after resolve) all flow back to ``pending`` before deciding, but a
+# ``transferred`` or ``escalated`` task that is still open is also
+# decidable by the (new / escalation) approver.
+_DECIDABLE_STATUSES = {"pending", "transferred", "escalated"}
+
+
+def is_decidable(task: ApprovalTask) -> bool:
+    """Return True when ``task`` may still receive a final decision."""
+    return task.status in _DECIDABLE_STATUSES
 
 
 def register_tool(store: AgentPlatformStore, payload: ToolRegistration) -> ToolResponse:
