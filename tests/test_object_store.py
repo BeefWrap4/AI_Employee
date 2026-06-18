@@ -166,3 +166,42 @@ def test_s3_presign_returns_signed_url(s3_store) -> None:
 def test_s3_rejects_traversal_keys(s3_store) -> None:
     with pytest.raises(ValueError):
         s3_store.put("../escape.bin", b"x")
+
+
+def test_minio_subclass_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MinioObjectStore is a thin alias for S3ObjectStore; ensure it round-trips.
+
+    moto's stand-alone-server mode is required for non-AWS endpoint URLs
+    (it spins up a real local HTTP server that imitates S3 / MinIO).
+    """
+    pytest.importorskip("moto")
+    from moto.server import ThreadedMotoServer
+
+    from ai_employee.object_store.s3 import MinioObjectStore
+
+    server = ThreadedMotoServer(ip_address="127.0.0.1", port=0, verbose=False)
+    server.start()
+    try:
+        host = f"http://127.0.0.1:{server._server.server_address[1]}"
+        store = MinioObjectStore(
+            bucket="test-bucket",
+            access_key="testing",
+            secret_key="testing",
+            endpoint_url=host,
+        )
+        # MinIO doesn't auto-create buckets; create it via the store.
+        import boto3
+
+        boto3.client(
+            "s3",
+            endpoint_url=host,
+            aws_access_key_id="testing",
+            aws_secret_access_key="testing",
+            region_name="us-east-1",
+        ).create_bucket(Bucket="test-bucket")
+        store.put("a/b.pdf", b"minio", content_type="application/pdf")
+        assert store.get("a/b.pdf") == b"minio"
+        url = store.presign("a/b.pdf", expires=30)
+        assert "127.0.0.1" in url or "X-Amz" in url
+    finally:
+        server.stop()

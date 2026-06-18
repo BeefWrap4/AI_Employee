@@ -168,4 +168,42 @@ class S3ObjectStore:
         )
 
 
-__all__ = ["S3ObjectStore"]
+class MinioObjectStore(S3ObjectStore):
+    """Convenience alias for MinIO (S3-compatible).
+
+    MinIO is the S3-compatible store we deploy in dev / staging
+    (``docker-compose`` / k8s).  Same code, just clearer intent at the
+    call site when the endpoint is ``http://minio:9000``.
+    """
+
+    backend = "minio"
+
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        access_key: str,
+        secret_key: str,
+        endpoint_url: str = "http://localhost:9000",
+        region: str = "us-east-1",
+        secure: bool = False,
+    ) -> None:
+        # Normalise: boto3 doesn't care about the protocol flag, but
+        # accept it so deployment YAML can keep the MinIO docs
+        # convention of ``http://`` + ``secure: false``.
+        url = endpoint_url
+        if not secure and url.startswith("http://"):
+            # already http
+            pass
+        if secure and url.startswith("http://"):
+            url = "https://" + url[len("http://") :]
+        super().__init__(
+            bucket=bucket,
+            access_key=access_key,
+            secret_key=secret_key,
+            endpoint_url=url,
+            region=region,
+        )
+
+
+__all__ = ["MinioObjectStore", "S3ObjectStore"]
