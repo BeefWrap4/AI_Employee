@@ -8,6 +8,11 @@ from ai_employee.agent_platform_api.inspection import (
     run_inspection,
     write_inspection_log,
 )
+from ai_employee.agent_platform_api.platform_metrics import (
+    metrics as platform_metrics,
+    snapshot_dict,
+)
+from ai_employee.agent_platform_api.rate_limit import build_limiter
 from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
@@ -97,6 +102,7 @@ def create_app(
             )
         run = create_run(state, payload)
         run_state.upsert_run(run_to_persist_dict(run))
+        platform_metrics().record_run(succeeded=(run.status != 'failed'))
         return run
 
     @app.post(
@@ -247,6 +253,25 @@ def create_app(
             decided_by=payload.decided_by,
             comment=payload.comment,
         )
+        # Approval wait time: task.created_at → now.  Best-effort; missing
+        # timestamps are skipped silently.
+        try:
+            from datetime import datetime as _dt
+
+            _task = state.approval_tasks.get(task_id)
+            if getattr(_task, "created_at", None):
+                _created = _task.created_at
+                if _created.endswith("Z"):
+                    _created = _created.replace("Z", "+00:00")
+                _wait = (
+                    _dt.now(_dt.timezone.utc)
+                    - _dt.fromisoformat(_created)
+                ).total_seconds()
+                if _wait >= 0:
+                    platform_metrics().record_approval(_wait)
+        except Exception:
+            pass
+        platform_metrics().record_review(accepted=(payload.decision == 'approved'))
         run = state.runs.get(task.run_id)
         if run is not None:
             run_state.upsert_run(run_to_persist_dict(run))
@@ -409,6 +434,10 @@ def create_app(
         payload = run_inspection(service_name, check_items=items)
         write_inspection_log(payload)
         return payload
+
+    @app.get("/api/v1/metrics/platform")
+    def platform_metrics_endpoint() -> dict[str, object]:
+        return snapshot_dict()
 
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics() -> str:
