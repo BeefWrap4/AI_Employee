@@ -684,3 +684,22 @@ def _to_fts_query(query: str) -> str:
     if not tokens:
         return query
     return " OR ".join(f'"{t}"' for t in tokens)
+
+
+# --------------------------------------------------------------------------- #
+# Dual-backend factory re-export (R16-3).
+# Kept at module bottom to avoid an import cycle with pg_store, which
+# imports transition_parse_status-equivalent helpers lazily.
+# --------------------------------------------------------------------------- #
+def build_knowledge_store(*args, **kwargs):  # type: ignore[no-untyped-def]
+    from ai_employee.knowledge_api.pg_store import build_knowledge_store as _build
+
+    return _build(*args, **kwargs)
+
+
+def __getattr__(name: str):  # PEP 562 lazy attribute access
+    if name == "PgKnowledgeStore":
+        from ai_employee.knowledge_api.pg_store import PgKnowledgeStore
+
+        return PgKnowledgeStore
+    raise AttributeError(name)

@@ -114,11 +114,23 @@ class DB:
     wrapper rewrites them for Postgres.  ``fetchall``/``fetchone`` proxy
     to the underlying cursor.  Thread-safe via a lock (SQLite is
     single-writer; psycopg connections are also not thread-safe to share).
+
+    When ``row_factory="dict"`` is set, :meth:`execute` returns a
+    :class:`_DictCursor` whose ``fetchone``/``fetchall`` yield dicts
+    keyed by column name — mirroring ``sqlite3.Row`` access-by-name so
+    store code stays identical across backends.
     """
 
-    def __init__(self, conn: Any, backend: Backend) -> None:
+    def __init__(
+        self,
+        conn: Any,
+        backend: Backend,
+        *,
+        row_factory: str = "tuple",
+    ) -> None:
         self._conn = conn
         self.backend = backend
+        self.row_factory = row_factory
         self._lock = threading.Lock()
 
     # -- connection management ------------------------------------------------
@@ -137,6 +149,8 @@ class DB:
                 cur.execute(translated)
             else:
                 cur.execute(translated, params)
+            if self.row_factory == "dict":
+                return _DictCursor(cur)
             return cur
 
     def executemany(self, sql: str, seq: list[tuple]) -> None:
@@ -162,6 +176,59 @@ class DB:
         return _Transaction(self)
 
 
+class _DictCursor:
+    """Wraps a raw cursor so rows come back as dicts keyed by column name.
+
+    Mirrors ``sqlite3.Row`` access-by-name (``row["col"]``) so store code
+    that indexes rows by column name works unchanged on both backends.
+    """
+
+    def __init__(self, cur: Any) -> None:
+        self._cur = cur
+
+    @property
+    def description(self) -> Any:
+        return self._cur.description
+
+    @property
+    def lastrowid(self) -> Any:
+        return getattr(self._cur, "lastrowid", None)
+
+    @property
+    def rowcount(self) -> int:
+        return getattr(self._cur, "rowcount", -1)
+
+    def _cols(self) -> list[str]:
+        desc = self._cur.description
+        if not desc:
+            return []
+        # sqlite3 description rows are tuples; psycopg returns Column objects
+        # with a ``.name`` attr.  Handle both.
+        cols: list[str] = []
+        for col in desc:
+            if isinstance(col, str):
+                cols.append(col)
+            else:
+                cols.append(col[0] if isinstance(col, (tuple, list)) else getattr(col, "name", str(col)))
+        return cols
+
+    def fetchone(self) -> dict[str, Any] | None:
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        cols = self._cols()
+        if cols:
+            return dict(zip(cols, row, strict=False))
+        return dict(enumerate(row)) if row else None
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        rows = self._cur.fetchall()
+        cols = self._cols()
+        if cols:
+            return [dict(zip(cols, r, strict=False)) for r in rows]
+        return [dict(enumerate(r)) if r else {} for r in rows]
+
+
 class _Transaction:
     """``with db.transaction(): ...`` commits on success, rolls back on error."""
 
@@ -183,12 +250,13 @@ class _Transaction:
 # --------------------------------------------------------------------------- #
 
 
-def open_db(url: str | None = None) -> DB:
+def open_db(url: str | None = None, *, row_factory: str = "tuple") -> DB:
     """Open a :class:`DB` for the given URL (or ``DATABASE_URL`` env).
 
     SQLite connections are opened with ``check_same_thread=False`` so the
     wrapper's lock can serialise access from request threads.  Postgres
-    connections use psycopg's blocking connect.
+    connections use psycopg's blocking connect.  Pass ``row_factory="dict"``
+    to get dict-keyed rows (mirrors ``sqlite3.Row`` access-by-name).
     """
     cfg = build_database_config(url)
     if cfg.backend == Backend.SQLITE:
@@ -197,13 +265,13 @@ def open_db(url: str | None = None) -> DB:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         conn = sqlite3.connect(path or ":memory:", check_same_thread=False)
         conn.row_factory = None  # tuple rows by default (stores index by position)
-        return DB(conn, Backend.SQLITE)
+        return DB(conn, Backend.SQLITE, row_factory=row_factory)
     # Postgres
     import psycopg  # type: ignore[import-untyped]
 
     pg_url = _normalise_postgres_url(cfg.url)
     conn = psycopg.connect(pg_url, autocommit=False)
-    return DB(conn, Backend.POSTGRES)
+    return DB(conn, Backend.POSTGRES, row_factory=row_factory)
 
 
 def _sqlite_path(url: str) -> str:
