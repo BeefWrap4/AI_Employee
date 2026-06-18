@@ -394,13 +394,19 @@ def create_app(
             prompt_version = "m1-template"
 
         try:
+            # Sensitive field redaction (spec §8): mask PII before
+            # persisting QA log so reviewers don't see raw phone / email
+            # / ID numbers in audit trails.
+            from ai_employee.common_schemas.redaction import redact_text
+            redacted_question = redact_text(payload.question)
+            redacted_answer = redact_text(answer)
             store.write_qa_log(
                 qa_log_id=trace_id.replace("trace_", "qa_"),
                 session_id=payload.session_id,
-                question=payload.question,
+                question=redacted_question,
                 knowledge_scopes=payload.knowledge_scopes,
                 retrieved_chunks=[{"chunk_id": h.chunk_id, "doc_id": h.doc_id} for h in hits],
-                answer=answer,
+                answer=redacted_answer,
                 model_name=model_name,
                 prompt_version=prompt_version,
                 confidence=top.confidence,

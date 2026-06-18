@@ -258,6 +258,10 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             state.save_report(updated)
         if payload.decision == "accepted" and payload.final_root_cause:
             _generate_and_persist_candidates(state, updated)
+        # Redact reviewer comments before returning (PII in comments is
+        # surfaced back to clients unchanged; persistence already happens
+        # in store layer).  When the comment is stored it goes through
+        # writeback, which itself sanitises — see ticket_writeback.
         return ReportReviewResponse(
             report_id=report_id,
             review_status=payload.decision,

@@ -44,6 +44,11 @@ def import_candidate_to_knowledge_api(
     非 2xx 抛 ``KnowledgeApiError``。
     """
     base = (api_url or os.getenv("KNOWLEDGE_API_URL") or DEFAULT_KNOWLEDGE_API_URL).rstrip("/")
+    # Sensitive field redaction (spec §8): scrub PII from title and
+    # content before persisting into the knowledge base.
+    from ai_employee.common_schemas.redaction import redact_text
+    redacted_title = redact_text(candidate.title)
+    redacted_content = redact_text(candidate.content)
     metadata = {
         "source": "rca_feedback",
         "incident_id": candidate.source_incident_id,
@@ -51,13 +56,13 @@ def import_candidate_to_knowledge_api(
     }
     files = {
         "file": (
-            f"{candidate.title}.md",
-            candidate.content.encode("utf-8"),
+            f"{redacted_title}.md",
+            redacted_content.encode("utf-8"),
             "text/markdown",
         )
     }
     data = {
-        "title": candidate.title,
+        "title": redacted_title,
         "metadata_json": json.dumps(metadata, ensure_ascii=False),
         "acl_tags_json": json.dumps(["rca_feedback"]),
         "version": "v1",
