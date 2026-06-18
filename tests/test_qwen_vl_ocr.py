@@ -1,11 +1,15 @@
 """Qwen-VL-OCR backend tests (R17-4 / spec §5.2).
 
-Qwen-VL-OCR is a multimodal vision-language model.  When hosted on
-SiliconFlow, OCR works by sending a chat-completions request whose user
-message carries the image (as a base64 ``data:`` URL) plus an
-"extract all text" instruction.  The :class:`QwenVlOcrBackend` wraps
-that call and parses the returned assistant content into an
-:class:`OcrResult`.
+The :class:`QwenVlOcrBackend` calls Alibaba Cloud Bailian (百炼) `qwen-vl-ocr`,
+a purpose-built OCR vision-language model, via the dashscope
+OpenAI-compatible endpoint.  It sends a chat-completions request whose
+user message carries the image (base64 ``data:`` URL); the dedicated
+``qwen-vl-ocr`` model needs no OCR prompt.  For a general VLM (e.g.
+Qwen2.5-VL-Instruct) the prompt is auto-added.
+
+Auth: ``DASHSCOPE_API_KEY`` (Bailian default).  The backend can also be
+pointed at SiliconFlow's hosted Qwen-VL by setting ``SILICONFLOW_API_KEY``
++ ``SILICONFLOW_BASE_URL`` explicitly.
 """
 from __future__ import annotations
 
@@ -19,19 +23,21 @@ from ai_employee.ingestion_worker.ocr import (
 )
 
 # --------------------------------------------------------------------------- #
-# Construction
+# Construction — Bailian (百炼) defaults
 # --------------------------------------------------------------------------- #
 
 
-def test_qwen_vl_ocr_backend_defaults() -> None:
+def test_qwen_vl_ocr_backend_defaults_to_bailian() -> None:
     b = QwenVlOcrBackend(api_key="sk-x")
-    assert "siliconflow.cn" in b.base_url
+    assert "dashscope.aliyuncs.com" in b.base_url
     assert b.api_key == "sk-x"
-    assert "Qwen" in b.model  # Qwen-VL family
+    # Default model id is the dedicated qwen-vl-ocr on Bailian.
+    assert b.model == "qwen-vl-ocr"
 
 
-def test_qwen_vl_ocr_backend_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-env")
+def test_qwen_vl_ocr_backend_reads_dashscope_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-env")
+    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     b = QwenVlOcrBackend()
     assert b.api_key == "sk-env"
 
@@ -39,19 +45,34 @@ def test_qwen_vl_ocr_backend_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_qwen_vl_ocr_backend_model_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-x")
-    monkeypatch.setenv("SILICONFLOW_OCR_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
+    """Override to a general VLM (prompt auto-added for non-ocr models)."""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-x")
+    monkeypatch.setenv("QWEN_VL_OCR_MODEL", "qwen-vl-max")
     b = QwenVlOcrBackend()
-    assert b.model == "Qwen/Qwen2.5-VL-7B-Instruct"
+    assert b.model == "qwen-vl-max"
 
 
 def test_qwen_vl_ocr_backend_base_url_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-x")
-    monkeypatch.setenv("SILICONFLOW_BASE_URL", "http://localhost:9999/v1")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-x")
+    monkeypatch.setenv("DASHSCOPE_BASE_URL", "http://localhost:9999/v1")
     b = QwenVlOcrBackend()
     assert b.base_url == "http://localhost:9999/v1"
+
+
+def test_qwen_vl_ocr_backend_can_target_siliconflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pointing at SiliconFlow's hosted Qwen-VL via explicit env."""
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-sf")
+    monkeypatch.setenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+    monkeypatch.setenv("QWEN_VL_OCR_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    b = QwenVlOcrBackend()
+    assert b.api_key == "sk-sf"
+    assert "siliconflow.cn" in b.base_url
+    assert b.model == "Qwen/Qwen2.5-VL-72B-Instruct"
 
 
 def test_qwen_vl_ocr_backend_has_descriptive_name() -> None:
@@ -79,8 +100,8 @@ def test_qwen_vl_ocr_backend_unavailable_without_key() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_ocr_sends_multimodal_request_with_image_and_prompt() -> None:
-    """The backend POSTs a chat-completions with an image_url + text."""
+def test_ocr_sends_multimodal_request_with_image() -> None:
+    """The backend POSTs a chat-completions with an image_url to Bailian."""
     captured: dict = {}
 
     class _Resp:
@@ -89,7 +110,7 @@ def test_ocr_sends_multimodal_request_with_image_and_prompt() -> None:
 
         def json(self) -> dict:
             return {
-                "model": "Qwen/Qwen2.5-VL-72B-Instruct",
+                "model": "qwen-vl-ocr",
                 "choices": [
                     {"index": 0, "message": {"role": "assistant", "content": "告警码 AL-01"}},
                 ],
@@ -104,21 +125,21 @@ def test_ocr_sends_multimodal_request_with_image_and_prompt() -> None:
         return _Resp()
 
     with patch("httpx.post", new=fake_post):
-        b = QwenVlOcrBackend(api_key="sk-sf")
+        b = QwenVlOcrBackend(api_key="sk-dashscope")
         result = b.ocr(b"\x89PNG fake image bytes")
 
-    assert captured["url"].endswith("/v1/chat/completions")
-    assert captured["headers"]["Authorization"] == "Bearer sk-sf"
+    # Targets the dashscope compatible-mode chat-completions endpoint.
+    assert "dashscope.aliyuncs.com" in captured["url"]
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["headers"]["Authorization"] == "Bearer sk-dashscope"
     body = captured["json"]
-    assert body["model"] == b.model
-    # Multimodal: user message content is a list with image + text parts.
+    assert body["model"] == "qwen-vl-ocr"
+    # Multimodal: user message content is a list with an image part.
     msg = body["messages"][0]
     assert msg["role"] == "user"
     parts = msg["content"]
     assert isinstance(parts, list)
     assert any(p.get("type") == "image_url" for p in parts)
-    assert any(p.get("type") == "text" for p in parts)
-    # The image part carries a base64 data URL.
     img_part = next(p for p in parts if p.get("type") == "image_url")
     assert img_part["image_url"]["url"].startswith("data:image/png;base64,")
     # Result parsed from assistant content.
@@ -126,6 +147,58 @@ def test_ocr_sends_multimodal_request_with_image_and_prompt() -> None:
     assert result.text == "告警码 AL-01"
     assert result.backend == "qwen_vl_ocr"
     assert result.pages == 1
+
+
+def test_ocr_dedicated_model_omits_prompt() -> None:
+    """qwen-vl-ocr is a dedicated OCR model — no text prompt needed."""
+    captured: dict = {}
+
+    class _Resp:
+        status_code = 200
+        text = "{}"
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "x"}}]}
+
+    def fake_post(url: str, **kwargs) -> _Resp:
+        captured["json"] = kwargs.get("json") or {}
+        return _Resp()
+
+    with patch("httpx.post", new=fake_post):
+        b = QwenVlOcrBackend(api_key="sk-x")  # default model qwen-vl-ocr
+        b.ocr(b"\x89PNG fake")
+    parts = captured["json"]["messages"][0]["content"]
+    # Only the image part; no text prompt for the dedicated OCR model.
+    assert len(parts) == 1
+    assert parts[0]["type"] == "image_url"
+
+
+def test_ocr_general_vlm_adds_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A general VLM (non-ocr model id) gets an explicit extract-text prompt."""
+    captured: dict = {}
+
+    class _Resp:
+        status_code = 200
+        text = "{}"
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "x"}}]}
+
+    def fake_post(url: str, **kwargs) -> _Resp:
+        captured["json"] = kwargs.get("json") or {}
+        return _Resp()
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-x")
+    monkeypatch.setenv("QWEN_VL_OCR_MODEL", "qwen-vl-max")  # general VLM
+    with patch("httpx.post", new=fake_post):
+        b = QwenVlOcrBackend()
+        b.ocr(b"\x89PNG fake")
+    parts = captured["json"]["messages"][0]["content"]
+    text_part = next(p for p in parts if p.get("type") == "text")
+    assert any(
+        kw in text_part["text"].lower()
+        for kw in ("extract", "ocr", "recognize", "识别", "提取")
+    )
 
 
 def test_ocr_accepts_file_path(tmp_path) -> None:
@@ -144,33 +217,6 @@ def test_ocr_accepts_file_path(tmp_path) -> None:
         b = QwenVlOcrBackend(api_key="sk-x")
         result = b.ocr(str(img))
     assert result.text == "OCR text"
-
-
-def test_ocr_prompt_instructions_present() -> None:
-    """The text part must carry an explicit 'extract text' instruction."""
-    captured: dict = {}
-
-    class _Resp:
-        status_code = 200
-        text = "{}"
-
-        def json(self) -> dict:
-            return {"choices": [{"message": {"content": "x"}}]}
-
-    def fake_post(url: str, **kwargs) -> _Resp:
-        captured["json"] = kwargs.get("json") or {}
-        return _Resp()
-
-    with patch("httpx.post", new=fake_post):
-        b = QwenVlOcrBackend(api_key="sk-x")
-        b.ocr(b"fake")
-    parts = captured["json"]["messages"][0]["content"]
-    text_part = next(p for p in parts if p.get("type") == "text")
-    # Instruction mentions extracting / recognizing text.
-    assert any(
-        kw in text_part["text"].lower()
-        for kw in ("extract", "ocr", "recognize", "识别", "提取")
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -250,7 +296,8 @@ def test_ocr_falls_back_on_missing_choices() -> None:
 
 def test_build_backend_qwen_vl_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OCR_BACKEND", "qwen_vl_ocr")
-    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-sf")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-ds")
+    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     b = build_ocr_backend()
     assert isinstance(b, QwenVlOcrBackend)
 
@@ -261,6 +308,7 @@ def test_build_backend_qwen_vl_ocr_without_key_still_returns_backend(
     """Selecting qwen_vl_ocr without a key returns the backend (marked
     unavailable); build_ocr_backend doesn't crash — degrade at call time."""
     monkeypatch.setenv("OCR_BACKEND", "qwen_vl_ocr")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     b = build_ocr_backend()
     assert isinstance(b, QwenVlOcrBackend)
