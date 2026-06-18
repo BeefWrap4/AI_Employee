@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from ai_employee.rca_agent.schemas import (
     AlarmEvent,
@@ -83,11 +84,77 @@ def build_incident(
     raw_alarms: list[RawAlarmEvent],
     time_window_minutes: int = 30,
 ) -> IncidentResponse:
-    del time_window_minutes
+    """Normalize, dedup, and correlate raw alarms into incident(s).
+
+    Spec §6.2 — alarm convergence:
+      1. Normalize each raw alarm (assigns alarm_event_id + fingerprint).
+      2. Dedup by fingerprint (same vendor:site:ne:alarm_code collapses).
+      3. Group survivors into incidents by site_id + time window
+         (alarms within ``time_window_minutes`` of the group's first
+         alarm belong together).
+      4. Pick a primary alarm per incident (highest severity, then
+         earliest start_time); the rest are companion alarms.
+
+    Returns the *primary* incident (the one containing the first alarm).
+    Additional incidents are still persisted on the store.  The single-
+    group common case preserves the historical return contract.
+    """
     events = [normalize_alarm(store, alarm) for alarm in raw_alarms]
-    primary = _select_primary_alarm(events)
+    deduped = _dedup_by_fingerprint(events)
+    groups = _group_by_site_and_window(deduped, time_window_minutes)
+    incidents = [_build_incident_record(store, group) for group in groups]
+    for incident in incidents:
+        store.incidents[incident.incident_id] = incident
+        if hasattr(store, "save_incident"):
+            store.save_incident(incident)
+    # Primary incident = the one holding the earliest alarm overall.
+    return incidents[0] if incidents else _empty_incident(store)
+
+
+def _dedup_by_fingerprint(events: list[AlarmEvent]) -> list[AlarmEvent]:
+    seen: set[str] = set()
+    out: list[AlarmEvent] = []
+    for event in events:
+        if event.fingerprint in seen:
+            continue
+        seen.add(event.fingerprint)
+        out.append(event)
+    return out
+
+
+def _group_by_site_and_window(
+    events: list[AlarmEvent], window_minutes: int
+) -> list[list[AlarmEvent]]:
+    """Group alarms by site_id; within a site, split when the gap between
+    consecutive alarms exceeds the time window."""
+    if not events:
+        return []
+    by_site: dict[str, list[AlarmEvent]] = {}
+    for event in events:
+        by_site.setdefault(event.site_id, []).append(event)
+    groups: list[list[AlarmEvent]] = []
+    for site_events in by_site.values():
+        site_events.sort(key=lambda e: e.start_time)
+        current: list[AlarmEvent] = [site_events[0]]
+        window_start = _parse_time(site_events[0].start_time)
+        for event in site_events[1:]:
+            t = _parse_time(event.start_time)
+            if window_start is not None and t is not None and (t - window_start).total_seconds() <= window_minutes * 60:
+                current.append(event)
+            else:
+                groups.append(current)
+                current = [event]
+                window_start = t
+        groups.append(current)
+    # Order groups by the earliest alarm so the primary incident is stable.
+    groups.sort(key=lambda g: g[0].start_time)
+    return groups
+
+
+def _build_incident_record(store: RcaStore, events: list[AlarmEvent]) -> IncidentResponse:
     store.incident_count += 1
-    incident = IncidentResponse(
+    primary = _select_primary_alarm(events)
+    return IncidentResponse(
         incident_id=f"inc_{store.incident_count:03d}",
         title=f"{primary.site_id} {primary.alarm_name}",
         status="analyzing",
@@ -97,10 +164,33 @@ def build_incident(
         related_alarm_count=max(0, len(events) - 1),
         alarm_events=events,
     )
-    store.incidents[incident.incident_id] = incident
-    if hasattr(store, "save_incident"):
-        store.save_incident(incident)
-    return incident
+
+
+def _empty_incident(store: RcaStore) -> IncidentResponse:
+    store.incident_count += 1
+    return IncidentResponse(
+        incident_id=f"inc_{store.incident_count:03d}",
+        title="empty incident",
+        status="analyzing",
+        severity="info",
+        site_id="",
+        primary_alarm=AlarmEvent(
+            alarm_id="empty", alarm_code="", alarm_name="", vendor="",
+            site_id="", ne_id="", severity="info", start_time="",
+            raw_payload={}, alarm_event_id="alarm_evt_empty", fingerprint="",
+        ),
+        related_alarm_count=0,
+        alarm_events=[],
+    )
+
+
+def _parse_time(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def run_rca(
