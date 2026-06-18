@@ -339,13 +339,19 @@ def create_app(
         response_model=ApprovalTask,
     )
     def decide_approval(task_id: str, payload: ApprovalDecisionRequest) -> ApprovalTask:
+        from ai_employee.agent_platform_api.runtime import is_decidable
+
         task = state.approval_tasks.get(task_id)
         if task is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "approval_task_not_found", "task_id": task_id},
             )
-        if task.status != "pending":
+        # R20 unified state machine: a task in ``pending``, ``transferred``
+        # or ``escalated`` is still open and may receive a final decision.
+        # ``supplement_pending`` must be resolved first; terminal states
+        # (approved / rejected / expired) are rejected as already-decided.
+        if not is_decidable(task):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
