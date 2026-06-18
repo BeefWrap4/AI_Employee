@@ -33,6 +33,7 @@ dev = [
   "mypy>=1.11",
   "bandit>=1.7",
   "pip-audit>=2.7",
+  "opensearch-py>=3.0",
 ]
 
 [build-system]
