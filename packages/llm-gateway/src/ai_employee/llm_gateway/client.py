@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from ai_employee.llm_gateway.retry import RetryExhaustedError
 from ai_employee.llm_gateway.retry import retry as retry_decorator
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ai_employee.observability.langfuse_emitter import LangfuseEmitter
 
 _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 _DEFAULT_MODEL = "qwen-plus"
@@ -46,12 +51,15 @@ class LlmClient:
         model: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 2,
+        langfuse_emitter: "LangfuseEmitter | None" = None,
     ) -> None:
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", _DASHSCOPE_BASE_URL)).rstrip("/")
         self.api_key = api_key or os.getenv("LLM_API_KEY") or os.getenv("QWEN_API_KEY", "")
         self.model = model or os.getenv("LLM_MODEL", _DEFAULT_MODEL)
         self.timeout = timeout
         self.max_retries = max_retries
+        # Langfuse trace emitter is optional; when None, chat() skips tracing.
+        self.langfuse_emitter = langfuse_emitter
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -103,14 +111,44 @@ class LlmClient:
         """
         _do_request = retry_decorator(max_retries=self.max_retries)(self._raw_request)
 
+        # Emit a Langfuse trace record (success or failure) when an emitter is
+        # configured.  Generates fresh trace/span ids so each chat() is its
+        # own trace.  Tracing must never break the underlying call.
+        from ai_employee.observability import new_span_id, new_trace_id
+
+        trace_id = new_trace_id()
+        span_id = new_span_id()
+        prompt_text = "\n".join(
+            m.get("content", "") for m in messages if m.get("role") == "user"
+        ) or json.dumps(messages, ensure_ascii=False)
+        started = time.perf_counter()
+        status_label = "succeeded"
         try:
             resp = _do_request(messages, temperature, max_tokens)
         except Exception as exc:
+            status_label = "failed"
+            self._emit_trace(
+                trace_id=trace_id,
+                span_id=span_id,
+                prompt=prompt_text,
+                response=str(exc),
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+                status=status_label,
+            )
             if isinstance(exc, RetryExhaustedError):
                 raise LlmClientError(str(exc), status_code=exc.last_status) from exc
             raise LlmClientError(f"LLM request failed: {exc}") from exc
 
         if resp.status_code != 200:
+            status_label = "failed"
+            self._emit_trace(
+                trace_id=trace_id,
+                span_id=span_id,
+                prompt=prompt_text,
+                response=f"http {resp.status_code}",
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+                status=status_label,
+            )
             raise LlmClientError(
                 f"unexpected status {resp.status_code}: {resp.text[:300]}",
                 status_code=resp.status_code,
@@ -119,9 +157,27 @@ class LlmClient:
         try:
             data = resp.json()
         except json.JSONDecodeError as exc:
+            status_label = "failed"
+            self._emit_trace(
+                trace_id=trace_id,
+                span_id=span_id,
+                prompt=prompt_text,
+                response=f"invalid json: {exc}",
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+                status=status_label,
+            )
             raise LlmClientError(f"invalid JSON response: {exc}") from exc
 
         choice = data["choices"][0]
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        self._emit_trace(
+            trace_id=trace_id,
+            span_id=span_id,
+            prompt=prompt_text,
+            response=choice["message"]["content"],
+            latency_ms=latency_ms,
+            status=status_label,
+        )
         return ChatResponse(
             content=choice["message"]["content"],
             model=data.get("model", self.model),
@@ -131,3 +187,30 @@ class LlmClient:
                 "total_tokens": data.get("usage", {}).get("total_tokens", 0),
             },
         )
+
+    def _emit_trace(
+        self,
+        *,
+        trace_id: str,
+        span_id: str,
+        prompt: str,
+        response: str,
+        latency_ms: float,
+        status: str,
+    ) -> None:
+        """Push one record to the Langfuse emitter (best-effort)."""
+        if self.langfuse_emitter is None:
+            return
+        try:
+            self.langfuse_emitter.record_llm_call(
+                trace_id=trace_id,
+                span_id=span_id,
+                model=self.model,
+                prompt=prompt,
+                response=response,
+                latency_ms=latency_ms,
+                metadata={"status": status},
+            )
+        except Exception:
+            # Tracing must never break a chat() call.
+            pass

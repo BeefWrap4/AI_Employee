@@ -32,9 +32,16 @@ from ai_employee.observability.metrics import (
     reset_default_registry,
 )
 
+from ai_employee.observability.langfuse_emitter import (
+    LangfuseEmitter,
+    build_langfuse_emitter,
+)
+
 __all__ = [
+    "LangfuseEmitter",
     "MetricRegistry",
     "bind",
+    "build_langfuse_emitter",
     "configure_default_registry",
     "configure_logging",
     "format_traceparent",

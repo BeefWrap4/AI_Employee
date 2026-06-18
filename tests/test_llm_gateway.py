@@ -88,6 +88,20 @@ def _fake_response(status_code: int, body: dict) -> httpx.Response:
     )
 
 
+class _RecordingEmitter:
+    """Minimal fake LangfuseEmitter for the LlmClient integration test."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.flush_result = {"dispatched": 0}
+
+    def record_llm_call(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.calls.append(kwargs)
+
+    def flush(self) -> dict:
+        return dict(self.flush_result)
+
+
 class TestLlmClient:
     def test_chat_returns_chat_response(self) -> None:
         client = LlmClient(
@@ -183,6 +197,75 @@ def _echo_status(status: int) -> httpx.Response:
         json={"status": status},
         request=httpx.Request("POST", "http://test/"),
     )
+
+
+class TestLlmClientLangfuse:
+    """Langfuse trace emission integration with LlmClient."""
+
+    def test_chat_records_to_emitter_when_provided(self) -> None:
+        emitter = _RecordingEmitter()
+        client = LlmClient(
+            base_url="http://test",
+            api_key="sk-test",
+            model="qwen-plus",
+            langfuse_emitter=emitter,  # type: ignore[arg-type]
+        )
+        with mock.patch.object(
+            httpx,
+            "post",
+            return_value=_fake_response(
+                200,
+                {
+                    "choices": [{"message": {"content": "Hello!"}}],
+                    "model": "qwen-plus",
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+                },
+            ),
+        ):
+            client.chat(messages=[{"role": "user", "content": "hi"}])
+        assert len(emitter.calls) == 1
+        record = emitter.calls[0]
+        assert record["model"] == "qwen-plus"
+        assert record["prompt"] == "hi"
+        assert record["response"] == "Hello!"
+        assert record["latency_ms"] >= 0
+        # Trace/span ids should be valid hex.
+        assert len(record["trace_id"]) == 32
+        assert len(record["span_id"]) == 16
+
+    def test_chat_no_emitter_is_fine(self) -> None:
+        client = LlmClient(base_url="http://test", api_key="sk-test", model="qwen-plus")
+        with mock.patch.object(
+            httpx,
+            "post",
+            return_value=_fake_response(
+                200,
+                {"choices": [{"message": {"content": "ok"}}], "usage": {}},
+            ),
+        ):
+            # Should not raise when no emitter is provided.
+            result = client.chat(messages=[{"role": "user", "content": "hi"}])
+        assert result.content == "ok"
+
+    def test_chat_records_failure_to_emitter(self) -> None:
+        emitter = _RecordingEmitter()
+        client = LlmClient(
+            base_url="http://test",
+            api_key="sk-test",
+            model="qwen-plus",
+            langfuse_emitter=emitter,  # type: ignore[arg-type]
+            max_retries=0,
+        )
+        with mock.patch.object(
+            httpx,
+            "post",
+            side_effect=httpx.ConnectError("boom"),
+        ):
+            with pytest.raises(LlmClientError):
+                client.chat(messages=[{"role": "user", "content": "hi"}])
+        # Failure path: still record a trace marked as failed.
+        assert len(emitter.calls) == 1
+        assert emitter.calls[0].get("metadata", {}).get("status") == "failed"
 
 
 class TestRetry:
