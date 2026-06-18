@@ -1,0 +1,74 @@
+# Default values for the ai-employee Helm chart.
+# Override per-environment with -f values.<env>.yaml or --set.
+
+global:
+  imageRegistry: "ai-employee"
+  imageTag: "0.1.0"
+  imagePullPolicy: IfNotPresent
+  namespace: ai-employee
+
+  # Shared secrets. In production, set these via --set or a sealed-secret
+  # rather than committing real values here.
+  secrets:
+    jwtSecret: "REPLACE_WITH_LONG_RANDOM_SECRET"
+    qwenApiKey: "REPLACE_WITH_QWEN_API_KEY"
+    internalToken: "REPLACE_WITH_INTERNAL_TOKEN"
+
+  # Auth: set to true to drop the legacy internal-token path (JWT only).
+  jwtAuthStrict: false
+
+  storageClassName: ""
+
+# Per-service overrides. Replicas default to 1 (SQLite is single-writer).
+services:
+  knowledge-api:
+    enabled: true
+    port: 8010
+    replicas: 1
+    storage: 5Gi
+    env:
+      EMBEDDING_PROVIDER: qwen
+      LLM_GATEWAY_ENABLED: "true"
+      MILVUS_ENABLED: "false"
+      OPENSEARCH_ENABLED: "false"
+
+  ingestion-worker:
+    enabled: true
+    port: 8011
+    replicas: 1
+    storage: 0
+    env:
+      EMBEDDING_PROVIDER: qwen
+      MILVUS_ENABLED: "false"
+      OPENSEARCH_ENABLED: "false"
+
+  rca-agent:
+    enabled: true
+    port: 8020
+    replicas: 1
+    storage: 2Gi
+    env:
+      PROMETHEUS_ENABLED: "false"
+      ELASTICSEARCH_ENABLED: "false"
+      NEO4J_ENABLED: "false"
+      TICKET_API_ENABLED: "false"
+
+  agent-platform-api:
+    enabled: true
+    port: 8030
+    replicas: 1
+    storage: 2Gi
+    env: {}
+
+  tool-registry:
+    enabled: true
+    port: 8040
+    replicas: 1
+    storage: 1Gi
+    env: {}
+
+# Optional ingress for the platform API + web portal.
+ingress:
+  enabled: false
+  className: nginx
+  host: ai-employee.local

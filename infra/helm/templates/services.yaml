@@ -1,0 +1,114 @@
+{{- $global := .Values.global -}}
+{{- range $name, $svc := .Values.services -}}
+{{- if $svc.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  namespace: {{ $global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: {{ $name }}
+data:
+  {{- range $k, $v := $svc.env }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+{{- if gt (int $svc.storage) 0 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  namespace: {{ $global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: {{ $name }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if $global.storageClassName }}
+  storageClassName: {{ $global.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $svc.storage }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: {{ $name }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+        {{- include "ai-employee.labels" $ | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: "{{ $global.imageRegistry }}/{{ $name }}:{{ $global.imageTag }}"
+          imagePullPolicy: {{ $global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ $svc.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ $name }}-config
+            - secretRef:
+                name: ai-employee-secrets
+          {{- if gt (int $svc.storage) 0 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ai-employee/data
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ $svc.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ $svc.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+      {{- if gt (int $svc.storage) 0 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}-data
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: {{ $name }}
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+  type: ClusterIP
+{{- end }}
+{{- end }}

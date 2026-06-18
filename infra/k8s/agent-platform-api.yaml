@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-platform-data
+  namespace: ai-employee
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-config
+  namespace: ai-employee
+data:
+  PLATFORM_DATA_DIR: "/var/lib/ai-employee/platform"
+  RCA_DATA_DIR: "/var/lib/ai-employee/platform"
+  INSPECT_LOG_DIR: "/var/lib/ai-employee/platform/inspections"
+  # In strict mode only JWT bearer auth is accepted (drop legacy token).
+  JWT_AUTH_STRICT: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-platform-api
+  namespace: ai-employee
+  labels:
+    app: agent-platform-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-platform-api
+  template:
+    metadata:
+      labels:
+        app: agent-platform-api
+    spec:
+      containers:
+        - name: agent-platform-api
+          image: ai-employee/agent-platform-api:0.1.0
+          ports:
+            - containerPort: 8030
+          envFrom:
+            - configMapRef:
+                name: agent-platform-config
+            - secretRef:
+                name: ai-employee-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ai-employee/platform
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8030
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: agent-platform-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-api
+  namespace: ai-employee
+spec:
+  selector:
+    app: agent-platform-api
+  ports:
+    - port: 8030
+      targetPort: 8030
+  type: ClusterIP
