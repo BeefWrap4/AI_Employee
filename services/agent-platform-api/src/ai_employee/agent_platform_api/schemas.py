@@ -264,7 +264,11 @@ class CircuitBreakerModel(BaseModel):
 
 class ToolRegistration(BaseModel):
     tool_name: str
-    service_name: str
+    # R21: when delegating tool listings to the mcp-gateway, some tools
+    # may not carry a ``service_name`` (the gateway only stores it as
+    # optional metadata).  Accept ``None`` here and default to a sentinel
+    # string so the platform list endpoint does not 500.
+    service_name: str | None = None
     description: str
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
