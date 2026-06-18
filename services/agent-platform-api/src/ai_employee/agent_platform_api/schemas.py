@@ -153,6 +153,18 @@ class ApprovalDelegateRequest(BaseModel):
     reason: str | None = None
 
 
+class RetryPolicyModel(BaseModel):
+    """Per-tool retry policy (spec §5.3)."""
+    max_attempts: int = Field(default=1, ge=1, le=10)
+    backoff_seconds: float = Field(default=0.0, ge=0.0, le=60.0)
+
+
+class CircuitBreakerModel(BaseModel):
+    """Per-tool circuit breaker (spec §5.3)."""
+    failure_threshold: int = Field(default=5, ge=1, le=100)
+    cooldown_seconds: float = Field(default=60.0, ge=1.0, le=3600.0)
+
+
 class ToolRegistration(BaseModel):
     tool_name: str
     service_name: str
@@ -162,6 +174,10 @@ class ToolRegistration(BaseModel):
     risk_level: ToolRiskLevel
     status: ToolStatus = "active"
     health_check_url: str | None = None
+    # Resilience knobs (spec §5.3).  Optional so legacy callers don't break.
+    timeout_ms: int | None = Field(default=None, ge=1, le=300_000)
+    retry_policy: RetryPolicyModel | None = None
+    circuit_breaker: CircuitBreakerModel | None = None
 
 
 class ToolResponse(ToolRegistration):
