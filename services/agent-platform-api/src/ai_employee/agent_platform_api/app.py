@@ -24,6 +24,7 @@ from ai_employee.agent_platform_api.runtime import (
     AgentPlatformStore,
     ApprovalSupplementStateConflict,
     ApprovalTaskNotFound,
+    ApprovalTaskNotModifiable,
     ApprovalTaskNotSupplementable,
     ApprovalTransferForbidden,
     answer_supplement,
@@ -405,12 +406,27 @@ def create_app(
         task_id: str,
         payload: ApprovalSupplementRequest,
     ) -> ApprovalTask:
-        return request_supplement(
-            state,
-            task_id=task_id,
-            question=payload.question,
-            requested_by=payload.requested_by,
-        )
+        try:
+            return request_supplement(
+                state,
+                task_id=task_id,
+                question=payload.question,
+                requested_by=payload.requested_by,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalTaskNotModifiable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_supplementable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
 
     @app.post(
         "/api/v1/approval-tasks/{task_id}/supplement-answer",
@@ -427,6 +443,11 @@ def create_app(
                 answer=payload.answer,
                 answered_by=payload.answered_by,
             )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -441,13 +462,28 @@ def create_app(
         task_id: str,
         payload: ApprovalRouteRequest,
     ) -> ApprovalTask:
-        return route_approval(
-            state,
-            task_id=task_id,
-            routed_to=payload.routed_to,
-            routed_by=payload.routed_by,
-            reason=payload.reason,
-        )
+        try:
+            return route_approval(
+                state,
+                task_id=task_id,
+                routed_to=payload.routed_to,
+                routed_by=payload.routed_by,
+                reason=payload.reason,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalTaskNotModifiable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_modifiable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
 
     @app.post(
         "/api/v1/approval-tasks/{task_id}/timeout",
@@ -457,11 +493,26 @@ def create_app(
         task_id: str,
         payload: ApprovalTimeoutRequest,
     ) -> ApprovalTask:
-        return expire_approval(
-            state,
-            task_id=task_id,
-            escalation_reviewer=payload.escalation_reviewer,
-        )
+        try:
+            return expire_approval(
+                state,
+                task_id=task_id,
+                escalation_reviewer=payload.escalation_reviewer,
+            )
+        except ApprovalTaskNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "approval_task_not_found", "task_id": task_id},
+            )
+        except ApprovalTaskNotModifiable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_modifiable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
 
     @app.post(
         "/api/v1/approval-tasks/{task_id}/delegate",
@@ -479,13 +530,23 @@ def create_app(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error_code": "approval_task_not_found", "task_id": task_id},
             )
-        return delegate_approval(
-            state,
-            task_id=task_id,
-            delegate=payload.delegate,
-            delegated_by=payload.delegated_by,
-            reason=payload.reason,
-        )
+        try:
+            return delegate_approval(
+                state,
+                task_id=task_id,
+                delegate=payload.delegate,
+                delegated_by=payload.delegated_by,
+                reason=payload.reason,
+            )
+        except ApprovalTaskNotModifiable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": "approval_task_not_modifiable",
+                    "task_id": task_id,
+                    "current_status": str(exc),
+                },
+            )
 
     # ------------------------------------------------------------------ #
     # R20 governance endpoints (spec §5.4): supplement / transfer / escalate

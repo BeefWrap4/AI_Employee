@@ -247,7 +247,10 @@ def decide_approval_task(
     decided_by: str,
     comment: str | None,
 ) -> ApprovalTask:
-    task = store.approval_tasks[task_id]
+    task = _get_task(store, task_id)
+    if not is_decidable(task):
+        # Terminal / supplement-pending tasks cannot receive a decision.
+        raise ApprovalTaskNotModifiable(task.status)
     updated_task = task.model_copy(
         update={
             "status": decision,
@@ -297,9 +300,8 @@ def request_supplement(
 ) -> ApprovalTask:
     """HITL supplement: reviewer asks for more info.  Moves the task to
     ``pending_supplement`` so the requester can respond."""
-    from datetime import datetime, timezone
-
-    task = store.approval_tasks[task_id]
+    task = _get_task(store, task_id)
+    _require_open(task)
     updated = task.model_copy(
         update={
             "status": "pending_supplement",
@@ -320,9 +322,7 @@ def answer_supplement(
 ) -> ApprovalTask:
     """Agent / requester responds to the supplement.  Task returns to
     ``pending`` so the reviewer can decide again."""
-    from datetime import datetime, timezone
-
-    task = store.approval_tasks[task_id]
+    task = _get_task(store, task_id)
     if task.status != "pending_supplement":
         raise ValueError(f"task {task_id} is not in pending_supplement (got {task.status!r})")
     updated = task.model_copy(
@@ -346,9 +346,8 @@ def route_approval(
 ) -> ApprovalTask:
     """HITL routing: re-assign a pending approval to another reviewer
     (e.g. when the original assignee is on leave)."""
-    from datetime import datetime, timezone
-
-    task = store.approval_tasks[task_id]
+    task = _get_task(store, task_id)
+    _require_open(task)
     updated = task.model_copy(
         update={
             "routed_to": routed_to,
@@ -356,7 +355,13 @@ def route_approval(
         }
     )
     store.approval_tasks[task_id] = updated
-    _ = (routed_by, reason)
+    record_event(
+        action="approval.routed",
+        actor=routed_by,
+        target_type="approval_task",
+        target_id=task_id,
+        payload={"routed_to": routed_to, "reason": reason},
+    )
     return updated
 
 
@@ -368,10 +373,10 @@ def expire_approval(
 ) -> ApprovalTask:
     """HITL timeout: mark the task expired.  If an escalation reviewer is
     provided, also route to them.  The associated run moves to ``failed``
-    so the requester can re-issue."""
-    from datetime import datetime, timezone
-
-    task = store.approval_tasks[task_id]
+    so the requester can re-issue.  Terminal-state tasks (already approved
+    / rejected / expired) cannot be timed out."""
+    task = _get_task(store, task_id)
+    _require_open(task)
     updated = task.model_copy(
         update={
             "status": "expired",
@@ -403,9 +408,8 @@ def delegate_approval(
     [requested_by, routed_to, delegates...] may decide; the first
     decision wins and subsequent attempts return 409.
     """
-    from datetime import datetime, timezone
-
-    task = store.approval_tasks[task_id]
+    task = _get_task(store, task_id)
+    _require_open(task)
     new_delegates = list(dict.fromkeys([*task.delegates, delegate]))
     updated = task.model_copy(
         update={
@@ -438,6 +442,31 @@ class ApprovalSupplementStateConflict(ValueError):
 
 class ApprovalTransferForbidden(PermissionError):
     """Raised when a non-authorised user attempts to transfer a task."""
+
+
+class ApprovalTaskNotModifiable(ValueError):
+    """Raised when a legacy HITL action targets a terminal-state task."""
+
+
+# Terminal states: a task that has reached one of these cannot be revived
+# or further mutated by the legacy HITL actions (supplement / route /
+# timeout / delegate).  Governance flows raise ``ApprovalTaskNotSupplementable``
+# for the same condition.
+_TERMINAL_STATUSES = frozenset({"approved", "rejected", "expired"})
+
+
+def _get_task(store: AgentPlatformStore, task_id: str) -> ApprovalTask:
+    """Look up an approval task or raise :class:`ApprovalTaskNotFound`."""
+    task = store.approval_tasks.get(task_id)
+    if task is None:
+        raise ApprovalTaskNotFound(task_id)
+    return task
+
+
+def _require_open(task: ApprovalTask) -> None:
+    """Reject terminal-state tasks for legacy mutating HITL actions."""
+    if task.status in _TERMINAL_STATUSES:
+        raise ApprovalTaskNotModifiable(task.status)
 
 
 def request_supplement_governance(
