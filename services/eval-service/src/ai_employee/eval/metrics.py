@@ -15,6 +15,11 @@ class EvalResult:
     answer: str
     latency_ms: int
     error: str | None = None
+    # Optional ground-truth answers for faithfulness / answer relevance.
+    # When set, the :func:`compute` pipeline scores the answer against
+    # these strings.
+    expected_answer_keywords: list[str] = field(default_factory=list)
+    expected_answer_text: str | None = None
 
 
 @dataclass
@@ -29,6 +34,13 @@ class EvalMetrics:
     refusal_expected: int = 0
     refusal_correct: int = 0
     refusal_accuracy: float = 0.0
+    # Faithfulness / answer-relevance placeholders (spec §5.6): these
+    # stub implementations score keyword overlap against ground-truth
+    # answers.  Real RAGAS-style evaluation would call an LLM judge.
+    faithfulness: float = 0.0
+    answer_relevance: float = 0.0
+    faithfulness_eligible: int = 0
+    answer_relevance_eligible: int = 0
     latency_p50_ms: float = 0.0
     latency_p95_ms: float = 0.0
     latency_mean_ms: float = 0.0
@@ -126,6 +138,23 @@ def compute(results: list[EvalResult], top_ks: list[int]) -> EvalMetrics:
                 m.hit_counts[k] += 1
         if r.expected_doc_id and r.returned_doc_ids and r.expected_doc_id in r.returned_doc_ids:
             covered += 1
+        # Faithfulness: keyword overlap between the generated answer and
+        # expected keywords. 0 if no ground truth supplied.
+        if r.expected_answer_keywords:
+            answer_lower = r.answer.lower()
+            hit_kw = sum(
+                1 for kw in r.expected_answer_keywords
+                if kw.lower() in answer_lower
+            )
+            m.faithfulness += hit_kw / len(r.expected_answer_keywords)
+            m.faithfulness_eligible += 1
+        # Answer relevance: token overlap with expected_answer_text (Jaccard).
+        if r.expected_answer_text:
+            ans_tokens = {t for t in r.answer.lower().split() if len(t) > 1}
+            exp_tokens = {t for t in r.expected_answer_text.lower().split() if len(t) > 1}
+            if exp_tokens:
+                m.answer_relevance += len(ans_tokens & exp_tokens) / len(ans_tokens | exp_tokens)
+                m.answer_relevance_eligible += 1
         m.per_item.append(
             {
                 "qid": r.qid,
@@ -142,6 +171,14 @@ def compute(results: list[EvalResult], top_ks: list[int]) -> EvalMetrics:
     m.refusal_expected = len(refusal_expected)
     m.refusal_accuracy = m.refusal_correct / m.refusal_expected if m.refusal_expected else 0.0
     m.citation_coverage = covered / m.eligible_for_hit if m.eligible_for_hit else 0.0
+    m.faithfulness = (
+        m.faithfulness / m.faithfulness_eligible
+        if m.faithfulness_eligible else 0.0
+    )
+    m.answer_relevance = (
+        m.answer_relevance / m.answer_relevance_eligible
+        if m.answer_relevance_eligible else 0.0
+    )
 
     if latencies:
         m.latency_p50_ms = _percentile([float(x) for x in latencies], 50)

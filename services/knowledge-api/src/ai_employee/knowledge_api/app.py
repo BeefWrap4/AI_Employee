@@ -282,8 +282,77 @@ def create_app(
 
     @app.post("/api/v1/chat/query", response_model=QueryResponse)
     def query(payload: QueryRequest) -> QueryResponse:
+        return _answer_query(payload)
+
+    @app.post("/api/v1/chat/query/stream")
+    def query_stream(payload: QueryRequest):
+        """Server-Sent Events streaming answer (spec §1: stream=true).
+
+        Emits one ``event: token\\ndata: ...\\n\\n`` chunk per token of the
+        final answer, followed by a ``done`` event with the trace_id and
+        a ``citations`` event with the structured evidence.  Sessions are
+        resolved through the qa_log store (session_id ↔ prior turns) so
+        follow-up questions can refer to previous context implicitly.
+        """
+        from fastapi.responses import StreamingResponse
+
+        result = _answer_query(payload)
+
+        def _gen():
+            yield f"event: meta\ndata: {json.dumps({'trace_id': result.trace_id})}\n\n"
+            # Stream the answer in ~40-char chunks so the consumer sees
+            # incremental progress without trying to be token-perfect.
+            text = result.answer
+            for start in range(0, len(text), 40):
+                yield f"event: token\ndata: {json.dumps({'text': text[start:start + 40]})}\n\n"
+            citations_payload = [
+                c.model_dump() for c in result.citations
+            ]
+            yield f"event: citations\ndata: {json.dumps({'citations': citations_payload})}\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(_gen(), media_type="text/event-stream")
+
+    @app.get("/api/v1/chat/sessions/{session_id}/history")
+    def session_history(session_id: str) -> dict[str, Any]:
+        """Return the multi-turn conversation history for a session.
+
+        Powers the ``multi-turn`` question flow (spec §5.5: 支持多轮追问):
+        follow-up questions can reference prior turns by reusing retrieved
+        chunks and prior answers.
+        """
+        rows, total = store.list_qa_logs(session_id=session_id)
+        return {
+            "session_id": session_id,
+            "turns": [
+                {
+                    "qa_log_id": r.get("qa_log_id"),
+                    "question": r.get("question"),
+                    "answer": r.get("answer"),
+                    "trace_id": r.get("trace_id"),
+                    "created_at": r.get("created_at"),
+                }
+                for r in rows
+            ],
+            "total": total,
+        }
+
+    def _answer_query(payload: QueryRequest) -> QueryResponse:
+        # Multi-turn context: include the previous answer for this session
+        # so follow-up questions can disambiguate pronouns / references.
+        prior_rows, _ = store.list_qa_logs(session_id=payload.session_id)
+        prior_turn_hint = ""
+        if prior_rows:
+            last_answer = prior_rows[-1].get("answer", "")
+            prior_turn_hint = (
+                f"\n\n[上轮回答]\n{last_answer[:200]}\n"
+                f"[当前问题]\n{payload.question}"
+            )
+        effective_question = (
+            payload.question + prior_turn_hint if prior_turn_hint else payload.question
+        )
         hits = retrieval.search(
-            payload.question,
+            effective_question,
             payload.knowledge_scopes,
             scope_or=payload.knowledge_scopes_or,
         )
