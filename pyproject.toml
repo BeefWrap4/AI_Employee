@@ -34,6 +34,7 @@ dev = [
   "bandit>=1.7",
   "pip-audit>=2.7",
   "opensearch-py>=3.0",
+  "alembic>=1.13",
 ]
 
 [build-system]
