@@ -166,6 +166,29 @@ services:
       timeout: 5s
       retries: 10
 
+  otel-collector:
+    # OpenTelemetry Collector — receives OTLP, forwards to Tempo (spec §可观测).
+    image: otel/opentelemetry-collector-contrib:0.112.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+    depends_on:
+      - tempo
+
+  tempo:
+    # Grafana Tempo — trace storage backend for OTel collector.
+    image: grafana/tempo:2.6.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"  # tempo query
+      - "14268:14268"
+
 volumes:
   postgres-data:
   minio-data:
@@ -175,3 +198,4 @@ volumes:
   grafana-data:
   neo4j-data:
   influxdb-data:
+  tempo-data:

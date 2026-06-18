@@ -32,6 +32,14 @@ from ai_employee.observability.metrics import (
     reset_default_registry,
 )
 
+from ai_employee.observability.otel import (
+    OTelConfig,
+    OTelSpan,
+    build_tracer_provider,
+    configure_otel,
+    parse_otlp_headers,
+)
+
 from ai_employee.observability.langfuse_emitter import (
     LangfuseEmitter,
     build_langfuse_emitter,
@@ -39,6 +47,11 @@ from ai_employee.observability.langfuse_emitter import (
 
 __all__ = [
     "LangfuseEmitter",
+    "OTelConfig",
+    "OTelSpan",
+    "build_tracer_provider",
+    "configure_otel",
+    "parse_otlp_headers",
     "MetricRegistry",
     "bind",
     "build_langfuse_emitter",
