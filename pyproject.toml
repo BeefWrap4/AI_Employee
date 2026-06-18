@@ -36,6 +36,7 @@ dev = [
   "opensearch-py>=3.0",
   "alembic>=1.13",
   "celery>=5.3",
+  "hvac>=2.4",
 ]
 
 [build-system]
