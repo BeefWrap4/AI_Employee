@@ -28,7 +28,7 @@ import math
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 # --------------------------------------------------------------------------- #
 # Optional LLM-judge interface (R18-4 / spec §5.6)
@@ -275,10 +275,134 @@ class EvalMetrics:
     # Audit: which path computed each metric.
     faithfulness_method: str = "none"  # one of {"claims", "keywords", "none"}
     answer_relevance_method: str = "none"  # one of {"reference", "question", "none"}
+    # R18-1 / spec §5.7: tool-call correctness (only when
+    # eval_type=tool_call).  Stored on the per-run report, not in the
+    # aggregated cross-run metrics (since each tool_call eval is
+    # single-run).
+    tool_call_correctness: ToolCallCorrectness | None = None
     latency_p50_ms: float = 0.0
     latency_p95_ms: float = 0.0
     latency_mean_ms: float = 0.0
     per_item: list[dict] = field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Tool-call correctness (R18-1 / spec §5.7)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class ToolCallCorrectness:
+    """How well a run's tool invocations match the golden expectation.
+
+    ``recall`` = |golden ∩ actual| / |golden|
+    ``precision`` = |golden ∩ actual| / |actual|
+    ``order_score`` = LCS(golden, actual) / max(|golden|, |actual|);
+       only meaningful when ``order_required=True``; otherwise 1.0
+       (order not asserted).
+    ``overall`` = mean(recall, precision[, order]) — 2 or 3 numbers
+       depending on whether order is required.
+    ``extras`` / ``missing`` surface the false positives / false
+       negatives so dashboards can render them.
+    """
+
+    tool_name: str  # only used as a key — values are the metric
+    status: str  # passthrough so callers can tag record-level state
+    recall: float = 0.0
+    precision: float = 0.0
+    order_score: float = 1.0
+    overall: float = 0.0
+    missing: list[str] = field(default_factory=list)
+    extras: list[str] = field(default_factory=list)
+    order_required: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "recall": self.recall,
+            "precision": self.precision,
+            "order_score": self.order_score,
+            "overall": self.overall,
+            "missing": list(self.missing),
+            "extras": list(self.extras),
+            "order_required": self.order_required,
+        }
+
+
+def _lcs_ratio(a: list[str], b: list[str]) -> float:
+    """Longest common subsequence length over ``max(len(a), len(b))``."""
+    if not a or not b:
+        return 0.0
+    n, m = len(a), len(b)
+    # Row i, col j = LCS length of a[:i] and b[:j].
+    prev = [0] * (m + 1)
+    cur = [0] * (m + 1)
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if a[i - 1] == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+            else:
+                cur[j] = max(prev[j], cur[j - 1])
+        prev, cur = cur, prev
+    return prev[m] / max(n, m)
+
+
+def evaluate_tool_call_correctness(
+    actual: list[ToolCallCorrectness],
+    golden: list[str],
+    *,
+    order_required: bool = False,
+) -> ToolCallCorrectness:
+    """Score how well a run's tool invocations match the golden set.
+
+    ``actual`` is a list of ``ToolCallCorrectness`` (only ``tool_name``
+    is consulted; status is passed through).  ``golden`` is the list of
+    expected tool names.  ``order_required`` toggles the LCS order
+    scoring.
+    """
+    actual_names = [c.tool_name for c in actual]
+    actual_unique = set(actual_names)
+    golden_unique = set(golden)
+
+    # Recall: how many of the unique golden tools did the run call?
+    if golden_unique:
+        satisfied = actual_unique & golden_unique
+        recall = len(satisfied) / len(golden_unique)
+    else:
+        recall = 1.0
+
+    # Precision: how many of the unique actual calls were golden?
+    if actual_unique:
+        matched_actual = actual_unique & golden_unique
+        precision = len(matched_actual) / len(actual_unique)
+    else:
+        precision = 1.0  # no calls = no false positives
+
+    # Order: LCS ratio over the (deduped) sequences; only penalised
+    # when the caller asks for it.
+    if order_required:
+        order_score = _lcs_ratio(list(golden), actual_names)
+    else:
+        order_score = 1.0
+
+    # Missing / extras surface the false negatives / positives in the
+    # golden-stable order so dashboards can show them.
+    missing = [g for g in golden if g not in actual_unique]
+    extras = [a for a in actual_names if a not in golden_unique]
+
+    components = [recall, precision, order_score]
+    overall = sum(components) / len(components)
+
+    return ToolCallCorrectness(
+        tool_name="<aggregate>",
+        status="ok",
+        recall=recall,
+        precision=precision,
+        order_score=order_score,
+        overall=overall,
+        missing=missing,
+        extras=extras,
+        order_required=order_required,
+    )
 
 
 def _percentile(values: list[float], p: float) -> float:

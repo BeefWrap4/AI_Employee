@@ -1,11 +1,73 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
 from ai_employee.eval.golden import load_golden
-from ai_employee.eval.metrics import EvalResult
+from ai_employee.eval.metrics import (
+    EvalResult,
+    ToolCallCorrectness,
+    evaluate_tool_call_correctness,
+)
+
+# --------------------------------------------------------------------------- #
+# Eval run request (R18-1: tool_call type)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class EvalRunRequest:
+    """An in-process eval invocation.
+
+    Used by the eval center and by unit tests; the CLI ``run()`` entry
+    point stays a separate path that loads a golden file from disk and
+    runs against a live API.
+    """
+
+    eval_type: str  # one of {"rag", "rca", "tool_call", "report", "safety"}
+    template_id: str
+    # RAG / RCA: empty
+    # tool_call: golden (expected) + actual (run) tool names
+    golden_tool_calls: list[str] = field(default_factory=list)
+    actual_tool_calls: list[str] = field(default_factory=list)
+    order_required: bool = False
+    # report: golden report fields + actual report fields
+    # safety: golden forbidden_tools + actual tool_calls
+
+
+@dataclass
+class EvalRunSummary:
+    """Result of :func:`run_eval`."""
+
+    eval_type: str
+    template_id: str
+    tool_call_correctness: ToolCallCorrectness | None = None
+
+
+def run_eval(req: EvalRunRequest) -> EvalRunSummary:
+    """Dispatch an :class:`EvalRunRequest` to the right scorer.
+
+    Currently supports ``tool_call`` (R18-1).  Other eval types (RAG,
+    RCA) flow through :func:`run` with a golden file.
+    """
+    if req.eval_type == "tool_call":
+        actual = [ToolCallCorrectness(tool_name=n, status="ok") for n in req.actual_tool_calls]
+        tcc = evaluate_tool_call_correctness(
+            actual=actual,
+            golden=req.golden_tool_calls,
+            order_required=req.order_required,
+        )
+        return EvalRunSummary(
+            eval_type=req.eval_type,
+            template_id=req.template_id,
+            tool_call_correctness=tcc,
+        )
+    raise NotImplementedError(
+        f"run_eval does not yet support eval_type={req.eval_type!r}; "
+        "use the CLI Runner for rag/rca golden-file paths.",
+    )
 
 
 class ApiError(Exception):
@@ -160,4 +222,17 @@ def run(
     return Runner(HttpApi(api_base, timeout)).run(golden_path, list(top_ks))
 
 
-__all__ = ["Api", "ApiError", "ApiNotFound", "HttpApi", "Runner", "build_title_to_doc_id", "run"]
+__all__ = [
+    "Api",
+    "ApiError",
+    "ApiNotFound",
+    "EvalRunRequest",
+    "EvalRunSummary",
+    "HttpApi",
+    "Runner",
+    "ToolCallCorrectness",
+    "build_title_to_doc_id",
+    "evaluate_tool_call_correctness",
+    "run",
+    "run_eval",
+]
