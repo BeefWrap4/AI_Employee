@@ -1,0 +1,144 @@
+"""SQLite persistence for the tool-registry service.
+
+Stores registered :class:`ToolSpec` rows.  Handlers are kept in-memory
+(the registry reloads specs from disk on startup and re-binds handlers
+for the built-in demo tools); this keeps the schema focused on the
+declarative contract (name, description, schemas, risk level, service).
+"""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import threading
+from datetime import datetime, timezone
+from typing import Any
+
+DEFAULT_DATA_DIR = "./var/data"
+DB_FILENAME = "tool_registry.sqlite3"
+
+
+def default_db_path() -> str:
+    data_dir = os.environ.get("PLATFORM_DATA_DIR", DEFAULT_DATA_DIR)
+    return os.path.join(data_dir, DB_FILENAME)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tools (
+    name TEXT PRIMARY KEY,
+    description TEXT NOT NULL,
+    input_schema TEXT NOT NULL,
+    output_schema TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    service_name TEXT,
+    version TEXT NOT NULL DEFAULT 'v1',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+class ToolRegistryStore:
+    def __init__(self, db_path: str | None = None) -> None:
+        self.db_path = db_path or default_db_path()
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+        self._lock = threading.Lock()
+        self.init_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def init_schema(self) -> None:
+        with self._lock, self._connect() as conn:
+            conn.executescript(_SCHEMA)
+            conn.commit()
+
+    def upsert(self, payload: dict[str, Any]) -> None:
+        with self._lock, self._connect() as conn:
+            existing = conn.execute(
+                "SELECT name FROM tools WHERE name = ?", (payload["name"],)
+            ).fetchone()
+            now = _now_iso()
+            if existing is None:
+                conn.execute(
+                    """INSERT INTO tools
+                       (name, description, input_schema, output_schema,
+                        risk_level, service_name, version, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        payload["name"],
+                        payload["description"],
+                        json.dumps(payload["input_schema"], ensure_ascii=False),
+                        json.dumps(payload["output_schema"], ensure_ascii=False),
+                        payload["risk_level"],
+                        payload.get("service_name"),
+                        payload.get("version", "v1"),
+                        now,
+                        now,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE tools
+                       SET description = ?, input_schema = ?, output_schema = ?,
+                           risk_level = ?, service_name = ?, version = ?, updated_at = ?
+                       WHERE name = ?""",
+                    (
+                        payload["description"],
+                        json.dumps(payload["input_schema"], ensure_ascii=False),
+                        json.dumps(payload["output_schema"], ensure_ascii=False),
+                        payload["risk_level"],
+                        payload.get("service_name"),
+                        payload.get("version", "v1"),
+                        now,
+                        payload["name"],
+                    ),
+                )
+            conn.commit()
+
+    def delete(self, name: str) -> bool:
+        with self._lock, self._connect() as conn:
+            cur = conn.execute("DELETE FROM tools WHERE name = ?", (name,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get(self, name: str) -> dict[str, Any] | None:
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM tools WHERE name = ?", (name,)
+            ).fetchone()
+        return _row_to_dict(row) if row else None
+
+    def list(self, *, service_name: str | None = None) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as conn:
+            if service_name:
+                rows = conn.execute(
+                    "SELECT * FROM tools WHERE service_name = ? ORDER BY name",
+                    (service_name,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM tools ORDER BY name"
+                ).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+
+def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    for key in ("input_schema", "output_schema"):
+        raw = data.get(key)
+        if isinstance(raw, str) and raw:
+            try:
+                data[key] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return data
+
+
+__all__ = ["ToolRegistryStore", "default_db_path", "DB_FILENAME", "DEFAULT_DATA_DIR"]

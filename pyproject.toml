@@ -45,6 +45,7 @@ packages = [
   "ai_employee.llm_gateway",
   "ai_employee.observability",
   "ai_employee.auth_policy",
+  "ai_employee.tool_registry",
 ]
 
 [tool.setuptools.package-dir]
@@ -57,6 +58,7 @@ packages = [
 "ai_employee.llm_gateway" = "packages/llm-gateway/src/ai_employee/llm_gateway"
 "ai_employee.observability" = "packages/observability/src/ai_employee/observability"
 "ai_employee.auth_policy" = "packages/auth-policy/src/ai_employee/auth_policy"
+"ai_employee.tool_registry" = "services/tool-registry/src/ai_employee/tool_registry"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -71,4 +73,5 @@ pythonpath = [
   "packages/llm-gateway/src",
   "packages/observability/src",
   "packages/auth-policy/src",
+  "services/tool-registry/src",
 ]
