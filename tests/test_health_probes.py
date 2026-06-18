@@ -6,16 +6,13 @@ service can serve traffic" (probes DB / Redis / downstream services).
 """
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.health import (
     DependencyCheck,
     ReadinessResult,
-    check_sqlite,
     check_redis,
+    check_sqlite,
 )
-
+from fastapi.testclient import TestClient
 
 # --------------------------------------------------------------------------- #
 # DependencyCheck

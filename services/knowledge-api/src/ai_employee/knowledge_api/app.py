@@ -219,9 +219,8 @@ def create_app(
         import asyncio
         import json
 
-        from fastapi.responses import StreamingResponse
-
         from ai_employee.knowledge_api.upload_progress import build_progress_tracker
+        from fastapi.responses import StreamingResponse
 
         tracker = build_progress_tracker()
         initial = tracker.get(doc_id)
@@ -239,7 +238,7 @@ def create_app(
                     yield f"data: {json.dumps(progress.to_dict(), ensure_ascii=False)}\n\n"
                     if progress.stage in {"completed", "failed"}:
                         return
-            except asyncio.CancelledError:  # noqa: PERF203
+            except asyncio.CancelledError:
                 raise
             finally:
                 tracker.unsubscribe(doc_id=doc_id, queue=queue)

@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ai_employee.agent_platform_api.cron import (
-    CronExpression,
     next_fire_after,
     parse_cron,
 )

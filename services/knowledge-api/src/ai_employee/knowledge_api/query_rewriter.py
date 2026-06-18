@@ -63,4 +63,4 @@ def rewrite_query(
     return rewritten or question
 
 
-__all__ = ["rewrite_query", "LlmClientError"]
+__all__ = ["LlmClientError", "rewrite_query"]

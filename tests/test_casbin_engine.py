@@ -11,13 +11,11 @@ A :func:`build_casbin_engine` factory wires the bundled ``model.conf``
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.auth_policy.casbin_engine import (
     AccessContext,
     CasbinPolicyEngine,
     build_casbin_engine,
 )
-
 
 # --------------------------------------------------------------------------- #
 # model + policy helpers (in-memory so tests don't need disk)
@@ -145,7 +143,6 @@ def test_engine_enforce_raises_on_deny(engine: CasbinPolicyEngine) -> None:
 
 
 def test_engine_reload_picks_up_new_policy(tmp_path) -> None:
-    from pathlib import Path
 
     model_path = tmp_path / "model.conf"
     policy_path = tmp_path / "policy.csv"

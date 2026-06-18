@@ -5,6 +5,10 @@ Shared authorization primitives for the AI Employee platform.  See
 enforcement, and ``policy`` for tool risk-level → permission mapping.
 """
 
+from ai_employee.auth_policy.casbin_engine import (  # noqa: F401
+    build_casbin_engine,
+    casbin_check,
+)
 from ai_employee.auth_policy.fastapi_dep import (
     require_internal_or_jwt,
     require_jwt,
@@ -21,6 +25,15 @@ from ai_employee.auth_policy.jwt import (
     decode_unsafe,
     issue_token,
     verify_token,
+)
+from ai_employee.auth_policy.oidc import (
+    OIDCClaims,
+    OIDCConfig,
+    OIDCDisabled,
+    OIDCInvalid,
+    OIDCVerifier,
+    build_oidc_verifier,
+    verify_oidc_token,
 )
 from ai_employee.auth_policy.policy import (
     ACTION_PERMISSIONS,
@@ -51,38 +64,12 @@ from ai_employee.auth_policy.rbac import (
     permissions_for_roles,
 )
 
-from ai_employee.auth_policy.casbin_engine import (
-    AccessContext,
-    CasbinPolicyEngine,
-    build_casbin_engine,
-    casbin_check,
-)
-
-from ai_employee.auth_policy.oidc import (
-    OIDCClaims,
-    OIDCConfig,
-    OIDCDisabled,
-    OIDCInvalid,
-    OIDCVerifier,
-    build_oidc_verifier,
-    verify_oidc_token,
-)
-
 __all__ = [
     "ACTION_PERMISSIONS",
-    "AccessDecision",
     "DEFAULT_ALGORITHM",
     "DEFAULT_AUDIENCE",
     "DEFAULT_ISSUER",
     "DEFAULT_TTL_SECONDS",
-    "JWTError",
-    "JWTExpired",
-    "JWTInvalid",
-    "OIDCClaims",
-    "OIDCConfig",
-    "OIDCDisabled",
-    "OIDCInvalid",
-    "OIDCVerifier",
     "PERM_ADMIN",
     "PERM_AGENT_APPROVE",
     "PERM_AGENT_RUN",
@@ -97,6 +84,15 @@ __all__ = [
     "PERM_TOOL_REGISTER",
     "RISK_LEVEL_PERMISSIONS",
     "ROLE_PERMISSIONS",
+    "AccessDecision",
+    "JWTError",
+    "JWTExpired",
+    "JWTInvalid",
+    "OIDCClaims",
+    "OIDCConfig",
+    "OIDCDisabled",
+    "OIDCInvalid",
+    "OIDCVerifier",
     "TokenClaims",
     "build_oidc_verifier",
     "can",

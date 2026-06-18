@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.knowledge_api.versions import (
-    DiffResult,
     DocumentVersion,
     VersionStore,
     build_version_store,
     diff_versions,
 )
-
 
 # --------------------------------------------------------------------------- #
 # DocumentVersion

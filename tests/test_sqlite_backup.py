@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from ai_employee.common_schemas.sqlite_backup import (
     BackupResult,
     backup_sqlite,

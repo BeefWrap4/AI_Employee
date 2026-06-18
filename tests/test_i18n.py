@@ -8,8 +8,6 @@ answer to a target locale.  Locale can be supplied via:
 """
 from __future__ import annotations
 
-import pytest
-
 from ai_employee.knowledge_api.i18n import (
     SUPPORTED_LOCALES,
     Locale,
@@ -19,7 +17,6 @@ from ai_employee.knowledge_api.i18n import (
     set_translator,
     translate_text,
 )
-
 
 # --------------------------------------------------------------------------- #
 # detect_locale

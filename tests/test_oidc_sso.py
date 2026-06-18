@@ -6,7 +6,6 @@ import json
 import time
 
 import pytest
-
 from ai_employee.auth_policy.oidc import (
     OIDCClaims,
     OIDCConfig,

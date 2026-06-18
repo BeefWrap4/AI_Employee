@@ -1,8 +1,6 @@
 """Rate limiter tests."""
 from __future__ import annotations
 
-import pytest
-
 from ai_employee.agent_platform_api.rate_limit import (
     TokenBucketLimiter,
     build_limiter,

@@ -145,11 +145,11 @@ def to_json(payload: Any) -> str:
 
 
 __all__ = [
+    "JsonDict",
     "ToolInvocationError",
     "ToolNotFound",
     "ToolRegistry",
     "ToolSpec",
-    "JsonDict",
     "make_json_schema",
     "to_json",
 ]

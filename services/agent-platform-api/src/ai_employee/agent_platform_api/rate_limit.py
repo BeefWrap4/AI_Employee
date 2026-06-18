@@ -10,8 +10,8 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass
@@ -70,7 +70,7 @@ def build_limiter() -> TokenBucketLimiter:
 
 
 class _DisabledLimiter(TokenBucketLimiter):
-    def __init__(self) -> None:  # noqa: D401 - sentinel class
+    def __init__(self) -> None:
         super().__init__(rate_per_minute=10_000_000, burst=10_000_000)
 
     def allow(self, key: str) -> RateLimitDecision:
@@ -211,7 +211,7 @@ class PerTemplateLimiter:
         cls,
         env_var: str = "RATE_LIMIT_PER_TEMPLATE",
         default_rate: tuple[int, int] = (60, 10),
-    ) -> "PerTemplateLimiter":
+    ) -> PerTemplateLimiter:
         raw = os.getenv(env_var, "")
         rates = parse_template_rate_limit_env(raw)
         return cls(template_rates=rates, default_rate=default_rate)

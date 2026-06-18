@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-
 # --------------------------------------------------------------------------- #
 # Variant assignment
 # --------------------------------------------------------------------------- #
@@ -55,7 +54,7 @@ def _bucket_score(experiment_id: str, bucket_key: str) -> float:
     Stable across processes / restarts because the hash input is the
     same string every time.
     """
-    payload = f"{experiment_id}:{bucket_key}".encode("utf-8")
+    payload = f"{experiment_id}:{bucket_key}".encode()
     digest = hashlib.sha256(payload).digest()
     # Use the first 8 bytes as a 64-bit integer; divide by 2^64.
     n = int.from_bytes(digest[:8], "big")

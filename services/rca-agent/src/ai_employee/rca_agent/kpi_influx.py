@@ -145,7 +145,6 @@ def _connect_influx(
     *, url: str, token: str, org: str, timeout_s: float,
 ) -> InfluxClientProtocol:
     from influxdb_client import InfluxDBClient  # type: ignore[import-not-found]
-    from influxdb_client.client.flux_table import FluxTable
 
     client = InfluxDBClient(url=url, token=token, org=org, timeout=int(timeout_s * 1000))
 
@@ -192,7 +191,7 @@ def build_influx_kpi_adapter() -> InfluxKpiAdapter | None:
     try:
         timeout = float(os.environ.get("INFLUXDB_TIMEOUT_S", "2.0"))
         client = _connect_influx(url=url, token=token, org=org, timeout_s=timeout)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("InfluxDB unavailable (%s): %s", url, exc)
         return None
     return InfluxKpiAdapter(client=client, bucket=bucket)

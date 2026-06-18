@@ -1,10 +1,8 @@
 """HITL extension tests: supplement, routing, timeout."""
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _create_rca_run_with_pending_task() -> TestClient:

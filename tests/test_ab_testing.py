@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.agent_platform_api.ab_testing import (
     ABExperiment,
     ABExperimentStore,
@@ -12,7 +11,6 @@ from ai_employee.agent_platform_api.ab_testing import (
     build_ab_store,
     two_sample_z_score,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Variant assignment

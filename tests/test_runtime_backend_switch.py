@@ -6,7 +6,6 @@ DAG path and that ``langgraph`` returns the LangGraph runtime.
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.agent_platform_api.runtime import select_runtime
 
 

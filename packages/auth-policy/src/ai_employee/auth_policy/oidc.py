@@ -48,7 +48,7 @@ class OIDCConfig:
     clock_skew_s: int = 60
 
     @classmethod
-    def from_env(cls) -> "OIDCConfig":
+    def from_env(cls) -> OIDCConfig:
         issuer = os.environ.get("OIDC_ISSUER")
         audience = os.environ.get("OIDC_CLIENT_ID") or os.environ.get("OIDC_AUDIENCE")
         jwks_url = os.environ.get("OIDC_JWKS_URL")
@@ -177,7 +177,7 @@ def _verify_signature(token: str, *, header: dict[str, Any], jwks: list[dict[str
         try:
             pyjwt.PyJWK(key)
             return  # key is structurally valid; full verify done by caller
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             last_err = exc
     if last_err is not None:
         raise OIDCInvalid(f"signature key invalid: {last_err}")

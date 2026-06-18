@@ -10,9 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.events import (
     EventBus,
@@ -20,7 +17,7 @@ from ai_employee.agent_platform_api.events import (
     build_event_bus,
     bus,
 )
-
+from fastapi.testclient import TestClient
 
 # --------------------------------------------------------------------------- #
 # EventBus

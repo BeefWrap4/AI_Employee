@@ -20,8 +20,8 @@ from ai_employee.common_schemas.vector_store import (
     VectorStore,
     build_vector_store,
 )
-from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.query_normalize import normalize_query
+from ai_employee.knowledge_api.store import SQLiteStore
 from fastapi import HTTPException, status
 
 if TYPE_CHECKING:  # pragma: no cover - type-only import
@@ -48,7 +48,7 @@ class RetrievalService:
         sparse_store: OpenSearchSparseStore | StubSparseStore | None = None,
         vector_store: VectorStore | None = None,
         query_rewriter: Callable[[str], str] | None = None,
-        reranker: "Reranker | None" = None,
+        reranker: Reranker | None = None,
     ) -> None:
         self.store = store
         self.query_provider = query_provider or StubEmbeddingProvider(dim=8)

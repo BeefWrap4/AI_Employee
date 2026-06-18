@@ -1,9 +1,8 @@
 """RCA contradicting_evidence_ids population tests (spec §6.5)."""
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.rca_agent.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _alarms(code: str = "LINK_DEGRADE"):

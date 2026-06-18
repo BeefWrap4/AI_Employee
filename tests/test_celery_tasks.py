@@ -10,7 +10,6 @@ tests keep passing without a broker.
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.agent_platform_api.tasks import (
     CeleryBackend,
     EagerBackend,
@@ -19,7 +18,6 @@ from ai_employee.agent_platform_api.tasks import (
     parse_document_task,
     run_agent_task,
 )
-
 
 # --------------------------------------------------------------------------- #
 # EagerBackend (in-process, default)

@@ -8,7 +8,6 @@ Vault — no plaintext secrets in env or images.
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.common_schemas.secrets import (
     EnvFallbackResolver,
     SecretResolutionError,
@@ -16,7 +15,6 @@ from ai_employee.common_schemas.secrets import (
     VaultSecretResolver,
     build_secret_resolver,
 )
-
 
 # --------------------------------------------------------------------------- #
 # EnvFallbackResolver (dev default)
@@ -62,7 +60,7 @@ class _FakeVaultClient:
         self.read_calls.append(path)
         return self._secrets.get(path)
 
-    def secrets(self, *additions: tuple[str, str, str]) -> "_FakeVaultClient":
+    def secrets(self, *additions: tuple[str, str, str]) -> _FakeVaultClient:
         for path, key, value in additions:
             self._secrets[path] = {"data": {"data": {key: value}}}
         return self

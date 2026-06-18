@@ -375,8 +375,8 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 __all__ = [
-    "VectorStore",
     "MilvusVectorStore",
     "StubVectorStore",
+    "VectorStore",
     "build_vector_store",
 ]

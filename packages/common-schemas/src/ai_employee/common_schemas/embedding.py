@@ -135,7 +135,7 @@ class _RemoteEmbeddingMixin:
                 # 重试耗尽
                 raise EmbeddingUnavailableError(
                     f"embedding api returned {last_status}: {last_text[:200]}",
-                    cause="5xx" if resp.status_code >= 500 else "5xx",
+                    cause="5xx",
                 )
             # 4xx（除 429）不可重试
             raise EmbeddingUnavailableError(
@@ -292,8 +292,8 @@ def build_provider(
 __all__ = [
     "EmbeddingProvider",
     "EmbeddingUnavailableError",
-    "StubEmbeddingProvider",
     "OpenAICompatEmbeddingProvider",
     "QwenEmbeddingProvider",
+    "StubEmbeddingProvider",
     "build_provider",
 ]

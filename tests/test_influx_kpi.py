@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.rca_agent.kpi_influx import (
     FakeInfluxClient,
     InfluxKpiAdapter,
@@ -10,7 +9,6 @@ from ai_employee.rca_agent.kpi_influx import (
     KpiQueryResult,
     build_influx_kpi_adapter,
 )
-
 
 # --------------------------------------------------------------------------- #
 # KpiPoint / KpiQueryResult

@@ -95,7 +95,7 @@ def render_markdown(report: dict) -> str:
         )
     if m["eligible_for_hit"]:
         cov = m["citation_coverage"]
-        covered = int(round(cov * m["eligible_for_hit"]))
+        covered = round(cov * m["eligible_for_hit"])
         lines.append(f"| 引用覆盖 | {cov * 100:.0f}% ({covered}/{m['eligible_for_hit']}) | — | — |")
     else:
         lines.append("| 引用覆盖 | — | — | — |")
@@ -140,4 +140,4 @@ def write_reports(report: dict, out_dir: str) -> tuple[str, str]:
     return str(json_path), str(md_path)
 
 
-__all__ = ["build_report", "render_json", "render_markdown", "write_reports", "report_filename"]
+__all__ = ["build_report", "render_json", "render_markdown", "report_filename", "write_reports"]

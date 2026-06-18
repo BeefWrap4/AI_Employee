@@ -123,7 +123,7 @@ class VaultSecretResolver:
         vpath, key = self._vault_path(path)
         try:
             result = self._client.read(vpath)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Vault read failed for %s: %s", vpath, exc)
             if self._allow_env_fallback:
                 return self._env_fallback.get(path, env_var=env_var, default=default)
@@ -183,7 +183,7 @@ def build_secret_resolver(
             logger.warning("Vault at %s not authenticated; falling back to env", addr)
             return EnvFallbackResolver()
         return VaultSecretResolver(client=client, allow_env_fallback=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Vault unavailable (%s); falling back to env resolver: %s", addr, exc)
         return EnvFallbackResolver()
 

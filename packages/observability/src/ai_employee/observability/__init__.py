@@ -19,6 +19,10 @@ from ai_employee.observability.correlation import (
     set_trace_id,
     span,
 )
+from ai_employee.observability.langfuse_emitter import (
+    LangfuseEmitter,
+    build_langfuse_emitter,
+)
 from ai_employee.observability.logging import (
     configure_logging,
     is_configured,
@@ -31,7 +35,6 @@ from ai_employee.observability.metrics import (
     render_prometheus_text,
     reset_default_registry,
 )
-
 from ai_employee.observability.otel import (
     OTelConfig,
     OTelSpan,
@@ -40,23 +43,17 @@ from ai_employee.observability.otel import (
     parse_otlp_headers,
 )
 
-from ai_employee.observability.langfuse_emitter import (
-    LangfuseEmitter,
-    build_langfuse_emitter,
-)
-
 __all__ = [
     "LangfuseEmitter",
+    "MetricRegistry",
     "OTelConfig",
     "OTelSpan",
-    "build_tracer_provider",
-    "configure_otel",
-    "parse_otlp_headers",
-    "MetricRegistry",
     "bind",
     "build_langfuse_emitter",
+    "build_tracer_provider",
     "configure_default_registry",
     "configure_logging",
+    "configure_otel",
     "format_traceparent",
     "get_default_registry",
     "get_span_id",
@@ -65,6 +62,7 @@ __all__ = [
     "log_event",
     "new_span_id",
     "new_trace_id",
+    "parse_otlp_headers",
     "parse_traceparent",
     "render_prometheus_text",
     "reset_default_registry",

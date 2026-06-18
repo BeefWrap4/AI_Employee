@@ -6,16 +6,14 @@ Runs Alembic programmatically (no shell) so the test works in CI.
 """
 from __future__ import annotations
 
-import os
+import sqlite3
 from pathlib import Path
 
 import pytest
-import sqlite3
 
 alembic = pytest.importorskip("alembic", reason="alembic required")
-from alembic import command
-from alembic.config import Config
-
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -93,7 +91,7 @@ def test_upgrade_then_downgrade_then_upgrade(tmp_path: Path) -> None:
     command.upgrade(cfg, "head")
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
-    assert EXPECTED_TABLES <= _tables(str(db_path))
+    assert _tables(str(db_path)) >= EXPECTED_TABLES
 
 
 def test_current_revision_is_head(tmp_path: Path) -> None:

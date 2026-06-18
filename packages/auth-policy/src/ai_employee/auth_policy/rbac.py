@@ -125,7 +125,6 @@ def can_access_resource(
 
 
 __all__ = [
-    "AccessDecision",
     "PERM_ADMIN",
     "PERM_AGENT_APPROVE",
     "PERM_AGENT_RUN",
@@ -139,6 +138,7 @@ __all__ = [
     "PERM_TOOL_INVOKE",
     "PERM_TOOL_REGISTER",
     "ROLE_PERMISSIONS",
+    "AccessDecision",
     "can",
     "can_access_resource",
     "can_any",

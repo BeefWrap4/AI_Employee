@@ -75,9 +75,9 @@ def redact_dict(data: dict, *, fields: list[str], cfg: RedactionConfig | None = 
     """Return a shallow copy of ``data`` with selected fields redacted."""
     cfg = cfg or RedactionConfig()
     out = dict(data)
-    for field in fields:
-        if field in out and isinstance(out[field], str):
-            out[field] = redact_text(out[field], cfg)
+    for field_name in fields:
+        if field_name in out and isinstance(out[field_name], str):
+            out[field_name] = redact_text(out[field_name], cfg)
     return out
 
 

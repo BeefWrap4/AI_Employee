@@ -29,7 +29,7 @@ class OTelConfig:
     headers: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def from_env(cls) -> "OTelConfig":
+    def from_env(cls) -> OTelConfig:
         endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
         protocol = os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
         service_name = os.environ.get("OTEL_SERVICE_NAME", "ai-employee")
@@ -69,7 +69,6 @@ def build_tracer_provider(config: OTelConfig) -> Any:
     reference to finished spans via a custom in-memory exporter when
     tests need to inspect them.
     """
-    from opentelemetry import trace
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import (
@@ -97,7 +96,7 @@ def build_tracer_provider(config: OTelConfig) -> Any:
                     endpoint=config.endpoint, headers=config.headers,
                 )
             provider.add_span_processor(SimpleSpanProcessor(exporter))
-        except Exception:  # noqa: BLE001 — fall back to console
+        except Exception:
             provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     else:
         provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
@@ -118,7 +117,7 @@ def configure_otel() -> dict[str, Any]:
     provider = build_tracer_provider(config)
     try:
         trace.set_tracer_provider(provider)
-    except Exception:  # noqa: BLE001 — already set
+    except Exception:
         pass
     return {
         "enabled": config.enabled,
@@ -141,7 +140,7 @@ class OTelSpan:
     _span: Any = None
     _record: dict[str, Any] = field(default_factory=dict)
 
-    def start(self, name: str, *, attributes: dict[str, Any] | None = None) -> "OTelSpan":
+    def start(self, name: str, *, attributes: dict[str, Any] | None = None) -> OTelSpan:
         tracer = self.provider.get_tracer(self.service_name)
         self._span = tracer.start_span(name, attributes=attributes)
         self._record = {
@@ -156,7 +155,7 @@ class OTelSpan:
             self._span.set_attribute(key, value)
         self._record["attributes"][key] = value
 
-    def __enter__(self) -> "OTelSpan":
+    def __enter__(self) -> OTelSpan:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

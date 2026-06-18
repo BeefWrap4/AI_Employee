@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.agent_platform_api.tenant import (
     TenantContext,
     parse_tenant_from_subject,
     resolve_tenant_context,
 )
-
 
 # --------------------------------------------------------------------------- #
 # parse_tenant_from_subject

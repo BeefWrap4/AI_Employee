@@ -136,6 +136,6 @@ def test_build_provider_qwen_without_key_degrades(monkeypatch: pytest.MonkeyPatc
 def test_build_provider_qwen_respects_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QWEN_API_KEY", "fake-key")
     monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-v4")
-    provider, degraded = build_provider(provider_name="qwen")
+    provider, _degraded = build_provider(provider_name="qwen")
     assert isinstance(provider, QwenEmbeddingProvider)
     assert provider.model == "text-embedding-v4"

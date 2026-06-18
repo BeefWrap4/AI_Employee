@@ -238,7 +238,7 @@ class LangGraphRuntime:
         return updated
 
     def _to_response(self, run_id: str, state: _RunState) -> AgentRunResponse:
-        template = TEMPLATES[state["template_id"]]
+        TEMPLATES[state["template_id"]]
         return AgentRunResponse(
             run_id=run_id,
             template_id=state["template_id"],

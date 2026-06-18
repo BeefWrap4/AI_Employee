@@ -4,15 +4,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_employee.knowledge_api.query_normalize import (
-    QueryEntities,
     extract_entities,
     normalize_query,
 )
 from ai_employee.knowledge_api.reranker import (
     CrossEncoderReranker,
-    Reranker,
     StubReranker,
     build_reranker,
 )

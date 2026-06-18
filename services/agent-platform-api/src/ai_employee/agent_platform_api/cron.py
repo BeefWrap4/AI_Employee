@@ -11,9 +11,8 @@ don't need.  The parser here is ~80 lines and tested end-to-end.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-
 
 _MINUTE_MAX = 59
 _HOUR_MAX = 23

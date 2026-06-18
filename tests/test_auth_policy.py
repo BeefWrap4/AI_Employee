@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 from ai_employee.auth_policy import (
+    PERM_ADMIN,
     PERM_AGENT_APPROVE,
     PERM_INSPECT,
-    PERM_ADMIN,
     PERM_KNOWLEDGE_READ,
     PERM_KNOWLEDGE_WRITE,
     PERM_RCA_APPROVE,

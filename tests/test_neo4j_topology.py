@@ -9,16 +9,14 @@ live database is required; the production path wires the official
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.rca_agent.topology import (
+    SEED_CYPHER,
     Dependency,
     FakeNeo4jDriver,
     Neo4jTopologyClient,
     TopologyResult,
     build_topology_client,
-    SEED_CYPHER,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Dependency / TopologyResult

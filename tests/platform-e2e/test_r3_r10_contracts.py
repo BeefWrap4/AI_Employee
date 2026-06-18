@@ -21,19 +21,17 @@ from __future__ import annotations
 import json
 
 import pytest
-from ai_employee.agent_platform_api.app import create_app as create_platform_app
-from ai_employee.agent_platform_api.audit import audit_log, reset_audit_log
-from ai_employee.agent_platform_api.events import bus as platform_bus
 from ai_employee.agent_platform_api.ab_testing import (
     ABExperiment,
     ABExperimentStore,
     assign_variant,
 )
+from ai_employee.agent_platform_api.app import create_app as create_platform_app
+from ai_employee.agent_platform_api.audit import audit_log, reset_audit_log
+from ai_employee.agent_platform_api.events import bus as platform_bus
 from ai_employee.agent_platform_api.scheduled_runs import ScheduledRunStore
-from ai_employee.agent_platform_api.cron import parse_cron
 from ai_employee.knowledge_api.versions import VersionStore, diff_versions
 from fastapi.testclient import TestClient
-
 
 # --------------------------------------------------------------------------- #
 # WebSocket run-event stream
@@ -256,10 +254,11 @@ def test_upload_progress_sse_replays_snapshot() -> None:
     tracker.reset_for_test()
     tracker.complete(doc_id="doc-sse", total_bytes=2048)
 
-    from ai_employee.knowledge_api.app import create_app as create_knowledge_app
-    from ai_employee.knowledge_api.store import SQLiteStore
     import os
     import tempfile
+
+    from ai_employee.knowledge_api.app import create_app as create_knowledge_app
+    from ai_employee.knowledge_api.store import SQLiteStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = SQLiteStore(

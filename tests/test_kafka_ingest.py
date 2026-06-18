@@ -9,18 +9,15 @@ kafka) behind the same interface.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import pytest
-
 from ai_employee.rca_agent.kafka_ingest import (
-    KafkaAlarmConsumer,
-    FakeKafkaConsumer,
     AlarmMessage,
+    FakeKafkaConsumer,
+    KafkaAlarmConsumer,
     build_alarm_consumer,
     parse_alarm_message,
 )
-
 
 # --------------------------------------------------------------------------- #
 # AlarmMessage + parser
@@ -106,8 +103,8 @@ def _make_consumer(messages: list[dict]) -> KafkaAlarmConsumer:
 
 
 def test_consumer_processes_one_batch_into_alarms() -> None:
-    from ai_employee.rca_agent.runtime import RcaStore
     from ai_employee.rca_agent.app import create_app
+    from ai_employee.rca_agent.runtime import RcaStore
     from fastapi.testclient import TestClient
 
     store = RcaStore()

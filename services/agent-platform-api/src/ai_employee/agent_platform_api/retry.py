@@ -16,7 +16,7 @@ The HTTP layer parses the standard ``Retry-After`` header via
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -43,7 +43,7 @@ class RetryPolicy:
             raise ValueError("backoff_s must be >= 0")
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None) -> "RetryPolicy":
+    def from_dict(cls, payload: dict[str, Any] | None) -> RetryPolicy:
         """Build from a config dict; missing keys fall back to defaults."""
         if not payload:
             return cls()

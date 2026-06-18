@@ -85,10 +85,10 @@ class NoOpCache:
     def __init__(self, *, disabled: bool = False) -> None:
         self.disabled = disabled
 
-    def get(self, key: str) -> Any:  # noqa: ARG002 — interface compat
+    def get(self, key: str) -> Any:
         return None
 
-    def set(self, key: str, value: Any, ttl: int) -> None:  # noqa: ARG002
+    def set(self, key: str, value: Any, ttl: int) -> None:
         return None
 
 
@@ -110,7 +110,7 @@ class QueryCache:
             return None
         try:
             raw = self.redis_client.get(key)
-        except Exception as exc:  # noqa: BLE001 — cache miss on error
+        except Exception as exc:
             logger.warning("query cache get failed: %s", exc)
             return None
         if raw is None:
@@ -128,7 +128,7 @@ class QueryCache:
                 key, json.dumps(value, ensure_ascii=False),
                 ex=ttl if ttl is not None else self.default_ttl_s,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("query cache set failed: %s", exc)
 
 
@@ -145,7 +145,7 @@ class EmbeddingCache:
             return None
         try:
             raw = self.redis_client.get(key)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("embedding cache get failed: %s", exc)
             return None
         if raw is None:
@@ -164,7 +164,7 @@ class EmbeddingCache:
                 key, json.dumps(list(value)),
                 ex=ttl if ttl is not None else self.default_ttl_s,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("embedding cache set failed: %s", exc)
 
 
@@ -202,7 +202,7 @@ def build_query_cache(
         client = _connect_redis(url, timeout_s=timeout)
         # Round-trip probe; raises on unreachable.
         client.ping()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Redis unavailable for query cache: %s", exc)
         return NoOpCache(disabled=True)
     return QueryCache(
@@ -228,7 +228,7 @@ def build_embedding_cache(
         timeout = float(os.environ.get("REDIS_TIMEOUT_S", "0.5"))
         client = _connect_redis(url, timeout_s=timeout)
         client.ping()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Redis unavailable for embedding cache: %s", exc)
         return NoOpCache(disabled=True)
     return EmbeddingCache(

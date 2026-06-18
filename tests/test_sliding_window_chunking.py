@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import io
-import zipfile
-
-import pytest
 
 from ai_employee.ingestion_worker.chunker import (
     sliding_window_chunk,

@@ -202,4 +202,4 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
-__all__ = ["EvalStore", "default_db_path", "DB_FILENAME", "DEFAULT_DATA_DIR"]
+__all__ = ["DB_FILENAME", "DEFAULT_DATA_DIR", "EvalStore", "default_db_path"]

@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.agent_platform_api.retry import (
     RetryDecision,
     RetryPolicy,
     decide_retry,
     parse_retry_after_ms,
 )
-
 
 # --------------------------------------------------------------------------- #
 # RetryPolicy parsing

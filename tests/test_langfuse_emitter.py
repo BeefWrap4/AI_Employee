@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from ai_employee.observability.langfuse_emitter import (
     LangfuseEmitter,
     build_langfuse_emitter,

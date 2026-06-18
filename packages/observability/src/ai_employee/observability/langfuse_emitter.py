@@ -62,7 +62,7 @@ class LangfuseEmitter:
 
     def _auth_header(self) -> dict[str, str]:
         token = base64.b64encode(
-            f"{self.public_key}:{self.secret_key}".encode("utf-8"),
+            f"{self.public_key}:{self.secret_key}".encode(),
         ).decode("ascii")
         return {
             "Authorization": f"Basic {token}",
@@ -137,7 +137,7 @@ class LangfuseEmitter:
                     "queued": len(batch),
                 }
             return {"dispatched": len(batch)}
-        except Exception as exc:  # noqa: BLE001 — telemetry must never crash
+        except Exception as exc:
             return {
                 "dispatched": 0,
                 "error": str(exc),

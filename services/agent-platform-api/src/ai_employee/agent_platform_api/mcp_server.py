@@ -14,8 +14,10 @@ SDK (not a hand-rolled dict).
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
+from ai_employee.agent_platform_api.schemas import ToolRegistration
 from mcp.server import Server
 from mcp.types import (
     CallToolResult,
@@ -23,8 +25,6 @@ from mcp.types import (
     TextContent,
     Tool,
 )
-
-from ai_employee.agent_platform_api.schemas import ToolRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ class MCPToolRegistry:
         """Dispatch an MCP ``tools/call`` to the underlying store."""
         try:
             result = self._invoke_fn(name, arguments)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return CallToolResult(
                 content=[TextContent(type="text", text=f"error: {exc}")],
                 isError=True,
@@ -169,8 +169,8 @@ def create_mcp_server() -> Server:
     protocol.  It's a stdio-transport server by default; the
     platform app can wrap it in a FastAPI endpoint if HTTP is needed.
     """
-    from mcp.server import Server
     import mcp.types as types
+    from mcp.server import Server
 
     server: Server = Server("ai-employee-platform")
     registry = build_mcp_registry()

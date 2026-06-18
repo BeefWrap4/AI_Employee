@@ -59,8 +59,8 @@ def _percentile(values: list[float], p: float) -> float:
     if p >= 100:
         return float(s[-1])
     rank = (p / 100) * (len(s) - 1)
-    lo = int(math.floor(rank))
-    hi = int(math.ceil(rank))
+    lo = math.floor(rank)
+    hi = math.ceil(rank)
     if lo == hi:
         return float(s[lo])
     frac = rank - lo
@@ -187,4 +187,4 @@ def compute(results: list[EvalResult], top_ks: list[int]) -> EvalMetrics:
     return m
 
 
-__all__ = ["EvalResult", "EvalMetrics", "compute", "_percentile"]
+__all__ = ["EvalMetrics", "EvalResult", "_percentile", "compute"]

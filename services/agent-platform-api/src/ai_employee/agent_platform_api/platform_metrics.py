@@ -98,8 +98,8 @@ def _percentile(values: list[float], p: float) -> float:
         return 0.0
     s = sorted(values)
     rank = (p / 100) * (len(s) - 1)
-    lo = int(math.floor(rank))
-    hi = int(math.ceil(rank))
+    lo = math.floor(rank)
+    hi = math.ceil(rank)
     if lo == hi:
         return float(s[lo])
     return float(s[lo] + (s[hi] - s[lo]) * (rank - lo))

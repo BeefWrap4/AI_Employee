@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from ai_employee.agent_platform_api.leader_election import (
     LeaderLease,
@@ -28,7 +28,7 @@ from ai_employee.agent_platform_api.scheduled_runs import (
 
 logger = logging.getLogger(__name__)
 
-FireCallback = Callable[[ScheduledRun], Optional[str]]
+FireCallback = Callable[[ScheduledRun], str | None]
 """A callback that handles one due schedule.
 
 May return a ``run_id`` string to record it on the schedule via
@@ -107,7 +107,7 @@ class SchedulerLoop:
         # Release the lease so a standby can take over immediately.
         try:
             self.leader_lease.release()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def run_once(self) -> list[ScheduledRun]:
@@ -123,7 +123,7 @@ class SchedulerLoop:
         for sched in due:
             try:
                 result = self.fire_callback(sched)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.exception(
                     "scheduler callback failed for %s: %s", sched.schedule_id, exc,
                 )
@@ -137,7 +137,7 @@ class SchedulerLoop:
         while not self._stop_event.is_set():
             try:
                 self.run_once()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.exception("scheduler tick failed: %s", exc)
             slept = 0.0
             while slept < self.tick_interval_s and not self._stop_event.is_set():

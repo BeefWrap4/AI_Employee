@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ai_employee.agent_platform_api.audit import record_event
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
     AgentRunResponse,
@@ -12,8 +13,6 @@ from ai_employee.agent_platform_api.schemas import (
     ToolRegistration,
     ToolResponse,
 )
-
-from ai_employee.agent_platform_api.audit import record_event
 
 TEMPLATES: dict[str, AgentTemplate] = {
     "knowledge_qa": AgentTemplate(

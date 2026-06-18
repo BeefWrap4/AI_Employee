@@ -4,17 +4,15 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from ai_employee.knowledge_api.cache import (
     EmbeddingCache,
     NoOpCache,
     QueryCache,
     build_embedding_cache,
     build_query_cache,
-    query_cache_key,
     embedding_cache_key,
+    query_cache_key,
 )
-
 
 # --------------------------------------------------------------------------- #
 # key helpers

@@ -13,14 +13,13 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Iterable
-
-from fastapi.responses import PlainTextResponse
+from typing import Any
 
 from ai_employee.agent_platform_api.audit import AuditEvent
-
+from fastapi.responses import PlainTextResponse
 
 # --------------------------------------------------------------------------- #
 # Pure helpers (testable without the FastAPI app)
@@ -104,10 +103,9 @@ def mount_audit_endpoints(app: Any) -> None:
     Uses the singleton :func:`audit_log` so events produced anywhere
     in the process are visible without explicit wiring.
     """
-    from fastapi import HTTPException, Query
-    from fastapi.responses import PlainTextResponse
-
     from ai_employee.agent_platform_api.audit import audit_log
+    from fastapi import Query
+    from fastapi.responses import PlainTextResponse
 
     @app.get("/api/v1/audit/events")
     def list_audit_events(

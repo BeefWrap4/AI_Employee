@@ -160,4 +160,4 @@ def run(
     return Runner(HttpApi(api_base, timeout)).run(golden_path, list(top_ks))
 
 
-__all__ = ["Api", "ApiError", "ApiNotFound", "HttpApi", "Runner", "run", "build_title_to_doc_id"]
+__all__ = ["Api", "ApiError", "ApiNotFound", "HttpApi", "Runner", "build_title_to_doc_id", "run"]

@@ -75,7 +75,7 @@ class RedisLeaderElection:
     def try_acquire(self) -> bool:
         try:
             ok = self._client.set(self._key, self._holder_id, ex=self._ttl_s, nx=True)
-        except Exception as exc:  # noqa: BLE001 — fail-closed
+        except Exception as exc:
             logger.warning("leader acquire failed: %s", exc)
             return False
         acquired = bool(ok)
@@ -94,7 +94,7 @@ class RedisLeaderElection:
             # (not NX) because we've already confirmed ownership via
             # is_leader(); a race here is bounded by the TTL.
             self._client.set(self._key, self._holder_id, ex=self._ttl_s)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("leader renew failed: %s", exc)
             with self._lock:
                 self._acquired = False
@@ -104,7 +104,7 @@ class RedisLeaderElection:
     def is_leader(self) -> bool:
         try:
             current = self._client.get(self._key)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("leader get failed: %s", exc)
             return False
         if isinstance(current, bytes):
@@ -117,7 +117,7 @@ class RedisLeaderElection:
             return
         try:
             self._client.delete(self._key)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("leader release failed: %s", exc)
         finally:
             with self._lock:
@@ -149,7 +149,7 @@ def build_leader_election(
         timeout = float(os.environ.get("REDIS_TIMEOUT_S", "0.5"))
         client = _connect_redis(url, timeout_s=timeout)
         client.ping()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Redis unavailable for leader election: %s", exc)
         return LocalLeaderElection()
     return RedisLeaderElection(

@@ -1,29 +1,22 @@
 """Enterprise ticketing / CMDB / IM adapter tests (spec P3 §4)."""
 from __future__ import annotations
 
-import json
-
 import pytest
-
 from ai_employee.rca_agent.enterprise_adapters import (
     CMDBAdapter,
     CMDBAsset,
-    CMDBClient,
     FakeCMDBClient,
     FakeIMClient,
     FakeTicketClient,
     HttpCMDBClient,
     HttpIMClient,
     HttpTicketClient,
-    IMAdapter,
     IMMessage,
-    TicketAdapter,
     TicketRecord,
     build_cmdb_adapter,
     build_im_adapter,
     build_ticket_adapter,
 )
-
 
 # --------------------------------------------------------------------------- #
 # CMDB
@@ -72,7 +65,7 @@ def test_cmdb_query_empty() -> None:
 
 def test_build_cmdb_adapter_with_fake_client() -> None:
     from ai_employee.rca_agent.enterprise_adapters import (
-        FakeCMDBClient, build_cmdb_adapter,
+        FakeCMDBClient,
     )
     client = FakeCMDBClient()
     client.add_asset(CMDBAsset("a1", "A1", "base_station", "s1", "H", "M1", "active"))
@@ -97,9 +90,6 @@ def test_ticket_record_to_dict() -> None:
 
 
 def test_ticket_adapter_create_ticket() -> None:
-    from ai_employee.rca_agent.enterprise_adapters import (
-        FakeTicketClient, build_ticket_adapter,
-    )
     client = FakeTicketClient()
     adapter = build_ticket_adapter(client=client)  # type: ignore[arg-type]
     ticket = adapter.create_ticket(
@@ -112,9 +102,6 @@ def test_ticket_adapter_create_ticket() -> None:
 
 
 def test_ticket_adapter_get_ticket() -> None:
-    from ai_employee.rca_agent.enterprise_adapters import (
-        FakeTicketClient, build_ticket_adapter,
-    )
     client = FakeTicketClient()
     adapter = build_ticket_adapter(client=client)  # type: ignore[arg-type]
     t = adapter.create_ticket(title="x", source_report_id="r-1")
@@ -125,9 +112,6 @@ def test_ticket_adapter_get_ticket() -> None:
 
 def test_ticket_adapter_write_back_rca_report() -> None:
     """The high-level ``write_back_report`` ties a RCA report to a ticket."""
-    from ai_employee.rca_agent.enterprise_adapters import (
-        FakeTicketClient, build_ticket_adapter,
-    )
     client = FakeTicketClient()
     adapter = build_ticket_adapter(client=client)  # type: ignore[arg-type]
     ticket = adapter.write_back_report(
@@ -156,9 +140,6 @@ def test_im_message_to_dict() -> None:
 
 
 def test_im_adapter_send_message() -> None:
-    from ai_employee.rca_agent.enterprise_adapters import (
-        FakeIMClient, build_im_adapter,
-    )
     client = FakeIMClient()
     adapter = build_im_adapter(client=client)  # type: ignore[arg-type]
     msg = adapter.send(
@@ -171,9 +152,6 @@ def test_im_adapter_send_message() -> None:
 
 def test_im_adapter_notify_incident() -> None:
     """High-level ``notify_incident`` formats the channel/text for ops."""
-    from ai_employee.rca_agent.enterprise_adapters import (
-        FakeIMClient, build_im_adapter,
-    )
     client = FakeIMClient()
     adapter = build_im_adapter(client=client)  # type: ignore[arg-type]
     msg = adapter.notify_incident(
@@ -192,7 +170,6 @@ def test_im_adapter_notify_incident() -> None:
 
 def test_http_cmdb_client_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CMDB_API_URL", "http://cmdb.example.com")
-    from ai_employee.rca_agent.enterprise_adapters import HttpCMDBClient
     client = HttpCMDBClient()
     assert client.base_url == "http://cmdb.example.com"
 
@@ -200,13 +177,11 @@ def test_http_cmdb_client_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_http_ticket_client_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TICKET_API_URL", "http://ticket.example.com")
     monkeypatch.setenv("TICKET_API_TOKEN", "tkn")
-    from ai_employee.rca_agent.enterprise_adapters import HttpTicketClient
     client = HttpTicketClient()
     assert client.base_url == "http://ticket.example.com"
 
 
 def test_http_im_client_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IM_WEBHOOK_URL", "http://im.example.com/hook")
-    from ai_employee.rca_agent.enterprise_adapters import HttpIMClient
     client = HttpIMClient()
     assert client.webhook_url == "http://im.example.com/hook"

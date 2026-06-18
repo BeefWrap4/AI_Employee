@@ -1,16 +1,17 @@
 """Platform metrics endpoint + helpers."""
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api import platform_metrics
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.platform_metrics import (
     metrics as metrics_obj,
+)
+from ai_employee.agent_platform_api.platform_metrics import (
     reset,
     snapshot_dict,
     snapshot_timeseries,
 )
+from fastapi.testclient import TestClient
 
 
 def test_snapshot_dict_empty() -> None:
@@ -113,4 +114,4 @@ def test_platform_timeseries_endpoint_returns_samples() -> None:
     assert isinstance(body["samples"], list)
 
 
-import pytest
+import pytest  # noqa: E402

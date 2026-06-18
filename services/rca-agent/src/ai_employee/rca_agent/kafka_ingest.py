@@ -164,7 +164,7 @@ class KafkaAlarmConsumer:
                 raw_alarm = msg.to_raw_alarm_event()
                 event = normalize_alarm(state, raw_alarm)
                 processed.append(event)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("skipping malformed alarm message: %s", exc)
                 continue
         if processed:
@@ -230,7 +230,7 @@ def build_alarm_consumer() -> KafkaAlarmConsumer | None:
         consumer = _connect_kafka(
             bootstrap_servers=bootstrap, group_id=group_id, topic=topic,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Kafka unavailable (%s): %s", bootstrap, exc)
         return None
     return KafkaAlarmConsumer(consumer=consumer, topic=topic, group_id=group_id)

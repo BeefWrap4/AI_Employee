@@ -113,4 +113,4 @@ def compare_reports(
     }
 
 
-__all__ = ["compare_reports", "load_unified_report", "MetricDelta"]
+__all__ = ["MetricDelta", "compare_reports", "load_unified_report"]

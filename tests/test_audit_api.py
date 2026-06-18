@@ -12,17 +12,13 @@ import csv
 import io
 from datetime import datetime, timezone
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
 from ai_employee.agent_platform_api.audit import (
     AuditEvent,
-    InMemoryAuditLog,
     record_event,
     reset_audit_log,
 )
-
+from fastapi.testclient import TestClient
 
 # --------------------------------------------------------------------------- #
 # filter helpers (pure)
@@ -148,6 +144,7 @@ def test_to_csv_round_trip() -> None:
 
 def test_to_jsonl_round_trip() -> None:
     import json
+
     from ai_employee.agent_platform_api.audit_api import events_to_jsonl
 
     events = [

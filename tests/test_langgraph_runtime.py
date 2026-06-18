@@ -13,7 +13,6 @@ HTTP contract identical to the self-built runtime.
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.agent_platform_api.langgraph_runtime import (
     LangGraphRuntime,
     build_langgraph_runtime,

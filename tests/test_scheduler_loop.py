@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import threading
-import time
-
-import pytest
 
 from ai_employee.agent_platform_api.scheduled_runs import (
-    ScheduledRunStore,
     ScheduledRun,
+    ScheduledRunStore,
 )
 from ai_employee.agent_platform_api.scheduler_loop import (
     SchedulerLoop,
@@ -64,7 +61,7 @@ def test_run_once_skips_when_no_due() -> None:
 def test_run_once_callback_exception_does_not_break_loop() -> None:
     store = ScheduledRunStore()
     _make_due_schedule(store)
-    def bad_cb(s):  # noqa: ARG001
+    def bad_cb(s):
         raise RuntimeError("boom")
     loop = SchedulerLoop(store=store, fire_callback=bad_cb)
     # Must not raise.

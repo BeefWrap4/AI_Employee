@@ -184,5 +184,5 @@ def test_chat_query_503_does_not_write_qa_log(knowledge_workspace: Path) -> None
     assert r.status_code == 503
 
     # 验证 qa_log 没有这次请求的记录
-    items, total = store.list_qa_logs(session_id="s3")
+    _items, total = store.list_qa_logs(session_id="s3")
     assert total == 0

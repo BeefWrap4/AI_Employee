@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from ai_employee.observability.otel import (
     OTelConfig,
     OTelSpan,
@@ -10,7 +9,6 @@ from ai_employee.observability.otel import (
     configure_otel,
     parse_otlp_headers,
 )
-
 
 # --------------------------------------------------------------------------- #
 # OTelConfig

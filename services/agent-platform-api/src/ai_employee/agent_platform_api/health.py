@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -85,7 +86,7 @@ def check_sqlite(db_path: str) -> DependencyCheck:
 
     try:
         _, latency_ms = _timed(probe)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return DependencyCheck(
             name="sqlite", healthy=False, latency_ms=0.0, error=str(exc),
         )
@@ -115,7 +116,7 @@ def check_redis(url: str, *, timeout_s: float = 0.5) -> DependencyCheck:
 
     try:
         _, latency_ms = _timed(probe)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return DependencyCheck(
             name="redis", healthy=False, latency_ms=0.0, error=str(exc),
         )
@@ -134,7 +135,7 @@ def check_http(url: str, *, timeout_s: float = 1.0) -> DependencyCheck:
 
     try:
         _, latency_ms = _timed(probe)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return DependencyCheck(
             name="http", healthy=False, latency_ms=0.0, error=str(exc),
         )

@@ -3,16 +3,13 @@ from __future__ import annotations
 
 import json
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.knowledge_api.app import create_app
 from ai_employee.knowledge_api.upload_progress import (
     UploadProgress,
     UploadProgressTracker,
     build_progress_tracker,
 )
-
+from fastapi.testclient import TestClient
 
 # --------------------------------------------------------------------------- #
 # UploadProgressTracker

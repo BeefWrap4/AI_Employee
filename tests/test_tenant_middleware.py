@@ -1,10 +1,8 @@
 """Tenant middleware + whoami endpoint tests."""
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def test_whoami_returns_default_tenant_without_header() -> None:

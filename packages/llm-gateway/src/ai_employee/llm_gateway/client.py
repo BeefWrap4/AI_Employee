@@ -10,7 +10,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 from ai_employee.llm_gateway.retry import RetryExhaustedError
@@ -51,7 +51,7 @@ class LlmClient:
         model: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 2,
-        langfuse_emitter: "LangfuseEmitter | None" = None,
+        langfuse_emitter: LangfuseEmitter | None = None,
     ) -> None:
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", _DASHSCOPE_BASE_URL)).rstrip("/")
         self.api_key = api_key or os.getenv("LLM_API_KEY") or os.getenv("QWEN_API_KEY", "")

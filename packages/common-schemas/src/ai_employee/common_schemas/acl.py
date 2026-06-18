@@ -22,7 +22,7 @@ def resolve_visible_docs(
       - 返回按 doc_id 升序
     """
     effective = set(scope or []) | set(scope_or or [])
-    items, total = store.list_documents(status="published", page=1, page_size=200)
+    items, _total = store.list_documents(status="published", page=1, page_size=200)
     if not effective:
         return sorted(d["doc_id"] for d in items)
     result: list[str] = []

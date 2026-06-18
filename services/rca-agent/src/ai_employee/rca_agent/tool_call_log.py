@@ -13,7 +13,6 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
-
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS rca_tool_call_log (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -3,11 +3,8 @@ from __future__ import annotations
 
 import json
 
+from ai_employee.eval.metrics import EvalResult, compute
 from fastapi.testclient import TestClient
-
-from ai_employee.eval.metrics import EvalMetrics, EvalResult, compute
-from ai_employee.knowledge_api.app import create_app
-from ai_employee.knowledge_api.store import SQLiteStore
 
 
 def _upload_and_publish(client: TestClient) -> str:
@@ -20,7 +17,7 @@ def _upload_and_publish(client: TestClient) -> str:
             "version": "v1",
             "mime_type": "text/markdown",
         },
-        files={"file": ("sop.md", "# RRC\n\nRRC 建立失败先查告警 KPI。".encode("utf-8"), "text/markdown")},
+        files={"file": ("sop.md", "# RRC\n\nRRC 建立失败先查告警 KPI。".encode(), "text/markdown")},
     )
     doc_id = resp.json()["doc_id"]
     client.post(f"/api/v1/documents/{doc_id}/publish")

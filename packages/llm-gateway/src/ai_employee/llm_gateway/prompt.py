@@ -32,7 +32,7 @@ class PromptTemplate:
         fields = {f[1] for f in Formatter().parse(self.user) if f[1] is not None}
         if fields:
             # Supply empty-string defaults so callers can omit keys safely.
-            defaults: dict[str, str] = {k: "" for k in fields}
+            defaults: dict[str, str] = dict.fromkeys(fields, "")
             defaults.update(kwargs)
             rendered_user = self.user.format_map(defaults)
         return {

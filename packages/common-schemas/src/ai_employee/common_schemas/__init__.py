@@ -14,8 +14,8 @@ __all__ = [
     "ChunkRecord",
     "Citation",
     "DocumentStatus",
-    "ParsedChunk",
     "ParseFailedRequest",
     "ParseRequest",
     "ParseResponse",
+    "ParsedChunk",
 ]

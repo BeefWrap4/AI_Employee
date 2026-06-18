@@ -7,10 +7,8 @@ Distinguishes *delegation* from *routing* (R6-2):
 """
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.agent_platform_api.app import create_app
+from fastapi.testclient import TestClient
 
 
 def _create_rca_run_with_pending_task() -> TestClient:
@@ -62,7 +60,7 @@ def test_multiple_delegates_accumulate() -> None:
         f"/api/v1/approval-tasks/{task_id}/delegate",
         json={"delegate": "reviewer-carol", "delegated_by": "reviewer-alice"},
     )
-    task = client.get(f"/api/v1/approval-tasks?status=pending").json()["items"][0]
+    task = client.get("/api/v1/approval-tasks?status=pending").json()["items"][0]
     assert set(task["delegates"]) == {"reviewer-bob", "reviewer-carol"}
 
 

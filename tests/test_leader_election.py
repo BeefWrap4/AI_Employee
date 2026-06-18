@@ -9,17 +9,13 @@ mode) so dev/test without Redis still works.
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
-
 from ai_employee.agent_platform_api.leader_election import (
-    LeaderLease,
     LocalLeaderElection,
     RedisLeaderElection,
     build_leader_election,
 )
-
 
 # --------------------------------------------------------------------------- #
 # LocalLeaderElection (no Redis)

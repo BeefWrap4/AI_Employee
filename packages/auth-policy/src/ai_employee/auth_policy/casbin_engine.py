@@ -20,10 +20,9 @@ incrementally without changing call sites.
 """
 from __future__ import annotations
 
-import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
 
 import casbin
 
@@ -129,7 +128,7 @@ class CasbinPolicyEngine:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def from_text(cls, model_text: str, policy_text: str) -> "CasbinPolicyEngine":
+    def from_text(cls, model_text: str, policy_text: str) -> CasbinPolicyEngine:
         """Build an in-memory engine from raw strings (for tests)."""
         import tempfile
 
@@ -239,9 +238,9 @@ def casbin_check(
 
 
 __all__ = [
-    "AccessContext",
     "BUNDLED_MODEL",
     "BUNDLED_POLICY",
+    "AccessContext",
     "CasbinPolicyEngine",
     "build_casbin_engine",
     "casbin_check",

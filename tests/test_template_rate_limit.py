@@ -8,16 +8,12 @@ fire ``knowledge_qa`` calls because that template has a separate bucket.
 """
 from __future__ import annotations
 
-import json
-
 import pytest
-
 from ai_employee.agent_platform_api.rate_limit import (
     PerTemplateLimiter,
     parse_template_rate_limit_env,
     template_key_for_request,
 )
-
 
 # --------------------------------------------------------------------------- #
 # parser

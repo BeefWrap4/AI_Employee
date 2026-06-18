@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_employee.common_schemas.tool_registry import ToolSpec
 from ai_employee.tool_registry.circuit_breaker import CircuitBreaker, CircuitOpenError
 from ai_employee.tool_registry.tool_call_log import ToolCallLogStore
-
 
 # --- ToolSpec governance fields ----------------------------------------- #
 

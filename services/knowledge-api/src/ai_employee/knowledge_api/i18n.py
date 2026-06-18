@@ -20,8 +20,8 @@ Resolution order (:func:`resolve_locale`):
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 SUPPORTED_LOCALES: tuple[str, ...] = ("zh-CN", "en-US")
 _DEFAULT_LOCALE = "en-US"
@@ -62,7 +62,7 @@ def detect_locale(text: str) -> str:
     return _DEFAULT_LOCALE
 
 
-def parse_locale_header(header: Optional[str]) -> Optional[str]:
+def parse_locale_header(header: str | None) -> str | None:
     """Parse an ``Accept-Language`` / ``X-Locale`` header.
 
     Accepts both ``zh-CN`` (plain tag) and ``zh-CN;q=0.9,en-US;q=0.8``
@@ -98,8 +98,8 @@ def parse_locale_header(header: Optional[str]) -> Optional[str]:
 
 def resolve_locale(
     *,
-    explicit: Optional[str],
-    header: Optional[str],
+    explicit: str | None,
+    header: str | None,
     question: str,
 ) -> str:
     """Pick a locale using the documented precedence.
@@ -157,8 +157,8 @@ def get_locale(code: str) -> Locale | None:
 
 
 __all__ = [
-    "Locale",
     "SUPPORTED_LOCALES",
+    "Locale",
     "TranslatorFn",
     "detect_locale",
     "get_locale",

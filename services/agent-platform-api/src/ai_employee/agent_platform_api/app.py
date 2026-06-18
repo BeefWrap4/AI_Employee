@@ -6,17 +6,18 @@ from datetime import datetime, timezone
 
 from ai_employee.agent_platform_api.eval_compare import compare_reports
 from ai_employee.agent_platform_api.eval_store import EvalStore
+from ai_employee.agent_platform_api.events import bus as platform_bus
 from ai_employee.agent_platform_api.inspection import (
     run_inspection,
     write_inspection_log,
 )
-from ai_employee.agent_platform_api.events import bus as platform_bus
 from ai_employee.agent_platform_api.platform_metrics import (
     metrics as platform_metrics,
+)
+from ai_employee.agent_platform_api.platform_metrics import (
     snapshot_dict,
     snapshot_timeseries,
 )
-from ai_employee.agent_platform_api.rate_limit import build_limiter
 from ai_employee.agent_platform_api.run_store import AgentRunStore
 from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
@@ -86,9 +87,9 @@ def create_app(
     run_state = run_store or AgentRunStore()
 
     from ai_employee.agent_platform_api.tenant import (
+        reset_current_tenant,
         resolve_tenant_context,
         set_current_tenant_id,
-        reset_current_tenant,
     )
 
     @app.middleware("http")

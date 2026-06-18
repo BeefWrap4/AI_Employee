@@ -1,11 +1,10 @@
 """RCA report sections + tool_call_log tests (spec §6.4/§6.6)."""
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from ai_employee.rca_agent.app import create_app
 from ai_employee.rca_agent.runtime import RcaStore
 from ai_employee.rca_agent.tool_call_log import RcaToolCallLogStore
+from fastapi.testclient import TestClient
 
 
 def _alarms(code: str = "LINK_DEGRADE"):

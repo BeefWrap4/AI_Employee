@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from ai_employee.agent_platform_api.mcp_server import (
     MCPToolRegistry,
     build_mcp_registry,
     to_mcp_tool,
 )
-
 
 # --------------------------------------------------------------------------- #
 # to_mcp_tool — convert internal ToolRegistration to MCP Tool shape
@@ -30,7 +27,7 @@ def test_to_mcp_tool_returns_mcp_tool() -> None:
     )
     tool = to_mcp_tool(reg)
     # MCP Tool is a TypedDict-like object with name/description/inputSchema.
-    name = tool.get("name") if isinstance(tool, dict) else getattr(tool, "name")
+    name = tool.get("name") if isinstance(tool, dict) else tool.name
     assert name == "cmdb.lookup"
 
 
@@ -55,8 +52,8 @@ def test_to_mcp_tool_risk_level_serialised() -> None:
 
 
 def test_registry_list_tools_returns_mcp_shape() -> None:
-    from ai_employee.agent_platform_api.schemas import ToolRegistration
     from ai_employee.agent_platform_api.runtime import AgentPlatformStore
+    from ai_employee.agent_platform_api.schemas import ToolRegistration
 
     store = AgentPlatformStore()
     reg = ToolRegistration(
@@ -145,7 +142,6 @@ def test_registry_call_tool_dispatches_to_store() -> None:
 
 
 def test_build_mcp_registry_uses_platform_store() -> None:
-    from ai_employee.agent_platform_api.mcp_server import build_mcp_registry
     from ai_employee.agent_platform_api.runtime import AgentPlatformStore
 
     # Re-seed: the singleton store may already have tools from earlier tests.

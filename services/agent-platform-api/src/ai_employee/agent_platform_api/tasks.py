@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Protocol
-
+from typing import Any, Protocol
 
 # --------------------------------------------------------------------------- #
 # Business delegates (monkeypatchable seams)
@@ -49,7 +49,7 @@ def _worker_parse(
     resp = client.post(
         "/internal/parse",
         json={
-            "doc_id": doc_id, file_path: file_path,  # noqa: F601
+            "doc_id": doc_id, file_path: file_path,
             "mime_type": mime_type, "metadata": metadata,
         },
     )
@@ -61,7 +61,6 @@ def _create_agent_run(
     template_id: str, requested_by: str, input: dict[str, Any],
 ) -> dict[str, Any]:
     """Create an agent run via the platform API."""
-    from ai_employee.agent_platform_api.app import create_app
     from ai_employee.agent_platform_api.runtime import (
         AgentPlatformStore,
         create_run,
@@ -112,7 +111,7 @@ class EagerBackend:
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         try:
             value = fn(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return TaskResult(
                 task_id=task_id, ready=True, error=str(exc), task_name=task_name,
             )
@@ -179,7 +178,7 @@ class CeleryBackend:
             )
         try:
             value = fn(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return TaskResult(
                 task_id=task_id, ready=True, error=str(exc), task_name=task_name,
             )

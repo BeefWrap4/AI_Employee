@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterator, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class _FakeSession:
         # The fake ignores the cypher and returns whatever was seeded,
         # optionally filtered by a site_id param.
         if "site_id" in params:
-            return [r for r in self._rows]
+            return list(self._rows)
         return list(self._rows)
 
     def close(self) -> None:
@@ -186,7 +187,7 @@ class Neo4jTopologyClient:
         try:
             with self._driver.session() as session:
                 rows = session.run(cypher, **params)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Neo4j query failed: %s", exc)
             return []
         return list(rows) if rows else []
@@ -220,18 +221,18 @@ def build_topology_client() -> Neo4jTopologyClient | None:
     try:
         timeout = float(os.environ.get("NEO4J_TIMEOUT_S", "2.0"))
         driver = _connect_neo4j(url=url, user=user, password=password, timeout_s=timeout)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Neo4j unavailable (%s): %s", url, exc)
         return None
     return Neo4jTopologyClient(driver=driver)
 
 
 __all__ = [
+    "SEED_CYPHER",
     "Dependency",
     "FakeNeo4jDriver",
-    "Neo4jTopologyClient",
     "Neo4jDriverProtocol",
-    "SEED_CYPHER",
+    "Neo4jTopologyClient",
     "TopologyResult",
     "build_topology_client",
 ]

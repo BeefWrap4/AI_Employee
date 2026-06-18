@@ -1,16 +1,13 @@
 """tool-registry API: call-log recording, circuit breaker, health endpoint."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 import pytest
-from fastapi.testclient import TestClient
-
 from ai_employee.auth_policy import issue_token
 from ai_employee.tool_registry.app import create_app
 from ai_employee.tool_registry.circuit_breaker import CircuitBreaker
 from ai_employee.tool_registry.store import ToolRegistryStore
 from ai_employee.tool_registry.tool_call_log import ToolCallLogStore
+from fastapi.testclient import TestClient
 
 SECRET = "test-secret-please-rotate-super-long-key-32b"
 

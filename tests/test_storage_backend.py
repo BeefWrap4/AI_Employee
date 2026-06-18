@@ -9,14 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from ai_employee.common_schemas.storage import (
     PostgresBackend,
     SqliteBackend,
     build_backend,
     placeholder,
 )
-
 
 # --------------------------------------------------------------------------- #
 # placeholder / dialect handling
