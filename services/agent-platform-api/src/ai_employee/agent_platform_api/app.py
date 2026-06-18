@@ -147,6 +147,11 @@ def create_app(
     from ai_employee.agent_platform_api.audit_api import mount_audit_endpoints
     mount_audit_endpoints(app)
 
+    from ai_employee.agent_platform_api.rate_limit_middleware import (
+        install_rate_limiter,
+    )
+    install_rate_limiter(app)
+
     @app.get("/health/ready")
     def health_ready() -> JSONResponse:
         """Readiness probe — checks configured downstream deps.
