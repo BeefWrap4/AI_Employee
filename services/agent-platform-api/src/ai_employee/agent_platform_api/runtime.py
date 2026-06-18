@@ -13,6 +13,8 @@ from ai_employee.agent_platform_api.schemas import (
     ToolResponse,
 )
 
+from ai_employee.agent_platform_api.audit import record_event
+
 TEMPLATES: dict[str, AgentTemplate] = {
     "knowledge_qa": AgentTemplate(
         template_id="knowledge_qa",
@@ -211,6 +213,11 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
         approval_status=approval_status,
     )
     store.runs[run_id] = run
+    record_event(
+        action="run.created", actor=payload.requested_by,
+        target_type="agent_run", target_id=run_id,
+        payload={"template_id": template.template_id, "status": status},
+    )
     if requires_approval:
         store.approval_task_count += 1
         task_id = f"approval_task_{store.approval_task_count:03d}"
@@ -243,6 +250,11 @@ def decide_approval_task(
         }
     )
     store.approval_tasks[task_id] = updated_task
+    record_event(
+        action="approval.decided", actor=decided_by,
+        target_type="approval_task", target_id=task_id,
+        payload={"decision": decision, "comment": comment},
+    )
     run = store.runs[task.run_id]
     approved = decision == "approved"
     updated_run = run.model_copy(
@@ -406,6 +418,11 @@ def delegate_approval(
 def register_tool(store: AgentPlatformStore, payload: ToolRegistration) -> ToolResponse:
     tool = ToolResponse(**payload.model_dump(), health_status="unknown")
     store.tools[tool.tool_name] = tool
+    record_event(
+        action="tool.registered", actor=payload.tool_name,
+        target_type="tool", target_id=tool.tool_name,
+        payload={"service_name": tool.service_name, "risk_level": tool.risk_level},
+    )
     return tool
 
 
