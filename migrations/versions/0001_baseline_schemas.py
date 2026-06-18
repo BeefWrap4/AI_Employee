@@ -10,26 +10,43 @@ written with ``IF NOT EXISTS`` so it is idempotent against databases
 that were bootstrapped by the stores themselves (the pre-Alembic path).
 From this revision forward, all schema changes go through Alembic.
 
+Dialect-aware (R16-2): the migration runs against both SQLite (dev/test)
+and PostgreSQL (prod, spec-mandated).  SQLite-only constructs are gated:
+
+* ``CREATE VIRTUAL TABLE ... USING fts5`` + its sync triggers run only
+  on SQLite.  Postgres relies on OpenSearch for BM25 (spec §5.4), so
+  the FTS virtual table is intentionally omitted there.
+* ``INTEGER PRIMARY KEY AUTOINCREMENT`` (agent_run_events.event_id)
+  becomes ``BIGINT GENERATED ALWAYS AS IDENTITY`` on Postgres.
+
 Tables covered:
-  * knowledge-api: documents, chunks, chunks_fts (+ triggers), qa_logs, feedbacks
+  * knowledge-api: documents, chunks, chunks_fts (+ triggers, SQLite only), qa_logs, feedbacks
   * rca-agent: rca_objects, candidate_knowledge
   * agent-platform-api: agent_runs, agent_run_events, eval_runs
   * tool-registry: tools
 """
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0001_baseline"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def _is_postgres() -> bool:
+    """True when the active connection is PostgreSQL."""
+    bind = op.get_bind()
+    return bind.dialect.name == "postgresql"
 
 
 def upgrade() -> None:
+    postgres = _is_postgres()
+
     # --- knowledge-api -----------------------------------------------------
     op.execute(
         """
@@ -67,25 +84,30 @@ def upgrade() -> None:
         )
         """
     )
-    op.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5("
-        "chunk_id UNINDEXED, content, section_path, tokenize='unicode61')"
-    )
-    op.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-            INSERT INTO chunks_fts(chunk_id, content, section_path)
-            VALUES (new.chunk_id, new.content, new.section_path);
-        END
-        """
-    )
-    op.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-            DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
-        END
-        """
-    )
+
+    if not postgres:
+        # SQLite FTS5 virtual table + sync triggers.  Postgres uses
+        # OpenSearch for BM25 (spec §5.4), so the FTS index is omitted.
+        op.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5("
+            "chunk_id UNINDEXED, content, section_path, tokenize='unicode61')"
+        )
+        op.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+                INSERT INTO chunks_fts(chunk_id, content, section_path)
+                VALUES (new.chunk_id, new.content, new.section_path);
+            END
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
+            END
+            """
+        )
+
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS qa_logs (
@@ -174,19 +196,35 @@ def upgrade() -> None:
         )
         """
     )
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS agent_run_events (
-            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL,
-            node_name TEXT NOT NULL,
-            status TEXT NOT NULL,
-            detail TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+
+    if postgres:
+        op.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_run_events (
+                event_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                node_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+            )
+            """
         )
-        """
-    )
+    else:
+        op.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_run_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                node_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+            )
+            """
+        )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_run_events_run "
         "ON agent_run_events(run_id, event_id)"
@@ -231,11 +269,12 @@ def downgrade() -> None:
     """Drop all baseline tables.
 
     The FTS virtual table and its triggers are dropped first because
-    they depend on ``chunks``.
+    they depend on ``chunks`` (SQLite only; Postgres has no FTS table).
     """
-    op.execute("DROP TRIGGER IF EXISTS chunks_ad")
-    op.execute("DROP TRIGGER IF EXISTS chunks_ai")
-    op.execute("DROP TABLE IF EXISTS chunks_fts")
+    if not _is_postgres():
+        op.execute("DROP TRIGGER IF EXISTS chunks_ad")
+        op.execute("DROP TRIGGER IF EXISTS chunks_ai")
+        op.execute("DROP TABLE IF EXISTS chunks_fts")
     for table in (
         "feedbacks",
         "qa_logs",
