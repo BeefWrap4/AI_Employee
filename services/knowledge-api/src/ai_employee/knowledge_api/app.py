@@ -443,10 +443,19 @@ def create_app(
         a ``citations`` event with the structured evidence.  Sessions are
         resolved through the qa_log store (session_id ↔ prior turns) so
         follow-up questions can refer to previous context implicitly.
+
+        When the request implies a trend (alarm/KPI metric keyword in the
+        question) the stream also emits ``event: chart`` with a
+        ``chart_id`` + ``schema_url`` reference (R19-3).  Consumers can
+        resolve the chart lazily via ``GET <schema_url>`` to avoid
+        streaming a large option dict inline.
         """
         from fastapi.responses import StreamingResponse
 
         result = _answer_query(payload)
+
+        # Optional: derive a chart reference if the question hints at a trend.
+        chart_ref = _maybe_build_chart_ref(app=app, payload=payload)
 
         def _gen():
             yield f"event: meta\ndata: {json.dumps({'trace_id': result.trace_id})}\n\n"
@@ -459,6 +468,10 @@ def create_app(
                 c.model_dump() for c in result.citations
             ]
             yield f"event: citations\ndata: {json.dumps({'citations': citations_payload})}\n\n"
+            if chart_ref is not None:
+                yield (
+                    f"event: chart\ndata: {json.dumps(chart_ref, ensure_ascii=False)}\n\n"
+                )
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(_gen(), media_type="text/event-stream")
@@ -711,6 +724,89 @@ def create_app(
         )
 
     return app
+
+
+def _maybe_build_chart_ref(
+    *, app: FastAPI, payload: QueryRequest
+) -> dict[str, str] | None:
+    """Return ``{chart_id, schema_url}`` if the question implies a trend.
+
+    The question is scanned for alarm/KPI keywords (Chinese + English).  If
+    a metric is detected, we attempt to build a chart via the configured
+    aggregator (or the default one).  Returns ``None`` when no aggregator
+    yields data so the SSE stream can simply omit the chart event.
+    """
+    question = payload.question or ""
+    metric = _detect_trend_metric(question)
+    if metric is None:
+        return None
+    # Reuse the same wiring logic as the REST endpoint.
+    from ai_employee.knowledge_api.echarts import (
+        EChartsAggregator,
+        InfluxKpiAggregator,
+        RcaAgentAlarmAggregator,
+    )
+    aggregator = getattr(app.state, "echarts_aggregator", None)
+    if aggregator is None:
+        alarm_agg: Any = _StubAlarmAggregator()
+        kpi_agg: Any = _StubKpiAggregator()
+        try:
+            from ai_employee.rca_agent.store import RcaObjectStore
+
+            rca = RcaObjectStore()
+            rca.init_schema()
+            rca.load()
+            alarm_agg = RcaAgentAlarmAggregator(rca)
+        except Exception:
+            pass
+        try:
+            from ai_employee.rca_agent.kpi_influx import build_influx_kpi_adapter
+
+            adapter = build_influx_kpi_adapter()
+            if adapter is not None:
+                kpi_agg = InfluxKpiAggregator(adapter)
+        except Exception:
+            pass
+        aggregator = EChartsAggregator(alarm=alarm_agg, kpi=kpi_agg)
+    from datetime import datetime as _dt, timezone as _tz
+
+    option = aggregator.build_option(
+        metric=metric,
+        site_id=None,
+        window_minutes=60,
+        now=_dt.now(_tz.utc),
+    )
+    if not option:
+        return None
+    import uuid
+
+    chart_id = f"chart_{uuid.uuid4().hex[:12]}"
+    store_map: dict[str, dict[str, Any]] = getattr(
+        app.state, "echarts_chart_store", {}
+    )
+    store_map[chart_id] = option
+    app.state.echarts_chart_store = store_map
+    return {
+        "chart_id": chart_id,
+        "schema_url": f"/api/v1/chat/echarts/schema/{chart_id}",
+    }
+
+
+_TREND_KEYWORDS = {
+    # keyword → metric
+    "告警": "alarm_count",
+    "alarm": "alarm_count",
+    "趋势": "alarm_count",
+    "trend": "alarm_count",
+}
+
+
+def _detect_trend_metric(question: str) -> str | None:
+    lower = question.lower()
+    for kw, metric in _TREND_KEYWORDS.items():
+        if kw in lower or kw.lower() in lower:
+            return metric
+    return None
 
 
 def _build_multiturn_context_str(
