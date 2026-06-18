@@ -109,6 +109,8 @@ def test_stub_reranker_clamps_confidence() -> None:
 
 def test_build_reranker_defaults_to_stub(monkeypatch) -> None:
     monkeypatch.delenv("RERANKER_ENABLED", raising=False)
+    monkeypatch.delenv("RERANKER_URL", raising=False)
+    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     assert isinstance(build_reranker(), StubReranker)
 
 
