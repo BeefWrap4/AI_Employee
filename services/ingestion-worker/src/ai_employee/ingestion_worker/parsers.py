@@ -124,35 +124,76 @@ class HtmlParser(_BaseParser):
 
 
 class PdfParser(_BaseParser):
-    """PDF：使用 pymupdf 提取文本，按页分组，section_path 为 "Page {n}"。"""
+    """PDF：使用 pymupdf 提取文本，按页分组，section_path 为 "Page {n}"。
 
-    def parse(self, source: str | bytes) -> list[ParsedSection]:
+    扫描件（图片层无文本）走 OCR 兜底（spec §5.2）：当某页提取文本为空且
+    注入了 ``ocr_backend`` 时，对该页渲染图后 OCR。OCR 不可用时静默跳过。
+    """
+
+    def __init__(self, ocr_backend: object | None = None) -> None:
+        self._ocr_backend = ocr_backend
+
+    def _extract_text(self, source: bytes) -> list[tuple[int, str]]:
+        """Return [(page_num, page_text)] from a PDF's text layer."""
         import fitz
 
+        doc = fitz.open(stream=source, filetype="pdf")
+        try:
+            out: list[tuple[int, str]] = []
+            for page_num in range(1, len(doc) + 1):
+                page = doc[page_num - 1]
+                out.append((page_num, page.get_text("text")))
+            return out
+        finally:
+            doc.close()
+
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
         if isinstance(source, str):
             data = source.encode("utf-8")
         else:
             data = source
 
         sections: list[ParsedSection] = []
-        doc = fitz.open(stream=data, filetype="pdf")
-        try:
-            for page_num in range(1, len(doc) + 1):
-                page = doc[page_num - 1]
-                text = page.get_text("text")
-                blocks = [b.strip() for b in text.split("\n\n") if b.strip()]
-                if not blocks and text.strip():
-                    blocks = [text.strip()]
-                if blocks:
-                    sections.append(
-                        ParsedSection(
-                            section_path=f"Page {page_num}",
-                            blocks=blocks,
-                        )
+        page_texts = self._extract_text(data)
+        for page_num, text in page_texts:
+            blocks = [b.strip() for b in text.split("\n\n") if b.strip()]
+            if not blocks and text.strip():
+                blocks = [text.strip()]
+            # OCR fallback for image-only pages (spec §5.2 扫描件).
+            if not blocks and self._ocr_backend is not None:
+                ocr_text = self._ocr_page(data, page_num)
+                if ocr_text:
+                    blocks = [b.strip() for b in ocr_text.splitlines() if b.strip()]
+            if blocks:
+                sections.append(
+                    ParsedSection(
+                        section_path=f"Page {page_num}",
+                        blocks=blocks,
                     )
-        finally:
-            doc.close()
+                )
         return sections
+
+    def _ocr_page(self, data: bytes, page_num: int) -> str:
+        """Render one PDF page to an image and OCR it; '' on any failure."""
+        if self._ocr_backend is None:
+            return ""
+        try:
+            import fitz
+
+            doc = fitz.open(stream=data, filetype="pdf")
+            try:
+                page = doc[page_num - 1]
+                pix = page.get_pixmap(dpi=200)
+                img_bytes = pix.tobytes("png")
+            finally:
+                doc.close()
+        except Exception:
+            return ""
+        try:
+            result = self._ocr_backend.ocr(img_bytes)  # type: ignore[attr-defined]
+            return getattr(result, "text", "") or ""
+        except Exception:
+            return ""
 
 
 class DocxParser(_BaseParser):
