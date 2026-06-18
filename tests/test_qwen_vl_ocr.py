@@ -38,8 +38,33 @@ def test_qwen_vl_ocr_backend_defaults_to_bailian() -> None:
 def test_qwen_vl_ocr_backend_reads_dashscope_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-env")
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     b = QwenVlOcrBackend()
     assert b.api_key == "sk-env"
+
+
+def test_qwen_vl_ocr_backend_prefers_qwen_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """QWEN_API_KEY is the project-wide Qwen auth env; it takes precedence
+    over the more specific DASHSCOPE_API_KEY / SILICONFLOW_API_KEY."""
+    monkeypatch.setenv("QWEN_API_KEY", "sk-qwen")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-ds")
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-sf")
+    b = QwenVlOcrBackend()
+    assert b.api_key == "sk-qwen"
+
+
+def test_qwen_vl_ocr_backend_qwen_api_key_with_dashscope_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """QWEN_API_KEY (auth) + DASHSCOPE_BASE_URL (endpoint) compose cleanly."""
+    monkeypatch.setenv("QWEN_API_KEY", "sk-qwen")
+    monkeypatch.setenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    b = QwenVlOcrBackend()
+    assert b.api_key == "sk-qwen"
+    assert "dashscope" in b.base_url
 
 
 def test_qwen_vl_ocr_backend_model_override(
@@ -68,6 +93,7 @@ def test_qwen_vl_ocr_backend_can_target_siliconflow(
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-sf")
     monkeypatch.setenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
     monkeypatch.setenv("QWEN_VL_OCR_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct")
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     b = QwenVlOcrBackend()
     assert b.api_key == "sk-sf"
@@ -297,9 +323,11 @@ def test_ocr_falls_back_on_missing_choices() -> None:
 def test_build_backend_qwen_vl_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OCR_BACKEND", "qwen_vl_ocr")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-ds")
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     b = build_ocr_backend()
     assert isinstance(b, QwenVlOcrBackend)
+    assert b.api_key == "sk-ds"
 
 
 def test_build_backend_qwen_vl_ocr_without_key_still_returns_backend(
@@ -308,6 +336,7 @@ def test_build_backend_qwen_vl_ocr_without_key_still_returns_backend(
     """Selecting qwen_vl_ocr without a key returns the backend (marked
     unavailable); build_ocr_backend doesn't crash — degrade at call time."""
     monkeypatch.setenv("OCR_BACKEND", "qwen_vl_ocr")
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     b = build_ocr_backend()

@@ -195,10 +195,11 @@ class QwenVlOcrBackend:
     ``Qwen/Qwen2.5-VL-72B-Instruct``) the backend auto-adds an explicit
     extract-text instruction.
 
-    Auth: ``DASHSCOPE_API_KEY`` (Bailian default).  Falls back to
-    ``SILICONFLOW_API_KEY`` so a single key lights up both chat (R15)
-    and OCR.  To target SiliconFlow explicitly, set
-    ``SILICONFLOW_BASE_URL`` + ``QWEN_VL_OCR_MODEL`` together.
+    Auth: ``QWEN_API_KEY`` is the project-wide Qwen auth env (preferred
+    so a single key lights up LLM + embedding + OCR); falls back to
+    ``DASHSCOPE_API_KEY`` (Bailian-specific) then ``SILICONFLOW_API_KEY``.
+    To target SiliconFlow explicitly, set ``SILICONFLOW_BASE_URL`` +
+    ``QWEN_VL_OCR_MODEL`` together.
 
     Degrades to an empty result on any error (missing key, HTTP failure,
     transport error, empty content) so ingestion never crashes.
@@ -214,11 +215,14 @@ class QwenVlOcrBackend:
         model: str | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
-        # Resolve auth: explicit arg > DASHSCOPE_API_KEY > SILICONFLOW_API_KEY.
+        # Resolve auth (project-wide QWEN_API_KEY wins, then vendor-specific):
+        # explicit arg > QWEN_API_KEY > DASHSCOPE_API_KEY > SILICONFLOW_API_KEY.
         resolved_key = (
             api_key
             if api_key is not None
-            else os.getenv("DASHSCOPE_API_KEY") or os.getenv("SILICONFLOW_API_KEY", "")
+            else os.getenv("QWEN_API_KEY")
+            or os.getenv("DASHSCOPE_API_KEY")
+            or os.getenv("SILICONFLOW_API_KEY", "")
         )
         self.api_key = resolved_key
         # Resolve base URL: explicit arg > DASHSCOPE_BASE_URL >
