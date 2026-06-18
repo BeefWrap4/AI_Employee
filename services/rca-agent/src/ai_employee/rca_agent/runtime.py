@@ -49,6 +49,7 @@ class RcaStore:
     adapters: dict[str, ToolAdapter] = field(default_factory=dict)
     writeback_adapter: object | None = None
     writebacks: object | None = None
+    rca_tool_call_log: object | None = None  # optional RcaToolCallLogStore
     # Operational metrics aggregated across runs (spec §4.6).
     tool_call_attempts: int = 0
     tool_call_failures: int = 0
@@ -205,7 +206,21 @@ def run_rca(
     else:
         incident = build_incident(store, raw_alarms)
 
-    evidence = collect_evidence(incident)
+    _rca_log = getattr(store, 'rca_tool_call_log', None)
+    # Allocate run_id and report_id BEFORE collect_evidence so per-adapter
+    # tool calls are tagged with the right run_id in the tool_call_log.
+    store.run_count += 1
+    store.report_count += 1
+    store.report_gen_count += 1
+    store.tool_call_attempts += max(1, len(store.adapters))
+    store.report_gen_seconds_total += 1.2
+    run_id = f"rca_run_{store.run_count:03d}"
+    report_id = f"rca_report_{store.report_count:03d}"
+    evidence = collect_evidence(
+        incident,
+        run_id=run_id,
+        tool_call_log=_rca_log,
+    )
     hypotheses = generate_hypotheses(incident, evidence)
     report_md = generate_report_markdown(incident, evidence, hypotheses)
 
@@ -306,6 +321,8 @@ def collect_evidence(
     incident: IncidentResponse,
     *,
     adapters: dict[str, ToolAdapter] | None = None,
+    run_id: str | None = None,
+    tool_call_log: object | None = None,
 ) -> list[Evidence]:
     """Collect evidence using pluggable adapters + a static knowledge lookup.
 
@@ -314,14 +331,24 @@ def collect_evidence(
     static SOP recommendation derived from the alarm code.  When a real
     adapter fails (AdapterUnavailable), the call falls back to the
     fixture adapter so evidence collection never returns an empty list.
+
+    When ``tool_call_log`` is provided, every adapter fetch is recorded
+    there (run_id, tool_name, input summary, output summary, status,
+    latency_ms, error_code) per spec §6.4.
     """
     primary = incident.primary_alarm
     adapter_map = adapters or build_adapters()
     tool_evidence: list[Evidence] = []
+    import time as _t
     for source_type, adapter in adapter_map.items():
+        _start = _t.monotonic()
+        _status = "success"
+        _error: str | None = None
         try:
             tool_evidence.extend(adapter.fetch(incident))
         except AdapterUnavailable:
+            _status = "failed"
+            _error = "adapter_unavailable"
             from ai_employee.rca_agent.tool_adapters import (
                 FixtureKPIAdapter,
                 FixtureLogAdapter,
@@ -336,6 +363,21 @@ def collect_evidence(
                 "ticket": FixtureTicketAdapter(),
             }
             tool_evidence.extend(fallback_map[source_type].fetch(incident))
+        finally:
+            if tool_call_log is not None:
+                _latency = int((_t.monotonic() - _start) * 1000)
+                try:
+                    tool_call_log.record(  # type: ignore[union-attr]
+                        run_id=run_id,
+                        tool_name=source_type,
+                        input_summary=f"incident={incident.incident_id}",
+                        output_summary=None,
+                        status=_status,
+                        latency_ms=_latency,
+                        error_code=_error,
+                    )
+                except Exception:
+                    pass  # logging must never break evidence collection
     knowledge = Evidence(
         evidence_id="e_004",
         source_type="knowledge",
@@ -453,14 +495,46 @@ def generate_report_markdown(
         f"- `{item.evidence_id}` [{item.source_type}] {item.content}" for item in evidence
     )
     hypothesis_lines = "\n".join(
-        "- `{}` {} ({:.0%})\n  - Evidence: {}\n  - Next: {}".format(
+        "- `{}` {} ({:.0%})\n  - 支持证据: {}\n  - 反驳证据: {}\n  - Next: {}".format(
             item.hypothesis_id,
             item.description,
             item.confidence,
-            ", ".join(f"`{e}`" for e in item.supporting_evidence_ids),
+            ", ".join(f"`{e}`" for e in item.supporting_evidence_ids) or "(无)",
+            ", ".join(f"`{e}`" for e in item.contradicting_evidence_ids) or "(无)",
             "; ".join(item.next_check),
         )
         for item in hypotheses
+    )
+    # 影响范围 (spec §6.6): unique sites / NEs / cells in incident + evidence.
+    impacted_ne = sorted({
+        event.ne_id for event in incident.alarm_events if event.ne_id
+    })
+    impacted_cells = sorted({
+        event.cell_id for event in incident.alarm_events if event.cell_id
+    })
+    impact_section = (
+        f"- 主站点: `{incident.site_id}`\n"
+        f"- 影响网元 ({len(impacted_ne)}): "
+        f"{', '.join(f'`{ne}`' for ne in impacted_ne) or '—'}\n"
+        f"- 影响小区 ({len(impacted_cells)}): "
+        f"{', '.join(f'`{c}`' for c in impacted_cells) or '—'}\n"
+    )
+    # 关键时间线 (spec §6.6): alarm start times + evidence source_refs.
+    timeline_lines = []
+    for event in sorted(incident.alarm_events, key=lambda e: e.start_time):
+        timeline_lines.append(
+            f"- `{event.start_time}` [{event.severity}] `{event.alarm_code}` "
+            f"{event.alarm_name} ({event.ne_id}/{event.cell_id or '—'})"
+        )
+    if not timeline_lines:
+        timeline_lines.append("- (no alarms)")
+    timeline_section = "\n".join(timeline_lines)
+    # 引用来源 (spec §6.6): unique source_refs from evidence.
+    source_refs = sorted({item.source_ref for item in evidence if item.source_ref})
+    sources_section = (
+        "\n".join(f"- `{ref}`" for ref in source_refs)
+        if source_refs
+        else "- (no external sources cited)"
     )
     return (
         f"# RCA 报告 - {incident.incident_id}\n\n"
@@ -468,8 +542,11 @@ def generate_report_markdown(
         f"- Site: `{incident.site_id}`\n"
         f"- Primary alarm: `{incident.primary_alarm.alarm_code}` {incident.primary_alarm.alarm_name}\n"
         f"- Related alarms: {incident.related_alarm_count}\n\n"
+        f"## 影响范围\n{impact_section}\n\n"
+        f"## 关键时间线\n{timeline_section}\n\n"
         f"## 证据链\n{evidence_lines}\n\n"
         f"## Top-N 根因候选\n{hypothesis_lines}\n\n"
+        f"## 引用来源\n{sources_section}\n\n"
         "## 推荐处置动作\n"
         "- 先核查传输端口误码、光功率和链路抖动。\n"
         "- 与近期割接、参数变更记录交叉确认。\n\n"
