@@ -1,0 +1,12 @@
+{"qid":"q01","question":"5G 小区 RRC 建立失败率升高应该先排查什么？","expected_doc_title":"5G 接入排障 SOP","scope":["wireless","5g"],"expect_refusal":false,"tags":["hit","wireless"]}
+{"qid":"q02","question":"切换失败率高时需要核查哪些参数？","expected_doc_title":"5G 接入排障 SOP","scope":["wireless","5g"],"expect_refusal":false,"tags":["hit","wireless"]}
+{"qid":"q03","question":"PRACH 信道接入异常的处理步骤？","expected_doc_title":"5G 接入排障 SOP","scope":["wireless","5g"],"expect_refusal":false,"tags":["hit","wireless"]}
+{"qid":"q04","question":"无线侧 KPI 恶化先看哪些指标？","expected_doc_title":"5G 接入排障 SOP","scope":["wireless"],"expect_refusal":false,"tags":["hit","wireless"]}
+{"qid":"q05","question":"传输链路误码升高应该先检查哪些项？","expected_doc_title":"传输链路 SOP","scope":["transport"],"expect_refusal":false,"tags":["hit","transport"]}
+{"qid":"q06","question":"光功率下降如何处理？","expected_doc_title":"传输链路 SOP","scope":["transport"],"expect_refusal":false,"tags":["hit","transport"]}
+{"qid":"q07","question":"传输链路误码升高应该先检查哪些项？","expected_doc_title":null,"scope":["wireless"],"expect_refusal":true,"tags":["refusal","out_of_scope"]}
+{"qid":"q08","question":"光功率下降如何处理？","expected_doc_title":null,"scope":["noc"],"expect_refusal":true,"tags":["refusal","out_of_scope"]}
+{"qid":"q09","question":"工单系统如何使用？","expected_doc_title":null,"scope":["wireless"],"expect_refusal":true,"tags":["refusal","no_knowledge"]}
+{"qid":"q10","question":"财务报销流程？","expected_doc_title":null,"scope":["wireless"],"expect_refusal":true,"tags":["refusal","no_knowledge"]}
+{"qid":"q11","question":"RRC 建立失败的处理 SOP","expected_doc_title":"5G 接入排障 SOP","scope":["wireless","5g"],"expect_refusal":false,"tags":["hit","edge"]}
+{"qid":"q12","question":"误码高发怎么办","expected_doc_title":"传输链路 SOP","scope":["transport"],"expect_refusal":false,"tags":["hit","edge"]}

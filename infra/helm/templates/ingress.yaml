@@ -1,0 +1,43 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-employee-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /api/knowledge
+            pathType: Prefix
+            backend:
+              service:
+                name: knowledge-api
+                port:
+                  number: {{ .Values.services.knowledge-api.port }}
+          - path: /api/rca
+            pathType: Prefix
+            backend:
+              service:
+                name: rca-agent
+                port:
+                  number: {{ .Values.services.rca-agent.port }}
+          - path: /api/platform
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-platform-api
+                port:
+                  number: {{ .Values.services.agent-platform-api.port }}
+          - path: /api/tools
+            pathType: Prefix
+            backend:
+              service:
+                name: tool-registry
+                port:
+                  number: {{ .Values.services.tool-registry.port }}
+{{- end }}

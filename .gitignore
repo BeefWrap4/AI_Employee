@@ -10,6 +10,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
 venv/
 env/
 .venv/
@@ -38,3 +39,6 @@ desktop.ini
 .env
 .env.local
 .env.*.local
+
+# 本地运行数据（SQLite、原始文件）
+var/

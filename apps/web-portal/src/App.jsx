@@ -1,0 +1,75 @@
+import React, { useState } from 'react'
+import { Layout, Menu, theme as antdTheme } from 'antd'
+import {
+  ApartmentOutlined,
+  ExperimentOutlined,
+  FileSearchOutlined,
+  ToolOutlined,
+  DashboardOutlined,
+} from '@ant-design/icons'
+import RcaView from './views/RcaView.jsx'
+import KnowledgeView from './views/KnowledgeView.jsx'
+import EvalView from './views/EvalView.jsx'
+import ToolsView from './views/ToolsView.jsx'
+import DashboardView from './views/DashboardView.jsx'
+
+const { Header, Sider, Content } = Layout
+
+const MENU_ITEMS = [
+  { key: 'dashboard', icon: <DashboardOutlined />, label: '总览' },
+  { key: 'rca', icon: <ApartmentOutlined />, label: 'RCA 诊断' },
+  { key: 'knowledge', icon: <FileSearchOutlined />, label: '知识库' },
+  { key: 'eval', icon: <ExperimentOutlined />, label: '评测中心' },
+  { key: 'tools', icon: <ToolOutlined />, label: '工具注册' },
+]
+
+const VIEWS = {
+  dashboard: DashboardView,
+  rca: RcaView,
+  knowledge: KnowledgeView,
+  eval: EvalView,
+  tools: ToolsView,
+}
+
+export default function App() {
+  const [collapsed, setCollapsed] = useState(false)
+  const [active, setActive] = useState('dashboard')
+  const { token: themeToken } = antdTheme.useToken()
+  const ViewComponent = VIEWS[active]
+
+  return (
+    <Layout className="portal-layout">
+      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed}>
+        <div
+          style={{
+            height: 48,
+            margin: 12,
+            color: '#fff',
+            textAlign: 'center',
+            lineHeight: '48px',
+            fontWeight: 600,
+          }}
+        >
+          {collapsed ? 'AI' : 'AI Employee'}
+        </div>
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[active]}
+          items={MENU_ITEMS}
+          onClick={({ key }) => setActive(key)}
+        />
+      </Sider>
+      <Layout>
+        <Header style={{ background: themeToken.colorBgContainer, padding: '0 24px' }}>
+          <h3 style={{ margin: 0, lineHeight: '64px' }}>
+            电信运维 AI 员工平台
+          </h3>
+        </Header>
+        <Content className="portal-content">
+          <ViewComponent />
+        </Content>
+      </Layout>
+    </Layout>
+  )
+}

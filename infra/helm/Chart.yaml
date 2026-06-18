@@ -1,0 +1,8 @@
+apiVersion: v2
+name: ai-employee
+description: AI Employee telecom operations platform (knowledge, RCA, agent platform, tool registry)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: AI Employee Team

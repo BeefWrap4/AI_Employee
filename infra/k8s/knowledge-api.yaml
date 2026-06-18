@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: knowledge-api-data
+  namespace: ai-employee
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knowledge-api-config
+  namespace: ai-employee
+data:
+  KNOWLEDGE_DATA_DIR: "/var/lib/ai-employee/data"
+  EMBEDDING_PROVIDER: "qwen"
+  LLM_GATEWAY_ENABLED: "true"
+  # Milvus / OpenSearch are optional in MVP; disabled by default.
+  MILVUS_ENABLED: "false"
+  OPENSEARCH_ENABLED: "false"
+  INGESTION_WORKER_URL: "http://ingestion-worker.ai-employee.svc.cluster.local:8011"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-api
+  namespace: ai-employee
+  labels:
+    app: knowledge-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: knowledge-api
+  template:
+    metadata:
+      labels:
+        app: knowledge-api
+    spec:
+      containers:
+        - name: knowledge-api
+          image: ai-employee/knowledge-api:0.1.0
+          ports:
+            - containerPort: 8010
+          envFrom:
+            - configMapRef:
+                name: knowledge-api-config
+            - secretRef:
+                name: ai-employee-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ai-employee/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8010
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8010
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: knowledge-api-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge-api
+  namespace: ai-employee
+spec:
+  selector:
+    app: knowledge-api
+  ports:
+    - port: 8010
+      targetPort: 8010
+  type: ClusterIP

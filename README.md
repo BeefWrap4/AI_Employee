@@ -24,3 +24,62 @@
 
 - 版本控制：Git
 - 文档：Markdown
+
+## 本地开发环境
+
+推荐使用 Miniconda 创建独立 Python 环境：
+
+```powershell
+conda env create -f environment.yml
+conda activate ai-employee
+python -m pip install -e ".[dev]"
+python -m pytest
+```
+
+启动知识库 M1 双服务（需两个进程）：
+
+```powershell
+conda activate ai-employee
+# 终端 1：ingestion-worker
+uvicorn ai_employee.ingestion_worker.app:app --port 8001 --app-dir services/ingestion-worker/src
+# 终端 2：knowledge-api
+uvicorn ai_employee.knowledge_api.app:app --port 8010 --app-dir services/knowledge-api/src
+```
+
+环境变量样例见 `.env.example`。M1 用 SQLite + Stub Embedding 零外部依赖即可运行；`EMBEDDING_PROVIDER=openai_compat` 可切换到真实 OpenAI-compatible 接口。
+
+知识检索使用 `knowledge_scopes` 做 MVP 级权限过滤：`acl_tags` 为空的文档视为 public；`acl_tags` 非空的文档必须与请求中的 scope 或文档 metadata 值命中后才会进入召回和引用。
+
+运行本地 M1 冒烟流程（上传、解析、发布、问答、反馈、审计查询）：
+
+```powershell
+conda activate ai-employee
+python scripts/m1_smoke.py --json
+```
+
+启动 M3 RCA Agent 原型服务：
+
+```powershell
+conda activate ai-employee
+uvicorn ai_employee.rca_agent.app:app --port 8020 --app-dir services/rca-agent/src
+```
+
+如需持久化 RCA run、报告和审核结果，可设置：
+
+```powershell
+$env:RCA_SQLITE_PATH="./var/data/rca.sqlite3"
+```
+
+运行 RCA 回放评测：
+
+```powershell
+conda activate ai-employee
+python -m ai_employee.rca_agent.replay tests/rca-replay/sample_cases.jsonl --json
+```
+
+启动 M5 Agent Platform API 原型服务：
+
+```powershell
+conda activate ai-employee
+uvicorn ai_employee.agent_platform_api.app:app --port 8030 --app-dir services/agent-platform-api/src
+```

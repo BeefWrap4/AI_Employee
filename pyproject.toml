@@ -1,0 +1,82 @@
+[project]
+name = "ai-employee"
+version = "0.1.0"
+description = "Telecom operations AI Agent MVP monorepo."
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2.8",
+  "uvicorn[standard]>=0.30",
+  "aiosqlite>=0.20",
+  "markdown-it-py>=3.0",
+  "beautifulsoup4>=4.12",
+  "httpx>=0.27",
+  "python-multipart>=0.0.9",
+  "langgraph>=0.2",
+  "celery>=5.3",
+  "psycopg[binary]>=3.1",
+  "redis>=5.0",
+  "PyMuPDF>=1.24",
+  "python-docx>=1.1",
+  "openpyxl>=3.1",
+  "opensearch-py>=3.0",
+  "pymilvus>=2.5",
+  "PyJWT>=2.8",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27",
+  "pytest>=8.0",
+  "PyJWT>=2.8",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "bandit>=1.7",
+  "pip-audit>=2.7",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+  "ai_employee.knowledge_api",
+  "ai_employee.ingestion_worker",
+  "ai_employee.common_schemas",
+  "ai_employee.eval",
+  "ai_employee.rca_agent",
+  "ai_employee.agent_platform_api",
+  "ai_employee.llm_gateway",
+  "ai_employee.observability",
+  "ai_employee.auth_policy",
+  "ai_employee.tool_registry",
+]
+
+[tool.setuptools.package-dir]
+"ai_employee.knowledge_api" = "services/knowledge-api/src/ai_employee/knowledge_api"
+"ai_employee.ingestion_worker" = "services/ingestion-worker/src/ai_employee/ingestion_worker"
+"ai_employee.common_schemas" = "packages/common-schemas/src/ai_employee/common_schemas"
+"ai_employee.eval" = "services/eval-service/src/ai_employee/eval"
+"ai_employee.rca_agent" = "services/rca-agent/src/ai_employee/rca_agent"
+"ai_employee.agent_platform_api" = "services/agent-platform-api/src/ai_employee/agent_platform_api"
+"ai_employee.llm_gateway" = "packages/llm-gateway/src/ai_employee/llm_gateway"
+"ai_employee.observability" = "packages/observability/src/ai_employee/observability"
+"ai_employee.auth_policy" = "packages/auth-policy/src/ai_employee/auth_policy"
+"ai_employee.tool_registry" = "services/tool-registry/src/ai_employee/tool_registry"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = [
+  "services/knowledge-api/src",
+  "services/ingestion-worker/src",
+  "packages/common-schemas/src",
+  "services/eval-service/src",
+  "services/rca-agent/src",
+  "services/agent-platform-api/src",
+  "packages/llm-gateway/src",
+  "packages/observability/src",
+  "packages/auth-policy/src",
+  "services/tool-registry/src",
+]
