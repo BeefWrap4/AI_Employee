@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 from typing import Any
 
 from ai_employee.common_schemas.embedding import build_provider
@@ -165,9 +166,40 @@ def create_app(
                 detail={"error_code": "invalid_json", "message": str(exc)},
             ) from exc
 
+        # R22: remember the object store key alongside the document so
+        # the upload-to-publish flow can retrieve the bytes from S3 /
+        # MinIO without re-uploading.  This is metadata-only — the
+        # on-disk path below is still required for the ingestion worker.
+        obj_key: str | None = None
+
         ext = _MIME_EXT[declared_mime]
         raw_dir = os.path.join(store.data_dir, "raw")
         os.makedirs(raw_dir, exist_ok=True)
+        # R22: write-through to the configured object store.  When
+        # OBJECT_STORE_URL is unset (LocalFs default in dev/test) this
+        # is a no-op against ``./var/objects``; in production the same
+        # code writes to S3 / MinIO.  Local-disk write below stays so
+        # the ingestion worker can still read the file by path
+        # (backward compat).
+        try:
+            from ai_employee.object_store import build_object_store
+
+            _store = build_object_store()
+            obj_key = f"documents/{uuid.uuid4().hex}.{ext}"
+            _store.put(
+                obj_key,
+                content,
+                content_type=declared_mime,
+                metadata={"title": title},
+            )
+        except Exception as exc:  # pragma: no cover - storage is best-effort
+            obj_key = None
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "object_store write failed; continuing with local-only upload: %s",
+                exc,
+            )
         try:
             tmp_fd, tmp_path = tempfile.mkstemp(suffix=f".{ext}", dir=raw_dir)
             with os.fdopen(tmp_fd, "wb") as fh:
@@ -182,7 +214,7 @@ def create_app(
             title=title,
             source_uri=tmp_path,
             mime_type=declared_mime,
-            metadata=metadata,
+            metadata={**metadata, "object_key": obj_key} if obj_key else metadata,
             acl_tags=acl_tags,
             version=version,
         )

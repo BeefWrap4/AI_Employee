@@ -201,11 +201,20 @@ class ApprovalDelegateRequest(BaseModel):
 
 
 class SupplementAttachment(BaseModel):
-    """A material attachment supplied during the supplement flow."""
+    """A material attachment supplied during the supplement flow.
+
+    R22: callers can either reference an object already uploaded via
+    ``POST /api/v1/objects`` (``object_key`` set, ``uri`` derived) or
+    inline a raw URL for backward compat.  Exactly one of
+    ``object_key`` / ``uri`` is required.
+    """
 
     name: str
-    uri: str
+    uri: str | None = None
+    object_key: str | None = None
     content_type: str | None = None
+    size: int | None = None
+    metadata: dict[str, str] | None = None
 
 
 class ApprovalSupplementGovernanceRequest(BaseModel):

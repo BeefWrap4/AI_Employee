@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 
 from ai_employee.agent_platform_api.clients import (
@@ -81,8 +82,8 @@ from ai_employee.common_schemas.eval import (
     to_unified_rca,
 )
 from ai_employee.observability import render_prometheus_text
-from fastapi import FastAPI, HTTPException, Request, WebSocket, status
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 SERVICE_VERSION = "0.1.0"
 EVAL_TOP_KS = [1, 3, 5]
@@ -637,11 +638,20 @@ def create_app(
         task_id: str,
         payload: ApprovalSupplementGovernanceRequest,
     ) -> ApprovalTask:
+        from ai_employee.agent_platform_api.object_refs import normalize_attachments
+
+        try:
+            normalized = normalize_attachments(payload.attachments)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "invalid_attachment", "message": str(exc)},
+            ) from exc
         try:
             updated = approval_state.request_supplement(
                 task_id=task_id,
                 note=payload.note,
-                attachments=[a.model_dump() for a in payload.attachments],
+                attachments=normalized,
                 requested_by=payload.requested_by,
             )
         except ApprovalTaskNotFound:
@@ -671,10 +681,19 @@ def create_app(
         task_id: str,
         payload: ApprovalSupplementResolveRequest,
     ) -> ApprovalTask:
+        from ai_employee.agent_platform_api.object_refs import normalize_attachments
+
+        try:
+            normalized = normalize_attachments(payload.attachments)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "invalid_attachment", "message": str(exc)},
+            ) from exc
         try:
             updated = approval_state.resolve_supplement(
                 task_id=task_id,
-                attachments=[a.model_dump() for a in payload.attachments],
+                attachments=normalized,
                 note=payload.note,
                 resolved_by=payload.resolved_by,
             )
@@ -992,6 +1011,81 @@ def create_app(
         forwards the gateway's response verbatim.
         """
         return mcp_state.list_mcp_tools(service_name=None)
+
+    # ------------------------------------------------------------------ #
+    # R22 object-store endpoints
+    # ------------------------------------------------------------------ #
+
+    @app.post("/api/v1/objects")
+    def upload_object(
+        request: Request,
+        file: UploadFile = File(...),
+    ) -> dict[str, object]:
+        """Upload a binary object and return its ``object_key`` + presigned URL.
+
+        Used by the supplement flow (R20-1) and any future caller that
+        needs to attach a file without inlining base64.  The key is
+        ``{prefix}/{uuid}{ext}``; the prefix is fixed to
+        ``uploads/<tenant>`` so multi-tenant namespaces stay clean.
+        """
+        from ai_employee.object_store import build_object_store
+
+        prefix = os.getenv("OBJECT_STORE_PREFIX", "uploads")
+        tenant = os.getenv("TENANT_ID", "default")
+        ext = os.path.splitext(file.filename or "")[1] or ""
+        key = f"{prefix}/{tenant}/{uuid.uuid4().hex}{ext}"
+
+        content = file.file.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "empty_object", "message": "no bytes received"},
+            )
+        try:
+            store = build_object_store()
+            store.put(
+                key,
+                content,
+                content_type=file.content_type,
+                metadata={"original_filename": file.filename or ""},
+            )
+            presigned = store.presign(key, expires=3600)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "invalid_object_key", "message": str(exc)},
+            ) from exc
+        return {
+            "object_key": key,
+            "size": len(content),
+            "content_type": file.content_type,
+            "presigned_url": presigned,
+        }
+
+    @app.get("/api/v1/objects/{key:path}/download")
+    def download_object(key: str) -> Response:
+        """Stream an object back to the caller.
+
+        Auth-aware: requires ``X-Internal-Token`` (when configured) or
+        the standard auth chain.  Streams the bytes directly so large
+        PDFs / images don't buffer in memory.
+        """
+        from ai_employee.object_store import build_object_store
+
+        try:
+            store = build_object_store()
+            meta = store.get_metadata(key)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "object_not_found", "object_key": key},
+            ) from exc
+        data = store.get(key)
+        return Response(
+            content=data,
+            media_type=meta.get("content_type", "application/octet-stream"),
+            headers={"Content-Length": str(len(data))},
+        )
 
     return app
 
