@@ -21,6 +21,7 @@ dependencies = [
   "openpyxl>=3.1",
   "opensearch-py>=3.0",
   "pymilvus>=2.5",
+  "PyJWT>=2.8",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,7 @@ packages = [
   "ai_employee.agent_platform_api",
   "ai_employee.llm_gateway",
   "ai_employee.observability",
+  "ai_employee.auth_policy",
 ]
 
 [tool.setuptools.package-dir]
@@ -54,6 +56,7 @@ packages = [
 "ai_employee.agent_platform_api" = "services/agent-platform-api/src/ai_employee/agent_platform_api"
 "ai_employee.llm_gateway" = "packages/llm-gateway/src/ai_employee/llm_gateway"
 "ai_employee.observability" = "packages/observability/src/ai_employee/observability"
+"ai_employee.auth_policy" = "packages/auth-policy/src/ai_employee/auth_policy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -67,4 +70,5 @@ pythonpath = [
   "services/agent-platform-api/src",
   "packages/llm-gateway/src",
   "packages/observability/src",
+  "packages/auth-policy/src",
 ]
