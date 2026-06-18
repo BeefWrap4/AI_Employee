@@ -143,6 +143,9 @@ def create_app(
             "runtime": "in_memory",
         }
 
+    from ai_employee.agent_platform_api.audit_api import mount_audit_endpoints
+    mount_audit_endpoints(app)
+
     @app.get("/health/ready")
     def health_ready() -> JSONResponse:
         """Readiness probe — checks configured downstream deps.
