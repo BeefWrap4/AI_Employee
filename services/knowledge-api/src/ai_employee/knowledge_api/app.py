@@ -9,6 +9,23 @@ from ai_employee.common_schemas.embedding import build_provider
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.knowledge_api.internal_auth import require_internal_token
 from ai_employee.knowledge_api.retrieval import RetrievalService
+
+
+# --------------------------------------------------------------------------- #
+# R19-2 default aggregator stubs (alarm/KPI backends are pluggable).
+# --------------------------------------------------------------------------- #
+class _StubAlarmAggregator:
+    """Default alarm aggregator: returns empty (no data → 404)."""
+
+    def bucket_alarms(self, *, metric, window_minutes, now):  # type: ignore[no-untyped-def]
+        return []
+
+
+class _StubKpiAggregator:
+    """Default KPI aggregator: returns empty (no data → 404)."""
+
+    def bucket_kpi(self, *, metric, site_id, window_minutes, now):  # type: ignore[no-untyped-def]
+        return []
 from ai_employee.knowledge_api.schemas import (
     ChunkResponse,
     Citation,
@@ -16,6 +33,8 @@ from ai_employee.knowledge_api.schemas import (
     DocumentListResponse,
     DocumentResponse,
     DocumentSummary,
+    EChartsRequest,
+    EChartsResponse,
     FeedbackCreate,
     FeedbackListResponse,
     FeedbackResponse,
@@ -322,6 +341,98 @@ def create_app(
     @app.post("/api/v1/chat/query", response_model=QueryResponse)
     def query(payload: QueryRequest) -> QueryResponse:
         return _answer_query(payload)
+
+    @app.post("/api/v1/chat/echarts", response_model=EChartsResponse)
+    def chat_echarts(payload: EChartsRequest) -> EChartsResponse:
+        """Return an ECharts option dict for the requested trend metric.
+
+        The endpoint composes alarm + KPI aggregators (R19-2).  Production
+        wiring reads from rca-agent ``AlarmEvent`` + InfluxDB KPI; tests
+        inject a custom aggregator via ``app.state.echarts_aggregator``.
+        """
+        from ai_employee.knowledge_api.echarts import (
+            EChartsAggregator,
+            InfluxKpiAggregator,
+            RcaAgentAlarmAggregator,
+        )
+
+        aggregator = getattr(app.state, "echarts_aggregator", None)
+        if aggregator is None:
+            # Lazy default wiring: try to load rca-agent store + KPI adapter.
+            alarm_agg: Any = _StubAlarmAggregator()
+            kpi_agg: Any = _StubKpiAggregator()
+            try:
+                from ai_employee.rca_agent.store import RcaObjectStore
+
+                rca = RcaObjectStore()
+                rca.init_schema()
+                rca.load()
+                alarm_agg = RcaAgentAlarmAggregator(rca)
+            except Exception:
+                pass
+            try:
+                from ai_employee.rca_agent.kpi_influx import build_influx_kpi_adapter
+
+                adapter = build_influx_kpi_adapter()
+                if adapter is not None:
+                    kpi_agg = InfluxKpiAggregator(adapter)
+            except Exception:
+                pass
+            aggregator = EChartsAggregator(alarm=alarm_agg, kpi=kpi_agg)
+
+        from datetime import datetime as _dt, timezone as _tz
+
+        now = _dt.now(_tz.utc)
+        option = aggregator.build_option(
+            metric=payload.metric,
+            site_id=payload.site_id,
+            window_minutes=payload.window_minutes,
+            now=now,
+        )
+        if not option:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "no_trend_data", "metric": payload.metric},
+            )
+        # chart_id is a stable ref the SSE stream can echo back.
+        import uuid
+
+        chart_id = f"chart_{uuid.uuid4().hex[:12]}"
+        # Persist option so the schema lookup endpoint can resolve it later.
+        store_map: dict[str, dict[str, Any]] = getattr(
+            app.state, "echarts_chart_store", {}
+        )
+        store_map[chart_id] = option
+        app.state.echarts_chart_store = store_map
+        return EChartsResponse(
+            metric=payload.metric,
+            site_id=payload.site_id,
+            window_minutes=payload.window_minutes,
+            xAxis=option["xAxis"],
+            yAxis=option["yAxis"],
+            series=option["series"],
+            chart_id=chart_id,
+            schema_url=f"/api/v1/chat/echarts/schema/{chart_id}",
+        )
+
+    @app.get("/api/v1/chat/echarts/schema/{chart_id}")
+    def get_echarts_schema(chart_id: str) -> dict[str, Any]:
+        """Resolve a chart_id back to its ECharts option dict.
+
+        The endpoint is used by the SSE ``chart`` event reference: the
+        stream emits only ``chart_id + schema_url``; the consumer fetches
+        the full option lazily via this endpoint.
+        """
+        store_map: dict[str, dict[str, Any]] = getattr(
+            app.state, "echarts_chart_store", {}
+        )
+        option = store_map.get(chart_id)
+        if option is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "chart_not_found", "chart_id": chart_id},
+            )
+        return {"chart_id": chart_id, **option}
 
     @app.post("/api/v1/chat/query/stream")
     def query_stream(payload: QueryRequest):

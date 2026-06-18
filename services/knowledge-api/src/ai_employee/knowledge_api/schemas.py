@@ -145,3 +145,27 @@ class DocumentListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ===== R19-2 ECharts trend =====
+
+
+class EChartsRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    metric: str = Field(min_length=1)
+    window_minutes: int = Field(default=60, ge=1, le=1440)
+    site_id: str | None = None
+
+
+class EChartsResponse(BaseModel):
+    """ECharts option dictionary shape (xAxis / yAxis / series)."""
+
+    metric: str
+    site_id: str | None = None
+    window_minutes: int
+    xAxis: dict[str, Any]
+    yAxis: dict[str, Any]
+    series: list[dict[str, Any]]
+    chart_id: str
+    schema_url: str
