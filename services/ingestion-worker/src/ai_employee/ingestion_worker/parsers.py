@@ -11,6 +11,13 @@ from markdown_it import MarkdownIt
 class ParsedSection:
     section_path: str
     blocks: list[str] = field(default_factory=list)
+    # Table structure (xlsx / csv-style structured docs).  Empty for plain
+    # prose sources.  ``table_id`` identifies the source table (typically
+    # the sheet name); ``row_ids`` are 1-based row identifiers parallel
+    # to ``blocks`` (``row_ids[i]`` is the row that produced
+    # ``blocks[i]``).
+    table_id: str | None = None
+    row_ids: list[str] = field(default_factory=list)
 
 
 class _BaseParser:
@@ -223,7 +230,8 @@ class XlsxParser(_BaseParser):
                     continue
 
                 blocks: list[str] = []
-                for row in data_rows:
+                row_ids: list[str] = []
+                for row_idx, row in enumerate(data_rows, start=1):
                     parts: list[str] = []
                     for j, val in enumerate(row):
                         col_name = headers[j] if j < len(headers) else f"Col{j}"
@@ -232,9 +240,17 @@ class XlsxParser(_BaseParser):
                     block = " | ".join(parts)
                     if block.strip():
                         blocks.append(block)
+                        row_ids.append(f"row_{row_idx:03d}")
 
                 if blocks:
-                    sections.append(ParsedSection(section_path=sheet_name, blocks=blocks))
+                    sections.append(
+                        ParsedSection(
+                            section_path=sheet_name,
+                            blocks=blocks,
+                            table_id=sheet_name,
+                            row_ids=row_ids,
+                        )
+                    )
         finally:
             wb.close()
 

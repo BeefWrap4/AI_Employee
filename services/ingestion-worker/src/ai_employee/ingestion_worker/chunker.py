@@ -8,6 +8,7 @@ _MAX_CHUNK_LEN = 800
 _MERGE_MAX_LEN = 15
 _MERGE_MAX_BLOCKS = 3
 _ALARM_CODE_RE = re.compile(r"[A-Z]{2,}-\d{2,}")
+_BOUNDARY_CHARS = ("。", "！", "?", "\n", "；")
 
 
 def _split_long_block(text: str, max_len: int) -> list[str]:
@@ -32,6 +33,53 @@ def _split_long_block(text: str, max_len: int) -> list[str]:
             pieces.append(piece)
         start = end
     return pieces
+
+
+def sliding_window_chunk(
+    text: str, *, window_size: int, overlap: int,
+) -> list[str]:
+    """Split a long text into overlapping chunks.
+
+    Each chunk is at most ``window_size`` characters; consecutive chunks
+    share ``overlap`` characters so context carries across boundaries.
+    The advance per step is ``window_size - overlap``.
+
+    When ``overlap >= window_size`` the function clamps the advance to
+    1 to guarantee forward progress.  Empty / short text returns a
+    single chunk (or empty list for the empty string).
+    """
+    text = text or ""
+    if not text.strip():
+        return []
+    if window_size <= 0:
+        raise ValueError("window_size must be > 0")
+    if overlap < 0:
+        raise ValueError("overlap must be >= 0")
+    if len(text) <= window_size:
+        return [text]
+
+    advance = max(1, window_size - overlap)
+    chunks: list[str] = []
+    start = 0
+    n = len(text)
+    while start < n:
+        end = min(start + window_size, n)
+        # Try to back off to a sentence boundary when we are mid-text.
+        if end < n:
+            best = -1
+            for ch in _BOUNDARY_CHARS:
+                idx = text.rfind(ch, start + 1, end)
+                if idx > best:
+                    best = idx
+            if best > start + window_size // 2:
+                end = best + 1
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= n:
+            break
+        start += advance
+    return chunks
 
 
 def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
