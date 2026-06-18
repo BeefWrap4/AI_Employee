@@ -1,0 +1,33 @@
+# Exclude build artifacts, venvs, and large dev-only trees from the Docker
+# build context to keep image builds fast and lean.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.egg-info/
+**/dist/
+**/build/
+**/node_modules/
+**/.venv/
+**/venv/
+
+# Local data / sqlite dbs created during dev runs.
+var/
+**/*.sqlite3
+**/*.db
+
+# Editor / OS cruft.
+.vscode/
+.idea/
+.DS_Store
+.git/
+.gitignore
+
+# Docs and tests are not needed in the runtime image.
+Docs/
+docs/
+**/tests/
+*.md
+!apps/web-portal/README.md
