@@ -16,6 +16,11 @@ import threading
 import time
 from typing import Callable, Optional
 
+from ai_employee.agent_platform_api.leader_election import (
+    LeaderLease,
+    LocalLeaderElection,
+    build_leader_election,
+)
 from ai_employee.agent_platform_api.scheduled_runs import (
     ScheduledRun,
     ScheduledRunStore,
@@ -33,7 +38,14 @@ Returning ``None`` is fine; the loop just skips recording.
 
 
 class SchedulerLoop:
-    """Background scheduler that ticks :class:`ScheduledRunStore`."""
+    """Background scheduler that ticks :class:`ScheduledRunStore`.
+
+    When a :class:`LeaderLease` is configured (the default, via
+    :func:`build_leader_election`), only the replica holding the lease
+    ticks.  Non-leaders sleep through each interval and re-attempt
+    acquisition — so a crashed leader is succeeded within one tick
+    window.  The lease is renewed on every tick the leader performs.
+    """
 
     def __init__(
         self,
@@ -42,11 +54,18 @@ class SchedulerLoop:
         fire_callback: FireCallback,
         tick_interval_s: float = 30.0,
         auto_record_runs: bool = True,
+        leader_lease: LeaderLease | None = None,
+        renew_ratio: float = 0.5,
     ) -> None:
         self.store = store
         self.fire_callback = fire_callback
         self.tick_interval_s = max(0.05, float(tick_interval_s))
         self.auto_record_runs = auto_record_runs
+        self.leader_lease: LeaderLease = leader_lease or LocalLeaderElection()
+        # Renew the lease when this fraction of the interval has elapsed
+        # since the last renewal, so we don't hammer Redis every tick.
+        self._renew_every = max(1, int(1.0 / max(0.1, min(1.0, renew_ratio))))
+        self._tick_count = 0
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._started = threading.Event()
@@ -54,6 +73,15 @@ class SchedulerLoop:
     @property
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def _ensure_leader(self) -> bool:
+        """Acquire or renew the lease.  Returns True if we may tick."""
+        if self.leader_lease.is_leader():
+            self._tick_count += 1
+            if self._tick_count % self._renew_every == 0:
+                return self.leader_lease.renew()
+            return True
+        return self.leader_lease.try_acquire()
 
     def start(self) -> None:
         """Start the background tick thread (idempotent)."""
@@ -76,14 +104,21 @@ class SchedulerLoop:
         if self._thread.is_alive():
             logger.warning("scheduler thread did not exit within timeout")
         self._thread = None
+        # Release the lease so a standby can take over immediately.
+        try:
+            self.leader_lease.release()
+        except Exception:  # noqa: BLE001
+            pass
 
     def run_once(self) -> list[ScheduledRun]:
-        """Tick the store once and invoke the callback for each due schedule.
+        """Tick the store once (if leader) and fire due schedules.
 
-        Returns the list of schedules that were fired (in tick order).
-        Exceptions from the callback are caught and logged so a bad
-        schedule can't poison the rest of the batch.
+        Returns the list of schedules that were fired (empty when this
+        replica is not the leader).  Exceptions from the callback are
+        caught and logged so a bad schedule can't poison the batch.
         """
+        if not self._ensure_leader():
+            return []
         due = self.store.tick_due()
         for sched in due:
             try:
@@ -104,8 +139,6 @@ class SchedulerLoop:
                 self.run_once()
             except Exception as exc:  # noqa: BLE001
                 logger.exception("scheduler tick failed: %s", exc)
-            # Sleep, but check the stop event frequently so shutdown is
-            # prompt.  Split the sleep into 100ms chunks.
             slept = 0.0
             while slept < self.tick_interval_s and not self._stop_event.is_set():
                 time.sleep(min(0.1, self.tick_interval_s - slept))
@@ -125,6 +158,7 @@ def build_scheduler_loop() -> SchedulerLoop:
         _loop = SchedulerLoop(
             store=build_scheduled_run_store(),
             fire_callback=lambda s: None,
+            leader_lease=build_leader_election(),
         )
     return _loop
 

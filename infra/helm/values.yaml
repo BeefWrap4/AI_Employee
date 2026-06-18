@@ -56,7 +56,9 @@ services:
   agent-platform-api:
     enabled: true
     port: 8030
-    replicas: 1
+    # HA: 2 replicas are safe because the scheduler acquires a Redis
+    # leader lease (build_leader_election) so only one ticks cron.
+    replicas: 2
     storage: 2Gi
     env: {}
 
