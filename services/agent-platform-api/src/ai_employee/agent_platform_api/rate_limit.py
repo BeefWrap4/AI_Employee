@@ -87,10 +87,13 @@ def key_for_request(claims_sub: str | None, remote_addr: str | None) -> str:
 
 
 __all__ = [
+    "PerTemplateLimiter",
     "RateLimitDecision",
     "TokenBucketLimiter",
     "build_limiter",
     "key_for_request",
+    "parse_template_rate_limit_env",
+    "template_key_for_request",
 ]
 
 
@@ -107,3 +110,108 @@ def rate_limit_dependency(
         return limiter.allow(key)
 
     return _dep
+
+
+
+def parse_template_rate_limit_env(raw: str) -> dict[str, tuple[int, int]]:
+    """Parse RATE_LIMIT_PER_TEMPLATE env value.
+
+    Format: template_id:rate_per_minute,burst;template_id:rate,burst.
+    Malformed segments are skipped silently so a typo in one template's
+    quota doesn't disable the whole limiter.
+    """
+    out: dict[str, tuple[int, int]] = {}
+    for segment in raw.split(";"):
+        segment = segment.strip()
+        if not segment:
+            continue
+        if ":" not in segment or "," not in segment:
+            continue
+        template_id, rates = segment.split(":", 1)
+        template_id = template_id.strip()
+        if not template_id:
+            continue
+        parts = [p.strip() for p in rates.split(",")]
+        if len(parts) != 2:
+            continue
+        try:
+            rate = int(parts[0])
+            burst = int(parts[1])
+        except ValueError:
+            continue
+        if rate <= 0 or burst <= 0:
+            continue
+        out[template_id] = (rate, burst)
+    return out
+
+
+def template_key_for_request(
+    *,
+    template_id: str,
+    claims_sub: str | None,
+    remote_addr: str | None,
+) -> str:
+    """Stable cache key scoped to a template.
+
+    Pattern: template:{template_id}:{sub_or_ip_key}.  Same shape as
+    key_for_request but with the template prefix so two templates never
+    share the same bucket.
+    """
+    inner = key_for_request(claims_sub, remote_addr)
+    return f"template:{template_id}:{inner}"
+
+
+class PerTemplateLimiter:
+    """Token-bucket limiter with one bucket per (template, subject/IP).
+
+    Quotas come from template_rates; requests for templates not in the
+    map fall back to default_rate.  Process-local and thread-safe.
+    """
+
+    def __init__(
+        self,
+        *,
+        template_rates: dict[str, tuple[int, int]],
+        default_rate: tuple[int, int] = (60, 10),
+    ) -> None:
+        self.template_rates = dict(template_rates)
+        self.default_rate = default_rate
+        self._limiters: dict[str, TokenBucketLimiter] = {}
+        self._lock = threading.Lock()
+
+    def _limiter_for(self, template_id: str) -> TokenBucketLimiter:
+        with self._lock:
+            cached = self._limiters.get(template_id)
+            if cached is not None:
+                return cached
+            rate, burst = self.template_rates.get(template_id, self.default_rate)
+            limiter = TokenBucketLimiter(rate_per_minute=rate, burst=burst)
+            self._limiters[template_id] = limiter
+            return limiter
+
+    def allow_for_template(
+        self,
+        template_id: str,
+        claims_sub: str | None,
+        remote_addr: str | None = None,
+    ) -> RateLimitDecision:
+        key = template_key_for_request(
+            template_id=template_id, claims_sub=claims_sub, remote_addr=remote_addr,
+        )
+        return self._limiter_for(template_id).allow(key)
+
+    def reset(self) -> None:
+        with self._lock:
+            for limiter in self._limiters.values():
+                limiter.reset()
+            self._limiters.clear()
+
+    @classmethod
+    def from_env(
+        cls,
+        env_var: str = "RATE_LIMIT_PER_TEMPLATE",
+        default_rate: tuple[int, int] = (60, 10),
+    ) -> "PerTemplateLimiter":
+        raw = os.getenv(env_var, "")
+        rates = parse_template_rate_limit_env(raw)
+        return cls(template_rates=rates, default_rate=default_rate)
