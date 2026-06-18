@@ -23,6 +23,8 @@ global:
 services:
   knowledge-api:
     enabled: true
+    pdb:
+      minAvailable: 1
     port: 8010
     replicas: 1
     storage: 5Gi
@@ -34,6 +36,8 @@ services:
 
   ingestion-worker:
     enabled: true
+    pdb:
+      minAvailable: 1
     port: 8011
     replicas: 1
     storage: 0
@@ -44,6 +48,8 @@ services:
 
   rca-agent:
     enabled: true
+    pdb:
+      minAvailable: 1
     port: 8020
     replicas: 1
     storage: 2Gi
@@ -61,9 +67,19 @@ services:
     replicas: 2
     storage: 2Gi
     env: {}
+    pdb:
+      minAvailable: 1
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpu: 70
+      memory: 75
 
   tool-registry:
     enabled: true
+    pdb:
+      minAvailable: 1
     port: 8040
     replicas: 1
     storage: 1Gi
@@ -74,3 +90,6 @@ ingress:
   enabled: false
   className: nginx
   host: ai-employee.local
+# Network policy: deny-by-default with intra-namespace allow.
+networkPolicy:
+  enabled: true

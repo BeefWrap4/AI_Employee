@@ -1,0 +1,38 @@
+{{- $global := .Values.global -}}
+{{- range $name, $svc := .Values.services -}}
+{{- if and $svc.enabled (hasKey $svc "hpa") $svc.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  namespace: {{ $global.namespace }}
+  labels:
+    {{- include "ai-employee.labels" $ | nindent 4 }}
+    app: {{ $name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ $svc.hpa.minReplicas | default 2 }}
+  maxReplicas: {{ $svc.hpa.maxReplicas | default 10 }}
+  metrics:
+    {{- if $svc.hpa.cpu }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.hpa.cpu }}
+    {{- end }}
+    {{- if $svc.hpa.memory }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.hpa.memory }}
+    {{- end }}
+{{- end }}
+{{- end }}

@@ -1,9 +1,11 @@
 {{- if .Values.ingress.enabled }}
+{{- $global := .Values.global }}
+{{- $services := .Values.services }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ai-employee-ingress
-  namespace: {{ .Values.global.namespace }}
+  namespace: {{ $global.namespace }}
   labels:
     {{- include "ai-employee.labels" . | nindent 4 }}
 spec:
@@ -12,32 +14,14 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /api/knowledge
+          {{- $paths := dict "knowledge-api" "/api/knowledge" "rca-agent" "/api/rca" "agent-platform-api" "/api/platform" "tool-registry" "/api/tools" }}
+          {{- range $svcName, $path := $paths }}
+          - path: {{ $path }}
             pathType: Prefix
             backend:
               service:
-                name: knowledge-api
+                name: {{ $svcName }}
                 port:
-                  number: {{ .Values.services.knowledge-api.port }}
-          - path: /api/rca
-            pathType: Prefix
-            backend:
-              service:
-                name: rca-agent
-                port:
-                  number: {{ .Values.services.rca-agent.port }}
-          - path: /api/platform
-            pathType: Prefix
-            backend:
-              service:
-                name: agent-platform-api
-                port:
-                  number: {{ .Values.services.agent-platform-api.port }}
-          - path: /api/tools
-            pathType: Prefix
-            backend:
-              service:
-                name: tool-registry
-                port:
-                  number: {{ .Values.services.tool-registry.port }}
+                  number: {{ (index $services $svcName).port | int }}
+          {{- end }}
 {{- end }}
