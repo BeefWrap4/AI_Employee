@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from ai_employee.agent_platform_api.eval_compare import compare_reports
@@ -8,6 +9,7 @@ from ai_employee.agent_platform_api.inspection import (
     run_inspection,
     write_inspection_log,
 )
+from ai_employee.agent_platform_api.events import bus as platform_bus
 from ai_employee.agent_platform_api.platform_metrics import (
     metrics as platform_metrics,
     snapshot_dict,
@@ -64,7 +66,7 @@ from ai_employee.common_schemas.tool_registry import (
     ToolSpec as _McpToolSpec,
 )
 from ai_employee.observability import render_prometheus_text
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, WebSocket, status
 from fastapi.responses import PlainTextResponse
 
 SERVICE_VERSION = "0.1.0"
@@ -510,6 +512,32 @@ def create_app(
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics() -> str:
         return render_prometheus_text()
+
+    @app.websocket("/api/v1/ws/runs/{run_id}")
+    async def runs_websocket(websocket: WebSocket, run_id: str) -> None:
+        """Subscribe to live events for run_id.
+
+        Replays the in-process event history first, then streams new
+        events until the client disconnects.  Errors close the socket
+        with code 1011 so clients know to retry.
+        """
+        from fastapi import WebSocketDisconnect
+
+        await websocket.accept()
+        queue_id, queue = platform_bus.subscribe(run_id)
+        try:
+            while True:
+                ev = await queue.get()
+                await websocket.send_text(json.dumps(ev.to_dict(), ensure_ascii=False))
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            try:
+                await websocket.close(code=1011)
+            except Exception:
+                pass
+        finally:
+            platform_bus.unsubscribe(run_id=run_id, queue_id=queue_id)
 
     # ------------------------------------------------------------------ #
     # MCP-compatible tool registry (spec §3.3 / MCP tools/list)
