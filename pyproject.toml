@@ -62,6 +62,8 @@ packages = [
   "ai_employee.observability",
   "ai_employee.auth_policy",
   "ai_employee.tool_registry",
+  "ai_employee.approval_service",
+  "ai_employee.mcp_gateway",
 ]
 
 [tool.setuptools.package-dir]
@@ -75,6 +77,8 @@ packages = [
 "ai_employee.observability" = "packages/observability/src/ai_employee/observability"
 "ai_employee.auth_policy" = "packages/auth-policy/src/ai_employee/auth_policy"
 "ai_employee.tool_registry" = "services/tool-registry/src/ai_employee/tool_registry"
+"ai_employee.approval_service" = "services/approval-service/src/ai_employee/approval_service"
+"ai_employee.mcp_gateway" = "services/mcp-gateway/src/ai_employee/mcp_gateway"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -41,6 +41,7 @@ EXPECTED_TABLES = {
     "rca_objects", "candidate_knowledge",
     "agent_runs", "agent_run_events", "eval_runs",
     "tools",
+    "approval_tasks",
 }
 
 
@@ -95,7 +96,7 @@ def test_upgrade_then_downgrade_then_upgrade(tmp_path: Path) -> None:
 
 
 def test_current_revision_is_head(tmp_path: Path) -> None:
-    """After upgrade, ``alembic current`` reports the baseline revision."""
+    """After upgrade, ``alembic current`` reports the head revision."""
     db_path = tmp_path / "mig.sqlite3"
     db_url = f"sqlite:///{db_path}"
     cfg = _alembic_config(db_url)
@@ -107,4 +108,4 @@ def test_current_revision_is_head(tmp_path: Path) -> None:
     finally:
         conn.close()
     assert row is not None
-    assert row[0] == "0001_baseline"
+    assert row[0] == "0002_approval_tasks"

@@ -137,6 +137,50 @@ def test_sqlite_branch_does_not_use_identity() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 0002_approval_tasks — dialect-aware JSON columns
+# --------------------------------------------------------------------------- #
+
+
+def _run_approval_tasks_upgrade_against(dialect: str) -> list[str]:
+    """Replay the approval_tasks migration against a fake op."""
+    import importlib
+
+    fake = _FakeOp(dialect)
+    import alembic.op as real_op
+
+    mod = importlib.import_module("migrations.versions.0002_approval_tasks")
+    original = mod.op
+    mod.op = fake  # type: ignore[assignment]
+    try:
+        mod.upgrade()
+    finally:
+        mod.op = original  # type: ignore[assignment]
+        del real_op
+    return fake.statements
+
+
+def test_approval_tasks_postgres_uses_jsonb() -> None:
+    stmts = _run_approval_tasks_upgrade_against("postgresql")
+    joined = "\n".join(stmts)
+    assert "CREATE TABLE IF NOT EXISTS approval_tasks" in joined
+    for col in ("delegates_json", "supplement_attachments_json", "transfers_json"):
+        assert f"{col} JSONB" in joined, f"Postgres branch should use JSONB for {col}"
+    # No SQLite-only tokens.
+    for pattern, label in _SQLITE_ONLY_TOKENS:
+        match = pattern.search(joined)
+        assert match is None, f"Postgres branch emitted SQLite-only construct {label!r}"
+
+
+def test_approval_tasks_sqlite_uses_text_json() -> None:
+    stmts = _run_approval_tasks_upgrade_against("sqlite")
+    joined = "\n".join(stmts)
+    assert "CREATE TABLE IF NOT EXISTS approval_tasks" in joined
+    for col in ("delegates_json", "supplement_attachments_json", "transfers_json"):
+        assert f"{col} TEXT" in joined, f"SQLite branch should use TEXT for {col}"
+    assert "JSONB" not in joined
+
+
+# --------------------------------------------------------------------------- #
 # Live Postgres round-trip (gated)
 # --------------------------------------------------------------------------- #
 
