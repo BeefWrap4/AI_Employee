@@ -130,3 +130,111 @@ def test_audit_log_satisfies_protocol() -> None:
     assert hasattr(store, "list_by_target")
     assert hasattr(store, "list_by_action")
     assert hasattr(store, "reset")
+
+
+# --------------------------------------------------------------------------- #
+# R24-C: redaction of PII / secrets in audit payloads (record_event path)
+# --------------------------------------------------------------------------- #
+
+
+def test_record_event_redacts_phone_in_payload(monkeypatch) -> None:
+    """record_event must mask phone numbers inside payload values."""
+    from ai_employee.agent_platform_api import audit as audit_mod
+    from ai_employee.agent_platform_api.tenant import (
+        set_current_tenant_id,
+        reset_current_tenant,
+    )
+
+    audit_mod.reset_audit_log()
+    token = set_current_tenant_id("tenant-A")
+    try:
+        event = audit_mod.record_event(
+            action="run.created",
+            actor="alice",
+            target_type="agent_run",
+            target_id="run-1",
+            payload={"contact": "13800138000"},
+        )
+    finally:
+        reset_current_tenant(token)
+    assert "13800138000" not in str(event.payload)
+    assert "***" in str(event.payload)
+
+
+def test_record_event_redacts_email_in_payload(monkeypatch) -> None:
+    from ai_employee.agent_platform_api import audit as audit_mod
+    from ai_employee.agent_platform_api.tenant import (
+        set_current_tenant_id,
+        reset_current_tenant,
+    )
+
+    audit_mod.reset_audit_log()
+    token = set_current_tenant_id("tenant-A")
+    try:
+        event = audit_mod.record_event(
+            action="run.created",
+            actor="alice",
+            target_type="agent_run",
+            target_id="run-1",
+            payload={"user_email": "admin@example.com"},
+        )
+    finally:
+        reset_current_tenant(token)
+    assert "admin@example.com" not in str(event.payload)
+
+
+def test_record_event_redacts_nested_payload(monkeypatch) -> None:
+    """Redaction must walk into nested dicts and lists of dicts."""
+    from ai_employee.agent_platform_api import audit as audit_mod
+    from ai_employee.agent_platform_api.tenant import (
+        set_current_tenant_id,
+        reset_current_tenant,
+    )
+
+    audit_mod.reset_audit_log()
+    token = set_current_tenant_id("tenant-A")
+    try:
+        event = audit_mod.record_event(
+            action="run.created",
+            actor="alice",
+            target_type="agent_run",
+            target_id="run-1",
+            payload={
+                "context": {
+                    "phone": "13800138000",
+                    "user_email": "admin@example.com",
+                },
+                "callers": [
+                    {"caller_phone": "13900139000"},
+                ],
+            },
+        )
+    finally:
+        reset_current_tenant(token)
+    raw = str(event.payload)
+    assert "13800138000" not in raw
+    assert "admin@example.com" not in raw
+    assert "13900139000" not in raw
+
+
+def test_record_event_redacts_password_field(monkeypatch) -> None:
+    from ai_employee.agent_platform_api import audit as audit_mod
+    from ai_employee.agent_platform_api.tenant import (
+        set_current_tenant_id,
+        reset_current_tenant,
+    )
+
+    audit_mod.reset_audit_log()
+    token = set_current_tenant_id("tenant-A")
+    try:
+        event = audit_mod.record_event(
+            action="run.created",
+            actor="alice",
+            target_type="agent_run",
+            target_id="run-1",
+            payload={"password": "hunter2", "user": "alice"},
+        )
+    finally:
+        reset_current_tenant(token)
+    assert event.payload["password"] == "***REDACTED***"
+    assert event.payload["user"] == "alice"
