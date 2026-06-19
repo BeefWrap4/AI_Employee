@@ -167,6 +167,30 @@ def create_app(
     run_state = run_store or AgentRunStore()
     idem_store = _resolve_idempotency_store(idempotency_store)
 
+    # R23-3: when EVENT_BUS_BACKEND=redis (and REDIS_URL is reachable),
+    # wrap the in-process bus in a RedisEventBus so run events published
+    # on one replica are delivered to WebSocket subscribers on another.
+    # The Redis bus shares the local ``platform_bus`` singleton, so the
+    # WebSocket endpoint below keeps working unchanged.
+    from ai_employee.agent_platform_api.events import (
+        RedisEventBus,
+        build_multi_replica_event_bus,
+    )
+
+    multi_replica_bus = build_multi_replica_event_bus()
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):  # pragma: no cover - lifecycle
+        if isinstance(multi_replica_bus, RedisEventBus):
+            multi_replica_bus.start_listener()
+        yield
+        if isinstance(multi_replica_bus, RedisEventBus):
+            multi_replica_bus.stop_listener()
+
+    app.router.lifespan_context = _lifespan
+
     # R21 service isolation (spec §9): delegate approval-task state to a
     # standalone ``approval-service`` when ``APPROVAL_SERVICE_URL`` is
     # set, and tool registry / discovery / invocation to the
