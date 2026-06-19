@@ -9,6 +9,11 @@ are gated by env vars (``PROMETHEUS_ENABLED`` etc.) and selected by
 Adapters are intentionally read-only.  They translate their backing store
 into the platform-wide ``Evidence`` schema so the runtime does not care
 whether the data came from a fixture or a real system.
+
+R25-T.4: the ``_HttpAdapter._get`` method is now wrapped with
+``resilient_fetch`` from ``http_resilience``, which adds a hard
+thread-based timeout and configurable retry (env:
+``RL_HTTP_RETRY_MAX_ATTEMPTS``, ``RL_HTTP_RETRY_BACKOFF_SECONDS``).
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
+from ai_employee.rca_agent.http_resilience import resilient_fetch  # noqa: F401  # R25-T.4
 from ai_employee.rca_agent.schemas import Evidence, IncidentResponse
 
 
@@ -157,7 +163,13 @@ class FixtureTicketAdapter:
 
 
 class _HttpAdapter:
-    """Minimal HTTP wrapper with timeout + structured error."""
+    """Minimal HTTP wrapper with timeout + structured error.
+
+    R25-T.4: ``_get`` delegates to :func:`resilient_fetch` so each
+    adapter call gets a hard timeout (thread-based) + configurable
+    retry (env: ``RL_HTTP_RETRY_MAX_ATTEMPTS``,
+    ``RL_HTTP_RETRY_BACKOFF_SECONDS``).
+    """
 
     def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
         self.base_url = base_url.rstrip("/")
@@ -166,19 +178,36 @@ class _HttpAdapter:
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         import httpx
 
+        def _request() -> Any:
+            try:
+                resp = httpx.get(
+                    f"{self.base_url}{path}",
+                    params=params or {},
+                    timeout=self._timeout,
+                )
+            except httpx.HTTPError as exc:
+                raise AdapterUnavailable(
+                    f"{self.base_url} unreachable: {exc}"
+                ) from exc
+            if resp.status_code >= 500:
+                raise AdapterUnavailable(
+                    f"{self.base_url} returned {resp.status_code}"
+                )
+            if resp.status_code >= 400:
+                raise AdapterBadRequest(resp.status_code, resp.text)
+            return resp.json()
+
+        from ai_employee.rca_agent.http_resilience import _FetchTimeoutError, resilient_fetch
+
         try:
-            resp = httpx.get(
-                f"{self.base_url}{path}",
-                params=params or {},
-                timeout=self._timeout,
+            return resilient_fetch(
+                _request,
+                timeout_ms=int(self._timeout * 1000),
             )
-        except httpx.HTTPError as exc:
-            raise AdapterUnavailable(f"{self.base_url} unreachable: {exc}") from exc
-        if resp.status_code >= 500:
-            raise AdapterUnavailable(f"{self.base_url} returned {resp.status_code}")
-        if resp.status_code >= 400:
-            raise AdapterBadRequest(resp.status_code, resp.text)
-        return resp.json()
+        except _FetchTimeoutError as exc:
+            raise AdapterUnavailable(
+                f"{self.base_url} timeout after {self._timeout}s: {exc}"
+            ) from exc
 
 
 class AdapterUnavailable(Exception):
@@ -347,4 +376,5 @@ __all__ = [
     "TicketApiAdapter",
     "ToolAdapter",
     "build_adapters",
+    "resilient_fetch",  # R25-T.4 re-export
 ]
