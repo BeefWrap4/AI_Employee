@@ -60,7 +60,17 @@ class LlmClient:
         self.model = model or os.getenv("LLM_MODEL", _DEFAULT_MODEL)
         self.timeout = timeout
         self.max_retries = max_retries
-        # Langfuse trace emitter is optional; when None, chat() skips tracing.
+        # R24-B: default to a process-wide Langfuse emitter built from
+        # env (``LANGFUSE_ENABLED`` gates HTTP dispatch).  When the flag
+        # is unset the emitter is still wired but ``record_llm_call``
+        # short-circuits to a no-op, so test / dev environments stay
+        # silent without callers needing to special-case it.
+        if langfuse_emitter is None:
+            from ai_employee.observability.langfuse_emitter import (
+                build_langfuse_emitter,
+            )
+
+            langfuse_emitter = build_langfuse_emitter()
         self.langfuse_emitter = langfuse_emitter
 
     @property
