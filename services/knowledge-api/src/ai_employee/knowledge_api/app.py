@@ -17,6 +17,7 @@ from ai_employee.common_schemas.idempotency import (
     build_idempotency_store,
 )
 from ai_employee.common_schemas.knowledge import DocumentStatus
+from ai_employee.common_schemas.metrics_bridge import platform_metrics
 from ai_employee.knowledge_api.internal_auth import require_internal_token
 from ai_employee.knowledge_api.retrieval import RetrievalService
 from ai_employee.knowledge_api.schemas import (
@@ -107,6 +108,10 @@ def create_app(
     idempotency_store: IdempotencyStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Knowledge API", version=SERVICE_VERSION)
+    # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
+    from ai_employee.rate_limit import install_rate_limiter
+
+    install_rate_limiter(app)
     cfg = _config()
     if store is None:
         store = SQLiteStore(db_path=cfg["db_path"], data_dir=cfg["data_dir"])
@@ -632,7 +637,9 @@ def create_app(
                 # ``parent_trace_id`` so the answer-completion chat and
                 # the query-rewriter chat (when used upstream) share
                 # the same trace.
-                client = LlmClient()
+                client = LlmClient(
+                    on_success=lambda latency_ms: platform_metrics().record_model_latency(latency_ms),
+                )
                 response = client.chat(prompts, parent_trace_id=trace_id)
                 answer = response.content
                 model_name = response.model

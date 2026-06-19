@@ -170,6 +170,10 @@ def create_app(
     circuit_breaker: CircuitBreaker | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee MCP Gateway", version=SERVICE_VERSION)
+    # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
+    from ai_employee.rate_limit import install_rate_limiter
+
+    install_rate_limiter(app)
     state = registry or ToolRegistry()
     breaker = circuit_breaker or CircuitBreaker()
     _register_builtin_tools(state)

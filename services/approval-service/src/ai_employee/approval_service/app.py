@@ -38,6 +38,10 @@ SERVICE_VERSION = "0.1.0"
 
 def create_app(store: ApprovalTaskStore | None = None) -> FastAPI:
     app = FastAPI(title="AI Employee Approval Service", version=SERVICE_VERSION)
+    # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
+    from ai_employee.rate_limit import install_rate_limiter
+
+    install_rate_limiter(app)
     state = store or ApprovalTaskStore()
 
     def _get_or_404(task_id: str) -> dict:

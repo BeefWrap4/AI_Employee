@@ -121,6 +121,10 @@ def create_app(
     circuit_breaker: CircuitBreaker | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Tool Registry", version=SERVICE_VERSION)
+    # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
+    from ai_employee.rate_limit import install_rate_limiter
+
+    install_rate_limiter(app)
     registry_state = registry or ToolRegistry()
     store_state = store or ToolRegistryStore()
     call_log_state = call_log_store or ToolCallLogStore()

@@ -66,6 +66,7 @@ packages = [
   "ai_employee.approval_service",
   "ai_employee.mcp_gateway",
   "ai_employee.object_store",
+  "ai_employee.rate_limit",
 ]
 
 [tool.setuptools.package-dir]
@@ -83,11 +84,12 @@ packages = [
 "ai_employee.mcp_gateway" = "services/mcp-gateway/src/ai_employee/mcp_gateway"
 "ai_employee.object_store" = "packages/object-store/src/ai_employee/object_store"
 
+"ai_employee.rate_limit" = "packages/rate-limit/src/ai_employee/rate_limit"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-pythonpath = [
-  "services/knowledge-api/src",
+pythonpath = [  "services/knowledge-api/src",
   "services/ingestion-worker/src",
   "packages/common-schemas/src",
   "services/eval-service/src",

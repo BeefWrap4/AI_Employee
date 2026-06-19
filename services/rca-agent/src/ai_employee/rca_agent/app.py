@@ -56,6 +56,10 @@ SERVICE_VERSION = "0.1.0"
 
 def create_app(store: RcaStore | None = None) -> FastAPI:
     app = FastAPI(title="AI Employee RCA Agent", version=SERVICE_VERSION)
+    # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
+    from ai_employee.rate_limit import install_rate_limiter
+
+    install_rate_limiter(app)
     state = store or _default_store()
     if state.writeback_adapter is None:
         state.writeback_adapter = build_writeback_adapter()

@@ -40,6 +40,10 @@ def create_app(
     degraded: bool | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Ingestion Worker", version=SERVICE_VERSION)
+    # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
+    from ai_employee.rate_limit import install_rate_limiter
+
+    install_rate_limiter(app)
     if provider is None:
         embed_provider, built_degraded = build_provider()
         embed_degraded = built_degraded

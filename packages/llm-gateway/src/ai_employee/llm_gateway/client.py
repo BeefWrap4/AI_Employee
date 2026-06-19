@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -57,12 +58,16 @@ class LlmClient:
         timeout: float = 30.0,
         max_retries: int = 2,
         langfuse_emitter: LangfuseEmitter | None = None,
+        on_success: Callable[[float], None] | None = None,
     ) -> None:
+        """``on_success(latency_ms)`` is invoked after each successful chat
+        so callers can wire platform metrics (e.g. ``model_latency_p95``)."""
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", _DASHSCOPE_BASE_URL)).rstrip("/")
         self.api_key = api_key or os.getenv("LLM_API_KEY") or os.getenv("QWEN_API_KEY", "")
         self.model = model or os.getenv("LLM_MODEL", _DEFAULT_MODEL)
         self.timeout = timeout
         self.max_retries = max_retries
+        self._on_success = on_success
         # R24-B: default to a process-wide Langfuse emitter built from
         # env (``LANGFUSE_ENABLED`` gates HTTP dispatch).  When the flag
         # is unset the emitter is still wired but ``record_llm_call``
@@ -207,6 +212,11 @@ class LlmClient:
             status=status_label,
             usage=usage,
         )
+        if self._on_success is not None:
+            try:
+                self._on_success(latency_ms)
+            except Exception:
+                pass
         return ChatResponse(
             content=choice["message"]["content"],
             model=data.get("model", self.model),
