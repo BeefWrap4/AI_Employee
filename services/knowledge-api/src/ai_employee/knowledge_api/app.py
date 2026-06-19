@@ -637,8 +637,13 @@ def create_app(
                 context_str=context_str,
             )
             try:
+                # R24-B: bare LlmClient() picks up the default Langfuse
+                # emitter from env (LANGFUSE_ENABLED).  Pass
+                # ``parent_trace_id`` so the answer-completion chat and
+                # the query-rewriter chat (when used upstream) share
+                # the same trace.
                 client = LlmClient()
-                response = client.chat(prompts)
+                response = client.chat(prompts, parent_trace_id=trace_id)
                 answer = response.content
                 model_name = response.model
                 prompt_version = "rag-template-v1"

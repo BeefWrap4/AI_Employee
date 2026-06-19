@@ -60,7 +60,17 @@ class LlmClient:
         self.model = model or os.getenv("LLM_MODEL", _DEFAULT_MODEL)
         self.timeout = timeout
         self.max_retries = max_retries
-        # Langfuse trace emitter is optional; when None, chat() skips tracing.
+        # R24-B: default to a process-wide Langfuse emitter built from
+        # env (``LANGFUSE_ENABLED`` gates HTTP dispatch).  When the flag
+        # is unset the emitter is still wired but ``record_llm_call``
+        # short-circuits to a no-op, so test / dev environments stay
+        # silent without callers needing to special-case it.
+        if langfuse_emitter is None:
+            from ai_employee.observability.langfuse_emitter import (
+                build_langfuse_emitter,
+            )
+
+            langfuse_emitter = build_langfuse_emitter()
         self.langfuse_emitter = langfuse_emitter
 
     @property
@@ -94,6 +104,8 @@ class LlmClient:
         messages: list[dict[str, str]],
         temperature: float = 0.0,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        *,
+        parent_trace_id: str | None = None,
     ) -> ChatResponse:
         """Send a chat-completion request.
 
@@ -105,6 +117,11 @@ class LlmClient:
             Sampling temperature (default 0.0).
         max_tokens:
             Maximum tokens to generate (default 1024).
+        parent_trace_id:
+            When supplied, reuse the trace id so multiple ``chat()``
+            calls inside the same logical run (e.g. RAG query + RAG
+            rewriter) share a single Langfuse trace.  When omitted a
+            fresh trace id is generated so each call is its own trace.
 
         Returns
         -------
@@ -113,12 +130,13 @@ class LlmClient:
         """
         _do_request = retry_decorator(max_retries=self.max_retries)(self._raw_request)
 
-        # Emit a Langfuse trace record (success or failure) when an emitter is
-        # configured.  Generates fresh trace/span ids so each chat() is its
-        # own trace.  Tracing must never break the underlying call.
+        # Emit a Langfuse trace record (success or failure) when an emitter
+        # is configured.  Reuses the parent trace id when supplied so
+        # multi-step agent runs surface as one trace; otherwise generates
+        # fresh trace/span ids.  Tracing must never break the call.
         from ai_employee.observability import new_span_id, new_trace_id
 
-        trace_id = new_trace_id()
+        trace_id = parent_trace_id or new_trace_id()
         span_id = new_span_id()
         prompt_text = "\n".join(
             m.get("content", "") for m in messages if m.get("role") == "user"
@@ -172,6 +190,11 @@ class LlmClient:
 
         choice = data["choices"][0]
         latency_ms = (time.perf_counter() - started) * 1000.0
+        usage = {
+            "prompt_tokens": data.get("usage", {}).get("prompt_tokens", 0),
+            "completion_tokens": data.get("usage", {}).get("completion_tokens", 0),
+            "total_tokens": data.get("usage", {}).get("total_tokens", 0),
+        }
         self._emit_trace(
             trace_id=trace_id,
             span_id=span_id,
@@ -179,15 +202,12 @@ class LlmClient:
             response=choice["message"]["content"],
             latency_ms=latency_ms,
             status=status_label,
+            usage=usage,
         )
         return ChatResponse(
             content=choice["message"]["content"],
             model=data.get("model", self.model),
-            usage={
-                "prompt_tokens": data.get("usage", {}).get("prompt_tokens", 0),
-                "completion_tokens": data.get("usage", {}).get("completion_tokens", 0),
-                "total_tokens": data.get("usage", {}).get("total_tokens", 0),
-            },
+            usage=usage,
         )
 
     def _emit_trace(
@@ -199,6 +219,7 @@ class LlmClient:
         response: str,
         latency_ms: float,
         status: str,
+        usage: dict[str, int] | None = None,
     ) -> None:
         """Push one record to the Langfuse emitter (best-effort)."""
         if self.langfuse_emitter is None:
@@ -212,6 +233,7 @@ class LlmClient:
                 response=response,
                 latency_ms=latency_ms,
                 metadata={"status": status},
+                usage=usage,
             )
         except Exception:
             # Tracing must never break a chat() call.

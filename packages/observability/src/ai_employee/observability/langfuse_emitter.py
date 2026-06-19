@@ -81,10 +81,27 @@ class LangfuseEmitter:
         response: str,
         latency_ms: float,
         metadata: dict[str, Any] | None = None,
+        usage: dict[str, int] | None = None,
     ) -> None:
-        """Buffer a single LLM call.  No-op when the emitter is disabled."""
+        """Buffer a single LLM call.  No-op when the emitter is disabled.
+
+        ``usage`` accepts an OpenAI-style ``{"prompt_tokens": N,
+        "completion_tokens": M, "total_tokens": N+M}`` mapping.  When
+        provided the values are forwarded to Langfuse verbatim (unit
+        ``TOKENS``).  When omitted, token counts default to ``0`` and
+        the call's wall-clock latency is **not** smeared into the usage
+        payload (R24-B.4 — the previous implementation conflated
+        latency with token counts).
+        """
         if not self.enabled:
             return
+        prompt_tokens = (usage or {}).get("prompt_tokens", 0) or 0
+        completion_tokens = (usage or {}).get("completion_tokens", 0) or 0
+        total_tokens = (usage or {}).get("total_tokens", 0) or 0
+        # Langfuse's usage payload expects ``unit`` to describe the
+        # counting unit (TOKENS / CHARACTERS / MILLISECONDS).  We only
+        # forward real token counts; ``0`` signals "unknown" rather
+        # than coercing the latency into the slot.
         record = {
             "id": trace_id,
             "type": "generation-create",
@@ -96,12 +113,18 @@ class LangfuseEmitter:
                 "input": [{"role": "user", "content": prompt}],
                 "output": {"role": "assistant", "content": response},
                 "usage": {
-                    "unit": "MILLISECONDS",
-                    "input": 0,
-                    "output": 0,
-                    "total": int(latency_ms),
+                    "unit": "TOKENS",
+                    "input": int(prompt_tokens),
+                    "output": int(completion_tokens),
+                    "total": int(total_tokens),
                 },
-                "metadata": metadata or {},
+                "metadata": {
+                    **(metadata or {}),
+                    # Surface latency explicitly via metadata so it stays
+                    # available for dashboards without polluting the
+                    # usage field that Langfuse interprets as token counts.
+                    "latency_ms": float(latency_ms),
+                },
             },
         }
         with self._lock:
