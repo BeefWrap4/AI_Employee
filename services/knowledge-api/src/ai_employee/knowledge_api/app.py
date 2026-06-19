@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
 import uuid
 from typing import Any
 
 from ai_employee.common_schemas.embedding import build_provider
+from ai_employee.common_schemas.idempotency import (
+    IdempotencyStore,
+    build_idempotency_store,
+)
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.knowledge_api.internal_auth import require_internal_token
 from ai_employee.knowledge_api.retrieval import RetrievalService
@@ -56,6 +61,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     UploadFile,
     status,
 )
@@ -93,6 +99,7 @@ def _config() -> dict[str, Any]:
 def create_app(
     store: SQLiteStore | None = None,
     worker_client: WorkerClient | None = None,
+    idempotency_store: "IdempotencyStore | None" = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Knowledge API", version=SERVICE_VERSION)
     cfg = _config()
@@ -116,6 +123,15 @@ def create_app(
     app.state.retrieval = retrieval
     auth = require_internal_token(cfg["internal_token"])
 
+    # R23: idempotency store so a retried document upload with the same
+    # Idempotency-Key + content returns the cached doc_id instead of
+    # creating a duplicate.  Default in-memory; set REDIS_URL for
+    # multi-replica.
+    if idempotency_store is not None:
+        idem_store: IdempotencyStore = idempotency_store
+    else:
+        idem_store = build_idempotency_store()
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {
@@ -134,6 +150,7 @@ def create_app(
         status_code=status.HTTP_202_ACCEPTED,
     )
     async def create_document(
+        request: Request,
         file: UploadFile = File(...),
         title: str = Form(...),
         metadata_json: str = Form("{}"),
@@ -142,6 +159,18 @@ def create_app(
         mime_type: str | None = Form(None),
     ) -> DocumentResponse:
         content = await file.read()
+        # R23: idempotency.  The cache key is the Idempotency-Key header
+        # + a sha256 of the uploaded bytes, so the same key with
+        # different content still creates a new doc (avoids masking a
+        # genuine new upload behind a stale cache entry).
+        idem_raw = request.headers.get("Idempotency-Key")
+        idem_key: str | None = None
+        if idem_raw is not None and idem_raw.strip():
+            content_hash = hashlib.sha256(content).hexdigest()
+            idem_key = f"{idem_raw.strip()}:{content_hash}"
+            rec = idem_store.get_or_begin(idem_key)
+            if rec.status in {"success", "failed"} and rec.result is not None:
+                return DocumentResponse(**rec.result["body"])
         if len(content) > _MAX_UPLOAD_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -242,15 +271,23 @@ def create_app(
             store.transition_status(doc_id, DocumentStatus.PARSING.value)
             _apply_parse_response(store, doc_id, result.response)
             doc = store.get_document(doc_id)
-            return _document_response(doc, trace_id, "accepted")
-        if result.dispatch_status == "worker_error":
+            response = _document_response(doc, trace_id, "accepted")
+        elif result.dispatch_status == "worker_error":
             store.transition_status(doc_id, DocumentStatus.PARSING.value)
             store.mark_parse_failed(doc_id, result.error or "worker_error", "parse")
             doc = store.get_document(doc_id)
-            return _document_response(doc, trace_id, "worker_error")
-        # 未接受（unreachable / timeout）：文档保持 uploaded，保留文件供 /reparse
-        doc = store.get_document(doc_id)
-        return _document_response(doc, trace_id, result.dispatch_status)
+            response = _document_response(doc, trace_id, "worker_error")
+        else:
+            # 未接受（unreachable / timeout）：文档保持 uploaded，保留文件供 /reparse
+            doc = store.get_document(doc_id)
+            response = _document_response(doc, trace_id, result.dispatch_status)
+        if idem_key is not None:
+            idem_store.complete(
+                idem_key,
+                status="success",
+                result={"body": response.model_dump(mode="json")},
+            )
+        return response
 
     @app.get("/api/v1/documents/{doc_id}", response_model=DocumentResponse)
     def get_document(doc_id: str) -> DocumentResponse:

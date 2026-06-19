@@ -81,6 +81,10 @@ from ai_employee.common_schemas.eval import (
     to_unified_rag,
     to_unified_rca,
 )
+from ai_employee.common_schemas.idempotency import (
+    IdempotencyStore,
+    build_idempotency_store,
+)
 from ai_employee.observability import render_prometheus_text
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
@@ -123,6 +127,31 @@ def _sync_task_locally(
     store.approval_tasks[task.task_id] = task
 
 
+def _resolve_idempotency_store(
+    override: IdempotencyStore | None,
+) -> IdempotencyStore:
+    """Return the idempotency store to use for this app instance.
+
+    ``override`` lets tests inject an :class:`InMemoryIdempotencyStore`.
+    Otherwise the store is built from env (``REDIS_URL`` → Redis, with
+    graceful fallback to in-memory).  Even when no header is sent the
+    store is harmless: ``get_or_begin`` is only called for keys that
+    are present, so the default in-memory store stays empty.
+    """
+    if override is not None:
+        return override
+    return build_idempotency_store()
+
+
+def _idempotency_key(request: Request) -> str | None:
+    """Return a non-empty ``Idempotency-Key`` header, or None."""
+    raw = request.headers.get("Idempotency-Key")
+    if raw is None:
+        return None
+    raw = raw.strip()
+    return raw or None
+
+
 def create_app(
     store: AgentPlatformStore | None = None,
     eval_store: EvalStore | None = None,
@@ -130,11 +159,13 @@ def create_app(
     *,
     approval_client: ApprovalServiceClient | None = None,
     mcp_client: McpGatewayClient | None = None,
+    idempotency_store: IdempotencyStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Agent Platform API", version=SERVICE_VERSION)
     state = store or AgentPlatformStore()
     eval_state = eval_store or EvalStore()
     run_state = run_store or AgentRunStore()
+    idem_store = _resolve_idempotency_store(idempotency_store)
 
     # R21 service isolation (spec §9): delegate approval-task state to a
     # standalone ``approval-service`` when ``APPROVAL_SERVICE_URL`` is
@@ -259,7 +290,16 @@ def create_app(
         response_model=AgentRunResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_agent_run(payload: AgentRunCreate) -> AgentRunResponse:
+    def create_agent_run(payload: AgentRunCreate, request: Request) -> AgentRunResponse:
+        # R23: honour an Idempotency-Key header so a retried POST
+        # (client timeout + replay, or a load-balancer redirect to
+        # another replica) returns the original run verbatim instead
+        # of creating a duplicate.
+        idem_key = _idempotency_key(request)
+        if idem_key is not None:
+            rec = idem_store.get_or_begin(idem_key)
+            if rec.status in {"success", "failed"} and rec.result is not None:
+                return AgentRunResponse(**rec.result["body"])
         if payload.template_id not in TEMPLATES:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -288,6 +328,12 @@ def create_app(
                     pass
         run_state.upsert_run(run_to_persist_dict(run))
         platform_metrics().record_run(succeeded=(run.status != "failed"))
+        if idem_key is not None:
+            idem_store.complete(
+                idem_key,
+                status="success" if run.status != "failed" else "failed",
+                result={"body": run.model_dump(mode="json")},
+            )
         return run
 
     @app.post(
@@ -801,9 +847,7 @@ def create_app(
         status_code=status.HTTP_201_CREATED,
     )
     def create_tool(payload: ToolRegistration) -> ToolResponse:
-        if payload.tool_name in state.tools and isinstance(
-            mcp_state, InMemoryMcpGatewayClient
-        ):
+        if payload.tool_name in state.tools and isinstance(mcp_state, InMemoryMcpGatewayClient):
             # Legacy duplicate check (in-memory only — the HTTP client
             # lets the gateway enforce uniqueness and re-raises the
             # upstream 409 below).
@@ -850,7 +894,14 @@ def create_app(
         response_model=EvalRunResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_eval_run(payload: EvalRunRequest) -> EvalRunResponse:
+    def create_eval_run(payload: EvalRunRequest, request: Request) -> EvalRunResponse:
+        # R23: idempotency — a replayed eval POST returns the cached
+        # eval_run_id instead of re-running the (expensive) eval.
+        idem_key = _idempotency_key(request)
+        if idem_key is not None:
+            rec = idem_store.get_or_begin(idem_key)
+            if rec.status in {"success", "failed"} and rec.result is not None:
+                return EvalRunResponse(**rec.result["body"])
         eval_run_id = eval_state.create_eval_run(
             eval_type=payload.eval_type,
             template_id=payload.template_id,
@@ -890,7 +941,14 @@ def create_app(
         }
         eval_state.complete_eval_run(eval_run_id, report=unified.to_dict(), summary=summary)
         record = eval_state.get_eval_run(eval_run_id)
-        return _record_to_response(record)
+        response = _record_to_response(record)
+        if idem_key is not None:
+            idem_store.complete(
+                idem_key,
+                status="success",
+                result={"body": response.model_dump(mode="json")},
+            )
+        return response
 
     @app.get("/api/v1/evaluations/runs", response_model=EvalRunListResponse)
     def list_eval_runs(
