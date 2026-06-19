@@ -182,6 +182,11 @@ class LlmClient:
 
         choice = data["choices"][0]
         latency_ms = (time.perf_counter() - started) * 1000.0
+        usage = {
+            "prompt_tokens": data.get("usage", {}).get("prompt_tokens", 0),
+            "completion_tokens": data.get("usage", {}).get("completion_tokens", 0),
+            "total_tokens": data.get("usage", {}).get("total_tokens", 0),
+        }
         self._emit_trace(
             trace_id=trace_id,
             span_id=span_id,
@@ -189,15 +194,12 @@ class LlmClient:
             response=choice["message"]["content"],
             latency_ms=latency_ms,
             status=status_label,
+            usage=usage,
         )
         return ChatResponse(
             content=choice["message"]["content"],
             model=data.get("model", self.model),
-            usage={
-                "prompt_tokens": data.get("usage", {}).get("prompt_tokens", 0),
-                "completion_tokens": data.get("usage", {}).get("completion_tokens", 0),
-                "total_tokens": data.get("usage", {}).get("total_tokens", 0),
-            },
+            usage=usage,
         )
 
     def _emit_trace(
@@ -209,6 +211,7 @@ class LlmClient:
         response: str,
         latency_ms: float,
         status: str,
+        usage: dict[str, int] | None = None,
     ) -> None:
         """Push one record to the Langfuse emitter (best-effort)."""
         if self.langfuse_emitter is None:
@@ -222,6 +225,7 @@ class LlmClient:
                 response=response,
                 latency_ms=latency_ms,
                 metadata={"status": status},
+                usage=usage,
             )
         except Exception:
             # Tracing must never break a chat() call.
