@@ -29,6 +29,7 @@ def rewrite_query(
     question: str,
     *,
     client: LlmClient | None = None,
+    parent_trace_id: str | None = None,
     fallback: bool = True,
 ) -> str:
     """Rewrite a natural-language question into keyword search terms.
@@ -40,7 +41,12 @@ def rewrite_query(
     client:
         Optional pre-configured :class:`LlmClient`.  When omitted, a default
         client that reads ``LLM_BASE_URL`` / ``QWEN_API_KEY`` / ``LLM_MODEL``
-        from the environment is created.
+        from the environment is created.  The default wiring picks up the
+        process-wide Langfuse emitter (R24-B.1).
+    parent_trace_id:
+        When provided, the rewriter's LLM call is tagged with the same
+        trace id as the surrounding query so the rewrite and the
+        RAG answer share one Langfuse trace.
     fallback:
         When ``True`` and the LLM call fails (timeout, auth error, …), return
         the original *question* as-is so that retrieval still works (degraded
@@ -54,7 +60,12 @@ def rewrite_query(
     llm = client or LlmClient()
     try:
         messages = _QUERY_REWRITE_TEMPLATE.to_messages(question=question)
-        resp = llm.chat(messages, temperature=0.0, max_tokens=128)
+        resp = llm.chat(
+            messages,
+            temperature=0.0,
+            max_tokens=128,
+            parent_trace_id=parent_trace_id,
+        )
     except LlmClientError:
         if fallback:
             return question
