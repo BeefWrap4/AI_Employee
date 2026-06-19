@@ -6,12 +6,12 @@ answer) showed up as two unrelated traces in Langfuse.  When a caller
 passes ``parent_trace_id`` the client must reuse it across multiple
 ``chat()`` calls so the whole run surfaces as one trace.
 """
+
 from __future__ import annotations
 
 from unittest import mock
 
 import httpx
-import pytest
 from ai_employee.llm_gateway.client import LlmClient
 
 

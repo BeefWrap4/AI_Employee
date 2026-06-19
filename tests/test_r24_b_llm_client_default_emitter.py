@@ -6,6 +6,7 @@ need to wire ``langfuse_emitter`` by hand.  When the flag is unset the
 client stays a no-op tracer so test / dev environments don't push to
 the real Langfuse account.
 """
+
 from __future__ import annotations
 
 from unittest import mock

@@ -14,25 +14,25 @@ The ``InProcessWorkerClient`` is built locally so the test module does
 not need to import from the conftest (which is a pytest fixture file
 and a few sub-modules shadow the symbol under the same name).
 """
+
 from __future__ import annotations
 
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import jwt as pyjwt
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi.testclient import TestClient
-
+from ai_employee.common_schemas.knowledge import ParseResponse
 from ai_employee.ingestion_worker.app import create_app as create_worker_app
 from ai_employee.knowledge_api.app import create_app as create_knowledge_app
 from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
-from ai_employee.common_schemas.knowledge import ParseResponse  # noqa: E402, F401
-
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 
 # --------------------------------------------------------------------------- #
 # In-process worker (mirrors conftest pattern)
@@ -94,7 +94,8 @@ def api_factory(knowledge_workspace: Path):
         )
         store.init_schema()
         app = create_knowledge_app(
-            store=store, worker_client=_InProcessWorkerClient(),
+            store=store,
+            worker_client=_InProcessWorkerClient(),
         )
         # The autouse ``_patch_test_client_default_headers`` fixture
         # injects ``X-Internal-Token`` automatically.
@@ -157,7 +158,10 @@ def _oidc_token(
     if roles:
         payload["realm_access"] = {"roles": roles}
     return pyjwt.encode(
-        payload, pem, algorithm="RS256", headers={"kid": kid, "typ": "JWT"},
+        payload,
+        pem,
+        algorithm="RS256",
+        headers={"kid": kid, "typ": "JWT"},
     )
 
 
@@ -183,9 +187,10 @@ def _upload(client: TestClient, *, auth_headers: dict[str, str] | None = None):
 
 
 def test_upload_without_credentials_rejected(api_factory) -> None:
+    import os
+
     from ai_employee.knowledge_api.app import create_app as create_knowledge_app
     from ai_employee.knowledge_api.store import SQLiteStore
-    import os
 
     store = SQLiteStore(
         db_path=os.environ["KNOWLEDGE_SQLITE_PATH"],
@@ -207,9 +212,10 @@ def test_upload_with_internal_token_accepted(api_factory) -> None:
 
 
 def test_upload_rejects_wrong_internal_token(api_factory) -> None:
+    import os
+
     from ai_employee.knowledge_api.app import create_app as create_knowledge_app
     from ai_employee.knowledge_api.store import SQLiteStore
-    import os
 
     store = SQLiteStore(
         db_path=os.environ["KNOWLEDGE_SQLITE_PATH"],
@@ -223,7 +229,8 @@ def test_upload_rejects_wrong_internal_token(api_factory) -> None:
 
 
 def test_upload_with_oidc_admin_token_accepted(
-    api_factory, monkeypatch: pytest.MonkeyPatch,
+    api_factory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     priv, pub = _rsa_keypair()
     kid = "oidc-knowledge"
@@ -238,7 +245,8 @@ def test_upload_with_oidc_admin_token_accepted(
     from ai_employee.auth_policy.oidc import OIDCConfig, OIDCVerifier
 
     cfg = OIDCConfig(
-        issuer=iss, audience=aud,
+        issuer=iss,
+        audience=aud,
         jwks_url="https://idp.example.com/jwks",
         enabled=True,
     )
@@ -252,9 +260,10 @@ def test_upload_with_oidc_admin_token_accepted(
 
     verifier = OIDCVerifier(cfg, _StaticJwks(jwks), verify_signature=True)
     monkeypatch.setattr(dep_mod, "build_oidc_verifier", lambda **kw: verifier)
+    import os
+
     from ai_employee.knowledge_api.app import create_app as create_knowledge_app
     from ai_employee.knowledge_api.store import SQLiteStore
-    import os
 
     store = SQLiteStore(
         db_path=os.environ["KNOWLEDGE_SQLITE_PATH"],
@@ -264,15 +273,20 @@ def test_upload_with_oidc_admin_token_accepted(
     app = create_knowledge_app(store=store, worker_client=_InProcessWorkerClient())
     client = TestClient(app, _internal_token=False)
     token = _oidc_token(
-        private_key=priv, kid=kid, iss=iss, aud=aud,
-        sub="alice", roles=["admin"],  # admin bypasses knowledge:write
+        private_key=priv,
+        kid=kid,
+        iss=iss,
+        aud=aud,
+        sub="alice",
+        roles=["admin"],  # admin bypasses knowledge:write
     )
     resp = _upload(client, auth_headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 202, resp.text
 
 
 def test_upload_with_oidc_token_missing_permission_rejected(
-    api_factory, monkeypatch: pytest.MonkeyPatch,
+    api_factory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     priv, pub = _rsa_keypair()
     kid = "oidc-knowledge-2"
@@ -287,7 +301,8 @@ def test_upload_with_oidc_token_missing_permission_rejected(
     from ai_employee.auth_policy.oidc import OIDCConfig, OIDCVerifier
 
     cfg = OIDCConfig(
-        issuer=iss, audience=aud,
+        issuer=iss,
+        audience=aud,
         jwks_url="https://idp.example.com/jwks",
         enabled=True,
     )
@@ -298,9 +313,10 @@ def test_upload_with_oidc_token_missing_permission_rejected(
 
     verifier = OIDCVerifier(cfg, _StaticJwks(), verify_signature=True)
     monkeypatch.setattr(dep_mod, "build_oidc_verifier", lambda **kw: verifier)
+    import os
+
     from ai_employee.knowledge_api.app import create_app as create_knowledge_app
     from ai_employee.knowledge_api.store import SQLiteStore
-    import os
 
     store = SQLiteStore(
         db_path=os.environ["KNOWLEDGE_SQLITE_PATH"],
@@ -310,8 +326,12 @@ def test_upload_with_oidc_token_missing_permission_rejected(
     app = create_knowledge_app(store=store, worker_client=_InProcessWorkerClient())
     client = TestClient(app, _internal_token=False)
     token = _oidc_token(
-        private_key=priv, kid=kid, iss=iss, aud=aud,
-        sub="bob", roles=["viewer"],  # viewer lacks knowledge:write
+        private_key=priv,
+        kid=kid,
+        iss=iss,
+        aud=aud,
+        sub="bob",
+        roles=["viewer"],  # viewer lacks knowledge:write
     )
     resp = _upload(client, auth_headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403

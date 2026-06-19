@@ -77,6 +77,10 @@ from ai_employee.agent_platform_api.schemas import (
     ToolRegistration,
     ToolResponse,
 )
+from ai_employee.auth_policy.fastapi_dep import (
+    OIDCOrInternalPrincipal,
+    require_oidc_or_internal,
+)
 from ai_employee.common_schemas.eval import (
     UnifiedReport,
     to_unified_rag,
@@ -87,10 +91,6 @@ from ai_employee.common_schemas.idempotency import (
     build_idempotency_store,
 )
 from ai_employee.observability import render_prometheus_text
-from ai_employee.auth_policy.fastapi_dep import (
-    require_oidc_or_internal,
-    OIDCOrInternalPrincipal,
-)
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 

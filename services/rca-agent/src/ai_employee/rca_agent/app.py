@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
+from ai_employee.auth_policy.fastapi_dep import (
+    OIDCOrInternalPrincipal,
+    require_oidc_or_internal,
+)
 from ai_employee.rca_agent.knowledge_feedback import (
     KnowledgeApiError,
     KnowledgeApiUnavailable,
@@ -44,10 +48,6 @@ from ai_employee.rca_agent.ticket_writeback import (
     TicketWritebackStore,
     TicketWritebackUnavailable,
     build_writeback_adapter,
-)
-from ai_employee.auth_policy.fastapi_dep import (
-    require_oidc_or_internal,
-    OIDCOrInternalPrincipal,
 )
 from fastapi import Depends, FastAPI, HTTPException, status
 

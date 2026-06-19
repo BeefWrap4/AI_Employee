@@ -8,6 +8,7 @@ Covers the resolution order:
   4. Strict mode                   → internal token rejected.
   5. No credentials at all         → 401.
 """
+
 from __future__ import annotations
 
 import time
@@ -83,7 +84,10 @@ def _oidc_token(
     if roles:
         payload["realm_access"] = {"roles": roles}
     return pyjwt.encode(
-        payload, pem, algorithm="RS256", headers={"kid": kid, "typ": "JWT"},
+        payload,
+        pem,
+        algorithm="RS256",
+        headers={"kid": kid, "typ": "JWT"},
     )
 
 
@@ -222,7 +226,8 @@ def test_oidc_enabled_with_valid_token_uses_oidc_path(
     from ai_employee.auth_policy.oidc import OIDCConfig, OIDCVerifier
 
     cfg = OIDCConfig(
-        issuer=iss, audience=aud,
+        issuer=iss,
+        audience=aud,
         jwks_url="https://idp.example.com/jwks",
         enabled=True,
     )
@@ -231,8 +236,12 @@ def test_oidc_enabled_with_valid_token_uses_oidc_path(
     # Reset the cached verifier: build_oidc_verifier is called each request,
     # so the patch above suffices.
     token = _oidc_token(
-        private_key=priv, kid=kid, iss=iss, aud=aud,
-        sub="alice", roles=["viewer", "ops"],
+        private_key=priv,
+        kid=kid,
+        iss=iss,
+        aud=aud,
+        sub="alice",
+        roles=["viewer", "ops"],
     )
     client = TestClient(_build_app(perms=["knowledge:read"]))
     resp = client.get("/whoami", headers={"Authorization": f"Bearer {token}"})
@@ -259,7 +268,8 @@ def test_oidc_enabled_rejects_tampered_token(
     from ai_employee.auth_policy.oidc import OIDCConfig, OIDCVerifier
 
     cfg = OIDCConfig(
-        issuer=iss, audience=aud,
+        issuer=iss,
+        audience=aud,
         jwks_url="https://idp.example.com/jwks",
         enabled=True,
     )
@@ -270,7 +280,11 @@ def test_oidc_enabled_rejects_tampered_token(
     import json
 
     token = _oidc_token(
-        private_key=priv, kid=kid, iss=iss, aud=aud, sub="alice",
+        private_key=priv,
+        kid=kid,
+        iss=iss,
+        aud=aud,
+        sub="alice",
     )
     parts = token.split(".")
     raw = parts[1]
@@ -278,7 +292,8 @@ def test_oidc_enabled_rejects_tampered_token(
     payload = json.loads(base64.urlsafe_b64decode(raw + pad))
     payload["sub"] = "admin"
     tampered = (
-        parts[0] + "."
+        parts[0]
+        + "."
         + base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
         + "."
         + parts[2]

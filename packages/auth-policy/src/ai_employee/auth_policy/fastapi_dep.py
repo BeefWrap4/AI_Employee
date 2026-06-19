@@ -34,7 +34,6 @@ from ai_employee.auth_policy.jwt import (
 )
 from ai_employee.auth_policy.oidc import (
     OIDCClaims,
-    OIDCConfig,
     OIDCDisabled,
     OIDCInvalid,
     build_oidc_verifier,
@@ -222,7 +221,7 @@ class OIDCOrInternalPrincipal:
       service.
     """
 
-    __slots__ = ("kind", "oidc_claims", "jwt_claims")
+    __slots__ = ("jwt_claims", "kind", "oidc_claims")
 
     def __init__(
         self,
@@ -255,9 +254,7 @@ def _enforce_permissions(principal: OIDCOrInternalPrincipal, perms: list[str]) -
         # Map OIDC roles → RBAC decision (scopes are empty for OIDC).
         decision = can_any(principal.oidc_claims.roles, [], perms)
     elif principal.jwt_claims is not None:
-        decision = can_any(
-            principal.jwt_claims.roles, principal.jwt_claims.scopes, perms
-        )
+        decision = can_any(principal.jwt_claims.roles, principal.jwt_claims.scopes, perms)
     else:
         # Internal token: trusted, no permission check.
         return
@@ -306,7 +303,8 @@ def require_oidc_or_internal(
         if oidc_claims is not None:
             request.state.claims = oidc_claims
             principal = OIDCOrInternalPrincipal(
-                kind="oidc", oidc_claims=oidc_claims,
+                kind="oidc",
+                oidc_claims=oidc_claims,
             )
             if permissions:
                 _enforce_permissions(principal, permissions)
@@ -316,7 +314,8 @@ def require_oidc_or_internal(
         if jwt_claims is not None:
             request.state.claims = jwt_claims
             principal = OIDCOrInternalPrincipal(
-                kind="jwt", jwt_claims=jwt_claims,
+                kind="jwt",
+                jwt_claims=jwt_claims,
             )
             if permissions:
                 _enforce_permissions(principal, permissions)

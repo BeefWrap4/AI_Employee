@@ -1,4 +1,5 @@
 """Sensitive field redaction tests."""
+
 from __future__ import annotations
 
 from ai_employee.common_schemas.redaction import RedactionConfig, redact_dict, redact_text
@@ -44,8 +45,11 @@ def test_preserves_non_sensitive_text() -> None:
 
 def test_config_can_disable_patterns() -> None:
     cfg = RedactionConfig(
-        redact_phone=False, redact_email=False, redact_id_card=False,
-        redact_ip=False, redact_token=False,
+        redact_phone=False,
+        redact_email=False,
+        redact_id_card=False,
+        redact_ip=False,
+        redact_token=False,
     )
     text = "13800138000 admin@example.com 110101199003078811 192.168.1.100"
     out = redact_text(text, cfg)

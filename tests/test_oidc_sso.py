@@ -1,4 +1,5 @@
 """OIDC SSO tests (spec §8)."""
+
 from __future__ import annotations
 
 import base64
@@ -26,7 +27,9 @@ def _make_unverified_token(*, iss, aud, exp_offset=3600, sub="alice", extra=None
     """
     header = {"alg": "RS256", "kid": "k1", "typ": "JWT"}
     payload = {
-        "iss": iss, "aud": aud, "sub": sub,
+        "iss": iss,
+        "aud": aud,
+        "sub": sub,
         "exp": int(time.time()) + exp_offset,
         "iat": int(time.time()),
         **(extra or {}),
@@ -147,7 +150,9 @@ def test_remote_jwks_client_caches() -> None:
 
 def test_verify_oidc_token_valid() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee", enabled=True,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
     )
     token = _make_unverified_token(iss="https://idp.example.com", aud="ai-employee")
     claims = verify_oidc_token(token, config=cfg, verify_signature=False)
@@ -158,7 +163,9 @@ def test_verify_oidc_token_valid() -> None:
 
 def test_verify_oidc_token_rejects_wrong_issuer() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee", enabled=True,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
     )
     token = _make_unverified_token(iss="https://evil.example.com", aud="ai-employee")
     with pytest.raises(OIDCInvalid, match="issuer"):
@@ -167,7 +174,9 @@ def test_verify_oidc_token_rejects_wrong_issuer() -> None:
 
 def test_verify_oidc_token_rejects_wrong_audience() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee", enabled=True,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
     )
     token = _make_unverified_token(iss="https://idp.example.com", aud="other-client")
     with pytest.raises(OIDCInvalid, match="audience"):
@@ -176,10 +185,13 @@ def test_verify_oidc_token_rejects_wrong_audience() -> None:
 
 def test_verify_oidc_token_accepts_audience_in_list() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee", enabled=True,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
     )
     token = _make_unverified_token(
-        iss="https://idp.example.com", aud=["other", "ai-employee"],
+        iss="https://idp.example.com",
+        aud=["other", "ai-employee"],
     )
     claims = verify_oidc_token(token, config=cfg, verify_signature=False)
     assert claims.aud == "other"
@@ -187,11 +199,15 @@ def test_verify_oidc_token_accepts_audience_in_list() -> None:
 
 def test_verify_oidc_token_rejects_expired() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee",
-        enabled=True, clock_skew_s=0,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
+        clock_skew_s=0,
     )
     token = _make_unverified_token(
-        iss="https://idp.example.com", aud="ai-employee", exp_offset=-10,
+        iss="https://idp.example.com",
+        aud="ai-employee",
+        exp_offset=-10,
     )
     with pytest.raises(OIDCInvalid, match="expired"):
         verify_oidc_token(token, config=cfg, verify_signature=False)
@@ -199,12 +215,16 @@ def test_verify_oidc_token_rejects_expired() -> None:
 
 def test_verify_oidc_token_respects_clock_skew() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee",
-        enabled=True, clock_skew_s=120,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
+        clock_skew_s=120,
     )
     # Expired 30s ago but within the 120s skew window → still valid.
     token = _make_unverified_token(
-        iss="https://idp.example.com", aud="ai-employee", exp_offset=-30,
+        iss="https://idp.example.com",
+        aud="ai-employee",
+        exp_offset=-30,
     )
     claims = verify_oidc_token(token, config=cfg, verify_signature=False)
     assert claims.sub == "alice"
@@ -218,7 +238,9 @@ def test_verify_oidc_token_disabled_raises_oidc_disabled() -> None:
 
 def test_verify_oidc_token_rejects_malformed() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee", enabled=True,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
     )
     with pytest.raises(OIDCInvalid, match="malformed"):
         verify_oidc_token("not.a.jwt.token", config=cfg, verify_signature=False)
@@ -226,10 +248,13 @@ def test_verify_oidc_token_rejects_malformed() -> None:
 
 def test_oidc_claims_extracts_realm_roles() -> None:
     cfg = OIDCConfig(
-        issuer="https://idp.example.com", audience="ai-employee", enabled=True,
+        issuer="https://idp.example.com",
+        audience="ai-employee",
+        enabled=True,
     )
     token = _make_unverified_token(
-        iss="https://idp.example.com", aud="ai-employee",
+        iss="https://idp.example.com",
+        aud="ai-employee",
         extra={"email": "alice@example.com", "realm_access": {"roles": ["ops", "admin"]}},
     )
     claims = verify_oidc_token(token, config=cfg, verify_signature=False)
@@ -239,8 +264,13 @@ def test_oidc_claims_extracts_realm_roles() -> None:
 
 def test_oidc_claims_to_dict() -> None:
     claims = OIDCClaims(
-        sub="alice", iss="https://idp", aud="ai-employee",
-        exp=9999999999, iat=1, email="alice@example.com", roles=["ops"],
+        sub="alice",
+        iss="https://idp",
+        aud="ai-employee",
+        exp=9999999999,
+        iat=1,
+        email="alice@example.com",
+        roles=["ops"],
         raw={"sub": "alice"},
     )
     d = claims.to_dict()

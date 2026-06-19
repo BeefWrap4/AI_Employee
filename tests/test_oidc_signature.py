@@ -13,6 +13,7 @@ These tests use the real ``pyjwt`` + ``cryptography`` stack — no
 ``_verify_signature`` to a structural check (e.g. only validating that
 ``PyJWK`` can parse the key) trips at least one assertion here.
 """
+
 from __future__ import annotations
 
 import time
@@ -28,7 +29,6 @@ from ai_employee.auth_policy.oidc import (
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-
 
 # --------------------------------------------------------------------------- #
 # Test fixtures — real RS256 key + JWKS
@@ -163,9 +163,7 @@ def test_tampered_payload_is_rejected(rsa_setup: dict[str, Any]) -> None:
     payload = json.loads(base64.urlsafe_b64decode(raw + pad))
     payload["sub"] = "admin"
     tampered_payload_b64 = (
-        base64.urlsafe_b64encode(json.dumps(payload).encode())
-        .rstrip(b"=")
-        .decode()
+        base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
     )
     tampered = f"{header_b64}.{tampered_payload_b64}.{sig_b64}"
     assert tampered != token  # sanity

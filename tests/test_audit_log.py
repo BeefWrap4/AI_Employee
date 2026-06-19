@@ -1,4 +1,5 @@
 """Audit log / event sourcing tests."""
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.audit import (
@@ -30,9 +31,12 @@ def test_audit_event_serializes_to_dict() -> None:
 
 def test_audit_event_defaults() -> None:
     ev = AuditEvent(
-        seq=2, ts="2026-06-18T00:00:01Z",
-        actor="bob", action="run.created",
-        target_type="agent_run", target_id="agent_run_001",
+        seq=2,
+        ts="2026-06-18T00:00:01Z",
+        actor="bob",
+        action="run.created",
+        target_type="agent_run",
+        target_id="agent_run_001",
     )
     assert ev.payload == {}
 
@@ -94,7 +98,9 @@ def test_audit_log_monotonic_seq_across_append() -> None:
 
 def test_audit_log_filter_by_action() -> None:
     log = InMemoryAuditLog()
-    log.append(action="approval.decided", actor="alice", target_type="approval_task", target_id="t1")
+    log.append(
+        action="approval.decided", actor="alice", target_type="approval_task", target_id="t1"
+    )
     log.append(action="approval.routed", actor="alice", target_type="approval_task", target_id="t1")
     log.append(action="approval.decided", actor="bob", target_type="approval_task", target_id="t2")
     decided = log.list_by_action("approval.decided")
@@ -141,8 +147,8 @@ def test_record_event_redacts_phone_in_payload(monkeypatch) -> None:
     """record_event must mask phone numbers inside payload values."""
     from ai_employee.agent_platform_api import audit as audit_mod
     from ai_employee.agent_platform_api.tenant import (
-        set_current_tenant_id,
         reset_current_tenant,
+        set_current_tenant_id,
     )
 
     audit_mod.reset_audit_log()
@@ -164,8 +170,8 @@ def test_record_event_redacts_phone_in_payload(monkeypatch) -> None:
 def test_record_event_redacts_email_in_payload(monkeypatch) -> None:
     from ai_employee.agent_platform_api import audit as audit_mod
     from ai_employee.agent_platform_api.tenant import (
-        set_current_tenant_id,
         reset_current_tenant,
+        set_current_tenant_id,
     )
 
     audit_mod.reset_audit_log()
@@ -187,8 +193,8 @@ def test_record_event_redacts_nested_payload(monkeypatch) -> None:
     """Redaction must walk into nested dicts and lists of dicts."""
     from ai_employee.agent_platform_api import audit as audit_mod
     from ai_employee.agent_platform_api.tenant import (
-        set_current_tenant_id,
         reset_current_tenant,
+        set_current_tenant_id,
     )
 
     audit_mod.reset_audit_log()
@@ -220,8 +226,8 @@ def test_record_event_redacts_nested_payload(monkeypatch) -> None:
 def test_record_event_redacts_password_field(monkeypatch) -> None:
     from ai_employee.agent_platform_api import audit as audit_mod
     from ai_employee.agent_platform_api.tenant import (
-        set_current_tenant_id,
         reset_current_tenant,
+        set_current_tenant_id,
     )
 
     audit_mod.reset_audit_log()

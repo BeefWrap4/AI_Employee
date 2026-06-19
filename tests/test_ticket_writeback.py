@@ -136,7 +136,6 @@ def test_fixture_adapter_redacts_summary_markdown() -> None:
 
 def test_http_adapter_redacts_summary_and_root_cause() -> None:
     """The HTTP adapter must redact PII before sending the payload."""
-    import json
 
     fake_resp = MagicMock()
     fake_resp.status_code = 201

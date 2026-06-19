@@ -13,6 +13,7 @@ We mock ``httpx.post`` (so the LLM gateway never actually calls
 DashScope) and the Langfuse emitter's http client (so flush() doesn't
 hit the real endpoint).
 """
+
 from __future__ import annotations
 
 import json
@@ -69,7 +70,9 @@ class _CapturingLlmClient:
         )
 
 
-def _enable_llm_gateway(monkeypatch, fake_langfuse_client: _FakeLangfuseClient | None = None) -> _CapturingLlmClient:
+def _enable_llm_gateway(
+    monkeypatch, fake_langfuse_client: _FakeLangfuseClient | None = None
+) -> _CapturingLlmClient:
     """Patch the LlmClient symbol that app.py imports lazily.
 
     app.py does ``from ai_employee.llm_gateway.client import LlmClient`` at the
@@ -97,7 +100,9 @@ def _enable_llm_gateway(monkeypatch, fake_langfuse_client: _FakeLangfuseClient |
     return capturing
 
 
-def _seed_published_chunk(tmp_path, store_path: str, doc_title: str = "RRC SOP", content: str = "RRC 建立失败先查告警KPI") -> None:
+def _seed_published_chunk(
+    tmp_path, store_path: str, doc_title: str = "RRC SOP", content: str = "RRC 建立失败先查告警KPI"
+) -> None:
     from ai_employee.knowledge_api.store import SQLiteStore
 
     store = SQLiteStore(db_path=store_path, data_dir=str(tmp_path))
@@ -138,7 +143,8 @@ def test_llm_client_default_uses_langfuse_when_enabled(monkeypatch: pytest.Monke
 
 
 def test_query_endpoint_passes_parent_trace_id_to_chat(
-    knowledge_workspace, monkeypatch: pytest.MonkeyPatch,
+    knowledge_workspace,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The query path must hand ``trace_id`` to ``chat`` so the trace is shared."""
     capturing = _enable_llm_gateway(monkeypatch)
@@ -159,7 +165,8 @@ def test_query_endpoint_passes_parent_trace_id_to_chat(
 
 
 def test_query_endpoint_emits_trace_via_default_emitter(
-    knowledge_workspace, monkeypatch: pytest.MonkeyPatch,
+    knowledge_workspace,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """End-to-end: real LlmClient → Langfuse emitter buffers + dispatches one trace."""
     fake_lf = _FakeLangfuseClient()
@@ -168,6 +175,7 @@ def test_query_endpoint_emits_trace_via_default_emitter(
     # reach the per-request emitter from outside the call.
     captured_emitters: list[LangfuseEmitter] = []
     import ai_employee.llm_gateway.client as client_module
+
     original_init = client_module.LlmClient.__init__
 
     def _capturing_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
@@ -214,7 +222,11 @@ def test_query_endpoint_emits_trace_via_default_emitter(
         _seed_published_chunk(knowledge_workspace, str(knowledge_workspace / "knowledge.sqlite3"))
         response = client.post(
             "/api/v1/chat/query",
-            json={"question": "什么是 RRC？", "session_id": "s_test", "knowledge_scopes": ["wireless"]},
+            json={
+                "question": "什么是 RRC？",
+                "session_id": "s_test",
+                "knowledge_scopes": ["wireless"],
+            },
         )
     assert response.status_code == 200, response.text
     body = response.json()

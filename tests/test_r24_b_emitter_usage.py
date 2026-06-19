@@ -11,6 +11,7 @@ int metric but not honest token accounting.  These tests verify:
 * ``latency_ms`` is preserved as a top-level metadata field so
   dashboards still see it.
 """
+
 from __future__ import annotations
 
 import json

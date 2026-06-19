@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import tempfile
 import uuid
 from typing import Any
 
+from ai_employee.auth_policy.fastapi_dep import (
+    OIDCOrInternalPrincipal,
+    require_oidc_or_internal,
+)
 from ai_employee.common_schemas.embedding import build_provider
 from ai_employee.common_schemas.idempotency import (
     IdempotencyStore,
@@ -15,27 +19,6 @@ from ai_employee.common_schemas.idempotency import (
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.knowledge_api.internal_auth import require_internal_token
 from ai_employee.knowledge_api.retrieval import RetrievalService
-from ai_employee.auth_policy.fastapi_dep import (
-    require_oidc_or_internal,
-    OIDCOrInternalPrincipal,
-)
-
-
-# --------------------------------------------------------------------------- #
-# R19-2 default aggregator stubs (alarm/KPI backends are pluggable).
-# --------------------------------------------------------------------------- #
-class _StubAlarmAggregator:
-    """Default alarm aggregator: returns empty (no data → 404)."""
-
-    def bucket_alarms(self, *, metric, window_minutes, now):  # type: ignore[no-untyped-def]
-        return []
-
-
-class _StubKpiAggregator:
-    """Default KPI aggregator: returns empty (no data → 404)."""
-
-    def bucket_kpi(self, *, metric, site_id, window_minutes, now):  # type: ignore[no-untyped-def]
-        return []
 from ai_employee.knowledge_api.schemas import (
     ChunkResponse,
     Citation,
@@ -70,6 +53,24 @@ from fastapi import (
     status,
 )
 
+
+# --------------------------------------------------------------------------- #
+# R19-2 default aggregator stubs (alarm/KPI backends are pluggable).
+# --------------------------------------------------------------------------- #
+class _StubAlarmAggregator:
+    """Default alarm aggregator: returns empty (no data → 404)."""
+
+    def bucket_alarms(self, *, metric, window_minutes, now):  # type: ignore[no-untyped-def]
+        return []
+
+
+class _StubKpiAggregator:
+    """Default KPI aggregator: returns empty (no data → 404)."""
+
+    def bucket_kpi(self, *, metric, site_id, window_minutes, now):  # type: ignore[no-untyped-def]
+        return []
+
+
 _LLM_GATEWAY_ENABLED = os.getenv("LLM_GATEWAY_ENABLED", "false").strip().lower() in (
     "true",
     "1",
@@ -103,7 +104,7 @@ def _config() -> dict[str, Any]:
 def create_app(
     store: SQLiteStore | None = None,
     worker_client: WorkerClient | None = None,
-    idempotency_store: "IdempotencyStore | None" = None,
+    idempotency_store: IdempotencyStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AI Employee Knowledge API", version=SERVICE_VERSION)
     cfg = _config()
@@ -120,9 +121,7 @@ def create_app(
     query_provider, query_degraded = build_provider()
     from ai_employee.knowledge_api.reranker import build_reranker
 
-    retrieval = RetrievalService(
-        store, query_provider=query_provider, reranker=build_reranker()
-    )
+    retrieval = RetrievalService(store, query_provider=query_provider, reranker=build_reranker())
     # 暴露 retrieval 让测试可注入 query provider
     app.state.retrieval = retrieval
     auth = require_internal_token(cfg["internal_token"])
@@ -465,7 +464,8 @@ def create_app(
                 pass
             aggregator = EChartsAggregator(alarm=alarm_agg, kpi=kpi_agg)
 
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
 
         now = _dt.now(_tz.utc)
         option = aggregator.build_option(
@@ -484,9 +484,7 @@ def create_app(
 
         chart_id = f"chart_{uuid.uuid4().hex[:12]}"
         # Persist option so the schema lookup endpoint can resolve it later.
-        store_map: dict[str, dict[str, Any]] = getattr(
-            app.state, "echarts_chart_store", {}
-        )
+        store_map: dict[str, dict[str, Any]] = getattr(app.state, "echarts_chart_store", {})
         store_map[chart_id] = option
         app.state.echarts_chart_store = store_map
         return EChartsResponse(
@@ -508,9 +506,7 @@ def create_app(
         stream emits only ``chart_id + schema_url``; the consumer fetches
         the full option lazily via this endpoint.
         """
-        store_map: dict[str, dict[str, Any]] = getattr(
-            app.state, "echarts_chart_store", {}
-        )
+        store_map: dict[str, dict[str, Any]] = getattr(app.state, "echarts_chart_store", {})
         option = store_map.get(chart_id)
         if option is None:
             raise HTTPException(
@@ -548,15 +544,11 @@ def create_app(
             # incremental progress without trying to be token-perfect.
             text = result.answer
             for start in range(0, len(text), 40):
-                yield f"event: token\ndata: {json.dumps({'text': text[start:start + 40]})}\n\n"
-            citations_payload = [
-                c.model_dump() for c in result.citations
-            ]
+                yield f"event: token\ndata: {json.dumps({'text': text[start : start + 40]})}\n\n"
+            citations_payload = [c.model_dump() for c in result.citations]
             yield f"event: citations\ndata: {json.dumps({'citations': citations_payload})}\n\n"
             if chart_ref is not None:
-                yield (
-                    f"event: chart\ndata: {json.dumps(chart_ref, ensure_ascii=False)}\n\n"
-                )
+                yield (f"event: chart\ndata: {json.dumps(chart_ref, ensure_ascii=False)}\n\n")
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(_gen(), media_type="text/event-stream")
@@ -602,9 +594,7 @@ def create_app(
                     hydrated.append(full)
                     continue
             hydrated.append(row)
-        context_str = _build_multiturn_context_str(
-            store=store, prior_rows=hydrated
-        )
+        context_str = _build_multiturn_context_str(store=store, prior_rows=hydrated)
         prior_turn_hint = ""
         if context_str:
             prior_turn_hint = (
@@ -667,6 +657,7 @@ def create_app(
             # persisting QA log so reviewers don't see raw phone / email
             # / ID numbers in audit trails.
             from ai_employee.common_schemas.redaction import redact_text
+
             redacted_question = redact_text(payload.question)
             redacted_answer = redact_text(answer)
             store.write_qa_log(
@@ -816,9 +807,7 @@ def create_app(
     return app
 
 
-def _maybe_build_chart_ref(
-    *, app: FastAPI, payload: QueryRequest
-) -> dict[str, str] | None:
+def _maybe_build_chart_ref(*, app: FastAPI, payload: QueryRequest) -> dict[str, str] | None:
     """Return ``{chart_id, schema_url}`` if the question implies a trend.
 
     The question is scanned for alarm/KPI keywords (Chinese + English).  If
@@ -836,6 +825,7 @@ def _maybe_build_chart_ref(
         InfluxKpiAggregator,
         RcaAgentAlarmAggregator,
     )
+
     aggregator = getattr(app.state, "echarts_aggregator", None)
     if aggregator is None:
         alarm_agg: Any = _StubAlarmAggregator()
@@ -858,7 +848,8 @@ def _maybe_build_chart_ref(
         except Exception:
             pass
         aggregator = EChartsAggregator(alarm=alarm_agg, kpi=kpi_agg)
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
 
     option = aggregator.build_option(
         metric=metric,
@@ -871,9 +862,7 @@ def _maybe_build_chart_ref(
     import uuid
 
     chart_id = f"chart_{uuid.uuid4().hex[:12]}"
-    store_map: dict[str, dict[str, Any]] = getattr(
-        app.state, "echarts_chart_store", {}
-    )
+    store_map: dict[str, dict[str, Any]] = getattr(app.state, "echarts_chart_store", {})
     store_map[chart_id] = option
     app.state.echarts_chart_store = store_map
     return {
@@ -899,9 +888,7 @@ def _detect_trend_metric(question: str) -> str | None:
     return None
 
 
-def _build_multiturn_context_str(
-    *, store: SQLiteStore, prior_rows: list[dict[str, Any]]
-) -> str:
+def _build_multiturn_context_str(*, store: SQLiteStore, prior_rows: list[dict[str, Any]]) -> str:
     """Build the multi-turn context string from prior qa_log rows.
 
     Each prior turn contributes:
@@ -939,8 +926,7 @@ def _build_multiturn_context_str(
             f"[历史上下文] session_turn trace_id={row.get('trace_id', '')}\n"
             f"  question: {q[:200]}\n"
             f"  answer: {a[:200]}\n"
-            f"  retrieved_chunks:\n"
-            + "\n".join(chunk_lines)
+            f"  retrieved_chunks:\n" + "\n".join(chunk_lines)
         )
         parts.append(block)
     return "\n\n".join(parts)

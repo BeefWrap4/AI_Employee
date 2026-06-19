@@ -5,6 +5,7 @@ recorded here: run_id, tool_name, input_summary, output_summary, status,
 latency_ms, error_code.  Drives the ``tool_call_success_rate`` metric
 and audit queries.
 """
+
 from __future__ import annotations
 
 import os

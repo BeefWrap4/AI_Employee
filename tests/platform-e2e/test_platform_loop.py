@@ -104,6 +104,16 @@ def _operator_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _reviewer_headers() -> dict[str, str]:
+    token = issue_token(
+        subject="e2e-reviewer",
+        roles=["reviewer"],
+        scopes=["agent:approve", "rca:approve"],
+        secret=SECRET,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
 # --------------------------------------------------------------------------- #
 # Knowledge loop: ingest → publish → query
 # --------------------------------------------------------------------------- #
@@ -136,12 +146,16 @@ def test_knowledge_ingest_publish_query_loop(tmp_path) -> None:
                 "text/markdown",
             )
         },
+        headers=_operator_headers(),
     )
     assert upload.status_code == 202, upload.text
     doc_id = upload.json()["doc_id"]
     assert upload.json()["parse_status"] == "ready"
 
-    publish = client.post(f"/api/v1/documents/{doc_id}/publish")
+    publish = client.post(
+        f"/api/v1/documents/{doc_id}/publish",
+        headers=_operator_headers(),
+    )
     assert publish.status_code == 200, publish.text
     assert publish.json()["parse_status"] == "published"
 
@@ -195,6 +209,7 @@ def test_rca_run_review_candidate_loop() -> None:
             "require_human_review": True,
             "alarms": _sample_alarms(),
         },
+        headers=_operator_headers(),
     )
     assert created.status_code == 201, created.text
     run = created.json()
@@ -208,6 +223,7 @@ def test_rca_run_review_candidate_loop() -> None:
             "final_root_cause": "transmission_link_degradation",
             "reviewer": "e2e",
         },
+        headers=_reviewer_headers(),
     )
     assert review.status_code == 200
 
@@ -240,6 +256,7 @@ def test_agent_run_approval_resume_loop(tmp_path) -> None:
             "requested_by": "e2e",
             "input": {"incident_id": "inc_001"},
         },
+        headers=_operator_headers(),
     )
     assert created.status_code == 201
     run_id = created.json()["run_id"]
@@ -251,6 +268,7 @@ def test_agent_run_approval_resume_loop(tmp_path) -> None:
     decision = client.post(
         f"/api/v1/approval-tasks/{task_id}/decision",
         json={"decision": "approved", "decided_by": "e2e", "comment": "ok"},
+        headers=_reviewer_headers(),
     )
     assert decision.status_code == 200
 
@@ -266,9 +284,13 @@ def test_agent_run_approval_resume_loop(tmp_path) -> None:
             "requested_by": "e2e",
             "input": {"question": "RRC?"},
         },
+        headers=_operator_headers(),
     )
     qa_run_id = qa.json()["run_id"]
-    resume = client.post(f"/api/v1/agent-runs/{qa_run_id}/resume")
+    resume = client.post(
+        f"/api/v1/agent-runs/{qa_run_id}/resume",
+        headers=_operator_headers(),
+    )
     assert resume.status_code == 409
 
 

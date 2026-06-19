@@ -12,7 +12,6 @@ from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
 from fastapi.testclient import TestClient
 
-
 # --------------------------------------------------------------------------- #
 # R24-A.4: ensure every test sees the legacy internal-token env var so the
 # ``require_oidc_or_internal`` fallback path accepts requests built by

@@ -16,6 +16,7 @@ Signature verification uses PyJWT when available; the JWKS fetch is
 pluggable via the :class:`JwksClient` protocol so tests can inject a
 stub without network access.
 """
+
 from __future__ import annotations
 
 import base64
@@ -165,9 +166,12 @@ class RemoteJwksClient:
         ``kid`` is present (the caller raises ``OIDCInvalid`` if the key
         is still missing).
         """
-        if self._cache is not None and not self._cache_expired():
-            if kid is None or any(k.get("kid") == kid for k in self._cache):
-                return list(self._cache)
+        if (
+            self._cache is not None
+            and not self._cache_expired()
+            and (kid is None or any(k.get("kid") == kid for k in self._cache))
+        ):
+            return list(self._cache)
         # Cold cache, expired TTL, or kid miss → fetch.
         return self._store(self._http_get())
 
@@ -250,7 +254,8 @@ def _verify_signature(token: str, *, header: dict[str, Any], jwks: list[dict[str
             last_err = exc
             continue
     raise OIDCInvalid(
-        f"signature verification failed: {last_err!r}" if last_err
+        f"signature verification failed: {last_err!r}"
+        if last_err
         else "signature verification failed: no usable key"
     )
 
@@ -295,7 +300,9 @@ def verify_oidc_token(
         exp=int(exp),
         iat=int(payload.get("iat", now)),
         email=payload.get("email"),
-        roles=list(payload.get("roles", []) or payload.get("realm_access", {}).get("roles", []) or []),
+        roles=list(
+            payload.get("roles", []) or payload.get("realm_access", {}).get("roles", []) or []
+        ),
         raw=payload,
     )
 

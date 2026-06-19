@@ -1,4 +1,5 @@
 """RCA report sections + tool_call_log tests (spec §6.4/§6.6)."""
+
 from __future__ import annotations
 
 from ai_employee.rca_agent.app import create_app
@@ -98,10 +99,13 @@ def test_tool_call_log_records_per_adapter_call(tmp_path) -> None:
     alarms = [RawAlarmEvent(**a) for a in _alarms()]
     for a in alarms:
         from ai_employee.rca_agent.runtime import normalize_alarm
+
         normalize_alarm(store, a)
     incident = build_incident(store, alarms)
     collect_evidence(
-        incident, run_id="rca_run_test", tool_call_log=log_store,
+        incident,
+        run_id="rca_run_test",
+        tool_call_log=log_store,
     )
     rows = log_store.list_for_run("rca_run_test")
     assert len(rows) >= 4
@@ -115,8 +119,10 @@ def test_e2e_run_records_in_tool_call_log(tmp_path) -> None:
     visibility across the TestClient boundary is flaky there.
     """
     import sys
+
     if sys.platform.startswith("win"):
         import pytest
+
         pytest.skip("WAL visibility flaky on Windows; covered by direct unit test")
     log_store = RcaToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     store = RcaStore(rca_tool_call_log=log_store)
@@ -141,6 +147,7 @@ def test_e2e_run_records_in_tool_call_log(tmp_path) -> None:
     by polling briefly (Windows file-locking quirk; same store + path).
     """
     import time as _t
+
     db = str(tmp_path / "calls.sqlite3")
     log_store = RcaToolCallLogStore(db_path=db)
     store = RcaStore(rca_tool_call_log=log_store)
@@ -176,8 +183,13 @@ def test_tool_call_log_success_rate(tmp_path) -> None:
     rate = log_store.success_rate(tool_name="kpi")
     assert rate == 1.0  # empty → 1.0 (no failures)
     log_store.record(
-        run_id="r", tool_name="kpi", input_summary="x",
-        output_summary="y", status="success", latency_ms=10, error_code=None,
+        run_id="r",
+        tool_name="kpi",
+        input_summary="x",
+        output_summary="y",
+        status="success",
+        latency_ms=10,
+        error_code=None,
     )
     assert log_store.success_rate(tool_name="kpi") == 1.0
 
@@ -190,8 +202,13 @@ def test_tool_call_log_success_rate(tmp_path) -> None:
 def test_rca_tool_call_log_redacts_input_summary(tmp_path) -> None:
     log_store = RcaToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     log_store.record(
-        run_id="r1", tool_name="kpi", input_summary="phone 13800138000",
-        output_summary="kpi value", status="success", latency_ms=10, error_code=None,
+        run_id="r1",
+        tool_name="kpi",
+        input_summary="phone 13800138000",
+        output_summary="kpi value",
+        status="success",
+        latency_ms=10,
+        error_code=None,
     )
     rows = log_store.list_for_run("r1")
     assert len(rows) == 1
@@ -202,9 +219,13 @@ def test_rca_tool_call_log_redacts_input_summary(tmp_path) -> None:
 def test_rca_tool_call_log_redacts_output_summary(tmp_path) -> None:
     log_store = RcaToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     log_store.record(
-        run_id="r1", tool_name="kpi", input_summary="kpi query",
-        output_summary="contact admin@example.com", status="success",
-        latency_ms=10, error_code=None,
+        run_id="r1",
+        tool_name="kpi",
+        input_summary="kpi query",
+        output_summary="contact admin@example.com",
+        status="success",
+        latency_ms=10,
+        error_code=None,
     )
     rows = log_store.list_for_run("r1")
     assert len(rows) == 1

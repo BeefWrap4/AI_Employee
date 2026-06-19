@@ -270,22 +270,9 @@ class SiliconFlowClient(LlmClient):
         max_retries: int = 2,
         langfuse_emitter: LangfuseEmitter | None = None,
     ) -> None:
-        resolved_base = (
-            base_url
-            or os.getenv("SILICONFLOW_BASE_URL")
-            or _SILICONFLOW_BASE_URL
-        )
-        resolved_key = (
-            api_key
-            or os.getenv("SILICONFLOW_API_KEY")
-            or os.getenv("LLM_API_KEY")
-            or ""
-        )
-        resolved_model = (
-            model
-            or os.getenv("SILICONFLOW_MODEL")
-            or _SILICONFLOW_DEFAULT_MODEL
-        )
+        resolved_base = base_url or os.getenv("SILICONFLOW_BASE_URL") or _SILICONFLOW_BASE_URL
+        resolved_key = api_key or os.getenv("SILICONFLOW_API_KEY") or os.getenv("LLM_API_KEY") or ""
+        resolved_model = model or os.getenv("SILICONFLOW_MODEL") or _SILICONFLOW_DEFAULT_MODEL
         super().__init__(
             base_url=resolved_base,
             api_key=resolved_key,
@@ -312,11 +299,7 @@ def build_siliconflow_client(
     a deliberate design choice to prevent accidental cross-vendor
     usage during the demo / Alibaba Cloud deployment.
     """
-    resolved_key = (
-        api_key
-        or os.getenv("SILICONFLOW_API_KEY")
-        or os.getenv("LLM_API_KEY")
-    )
+    resolved_key = api_key or os.getenv("SILICONFLOW_API_KEY") or os.getenv("LLM_API_KEY")
     if not resolved_key:
         raise RuntimeError(
             "SILICONFLOW_API_KEY is not set; refusing to build "

@@ -19,6 +19,7 @@ Network failures during flush are caught and reported in the return
 value rather than raised — losing telemetry must never break an agent
 run.
 """
+
 from __future__ import annotations
 
 import base64
@@ -34,7 +35,12 @@ class _HttpClient(Protocol):
     """Minimal interface so tests can inject a fake without httpx/requests."""
 
     def post(
-        self, url: str, *, headers: dict[str, str], content: str, timeout: float,
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        content: str,
+        timeout: float,
     ) -> Any: ...
 
 
@@ -181,14 +187,24 @@ def build_langfuse_emitter(
     var.  ``enabled`` defaults to the env flag (false when unset).
     """
     env_enabled = os.environ.get("LANGFUSE_ENABLED", "").lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
     return LangfuseEmitter(
         enabled=env_enabled if enabled is None else enabled,
-        public_key=public_key if public_key is not None else os.environ.get("LANGFUSE_PUBLIC_KEY", ""),
-        secret_key=secret_key if secret_key is not None else os.environ.get("LANGFUSE_SECRET_KEY", ""),
-        host=host if host is not None else os.environ.get(
-            "LANGFUSE_HOST", "https://cloud.langfuse.com",
+        public_key=public_key
+        if public_key is not None
+        else os.environ.get("LANGFUSE_PUBLIC_KEY", ""),
+        secret_key=secret_key
+        if secret_key is not None
+        else os.environ.get("LANGFUSE_SECRET_KEY", ""),
+        host=host
+        if host is not None
+        else os.environ.get(
+            "LANGFUSE_HOST",
+            "https://cloud.langfuse.com",
         ),
     )
 

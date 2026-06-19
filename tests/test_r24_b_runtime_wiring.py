@@ -15,6 +15,7 @@ self-built DAG.  After R24-B.5:
 These tests verify both code paths at the runtime level and through
 the HTTP layer.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -63,8 +64,7 @@ def test_create_run_dag_path_unchanged_by_default(monkeypatch: pytest.MonkeyPatc
     assert run.run_id in store.runs
     # Approval task was created in the platform store.
     assert any(
-        t.run_id == run.run_id and t.status == "pending"
-        for t in store.approval_tasks.values()
+        t.run_id == run.run_id and t.status == "pending" for t in store.approval_tasks.values()
     )
 
 
@@ -100,8 +100,7 @@ def test_create_run_langgraph_approval_required_pauses(monkeypatch: pytest.Monke
     assert "ApprovalRequired" in node_names
     # Approval task was mirrored into the platform store.
     assert any(
-        t.run_id == run.run_id and t.status == "pending"
-        for t in store.approval_tasks.values()
+        t.run_id == run.run_id and t.status == "pending" for t in store.approval_tasks.values()
     )
 
 

@@ -99,9 +99,7 @@ class HttpTicketWritebackAdapter:
         # tokens into the ticketing system.
         redacted_summary = redact_text(summary_markdown, _DEFAULT_REDACTION)
         redacted_root_cause = (
-            redact_text(final_root_cause, _DEFAULT_REDACTION)
-            if final_root_cause
-            else None
+            redact_text(final_root_cause, _DEFAULT_REDACTION) if final_root_cause else None
         )
         payload = {
             "rca_report_id": rca_report_id,

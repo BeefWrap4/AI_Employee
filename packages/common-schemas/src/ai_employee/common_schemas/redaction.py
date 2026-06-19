@@ -9,11 +9,11 @@ and password-shaped field names (password/passwd/secret/token).
 A redacted token is replaced with a stable placeholder so reviewers can
 still tell that *something* was removed without seeing the original.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-
 
 _PASSWORD_PLACEHOLDER = "***REDACTED***"
 _PASSWORD_FIELD_RE = re.compile(r"(?i)(password|passwd|secret|token)")
@@ -124,9 +124,7 @@ def _redact_value(value, *, fields: set[str], cfg: RedactionConfig, _root: bool)
             out[key] = _redact_value(val, fields=fields, cfg=cfg, _root=False)
         return out
     if isinstance(value, list):
-        return [
-            _redact_value(item, fields=fields, cfg=cfg, _root=False) for item in value
-        ]
+        return [_redact_value(item, fields=fields, cfg=cfg, _root=False) for item in value]
     return value
 
 

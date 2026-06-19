@@ -12,6 +12,7 @@ JSON-ish strings, status, latency_ms, error_code, created_at.
 A Pydantic-style dataclass :class:`ToolCallRecord` is exposed so
 callers don't need to touch the raw dicts.
 """
+
 from __future__ import annotations
 
 import os
@@ -176,7 +177,9 @@ class PlatformToolCallLogStore:
         return float(rows[idx]["latency_ms"])
 
     def failure_breakdown(
-        self, *, tool_name: str | None = None,
+        self,
+        *,
+        tool_name: str | None = None,
     ) -> dict[str, int]:
         where = "WHERE status='failure'"
         params: list[Any] = []

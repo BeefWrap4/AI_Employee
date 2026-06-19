@@ -311,9 +311,7 @@ class TestLlmClientLangfuse:
             return_value=_fake_response(
                 200,
                 {
-                    "choices": [
-                        {"message": {"content": "Contact 13800138000 for help"}}
-                    ],
+                    "choices": [{"message": {"content": "Contact 13800138000 for help"}}],
                     "model": "qwen-plus",
                     "usage": {},
                 },

@@ -10,6 +10,7 @@ The default backend (:class:`InMemoryAuditLog`) is process-local and
 thread-safe.  Swap in a SQL-backed store via the :class:`AuditLogStore`
 protocol for production.
 """
+
 from __future__ import annotations
 
 import threading
@@ -58,7 +59,10 @@ class AuditLogStore(Protocol):
     def list_by_actor(self, actor: str) -> list[AuditEvent]: ...
 
     def list_by_target(
-        self, *, target_type: str, target_id: str,
+        self,
+        *,
+        target_type: str,
+        target_id: str,
     ) -> list[AuditEvent]: ...
 
     def list_by_action(self, action: str) -> list[AuditEvent]: ...
@@ -113,13 +117,14 @@ class InMemoryAuditLog:
             return [e for e in self._events if e.actor == actor]
 
     def list_by_target(
-        self, *, target_type: str, target_id: str,
+        self,
+        *,
+        target_type: str,
+        target_id: str,
     ) -> list[AuditEvent]:
         with self._lock:
             return [
-                e
-                for e in self._events
-                if e.target_type == target_type and e.target_id == target_id
+                e for e in self._events if e.target_type == target_type and e.target_id == target_id
             ]
 
     def list_by_action(self, action: str) -> list[AuditEvent]:
@@ -147,15 +152,18 @@ def audit_log() -> AuditLogStore:
 def _redact_payload(value: Any) -> Any:
     """Recursively redact PII / secrets from an audit payload."""
     from ai_employee.common_schemas.redaction import (
-        redact_dict as _redact_dict,
-        _is_password_field,
         _PASSWORD_PLACEHOLDER,
+        _is_password_field,
     )
 
     if isinstance(value, dict):
         out: dict = {}
         for key, val in value.items():
-            if _DEFAULT_REDACTION.redact_password and isinstance(val, str) and _is_password_field(key):
+            if (
+                _DEFAULT_REDACTION.redact_password
+                and isinstance(val, str)
+                and _is_password_field(key)
+            ):
                 out[key] = _PASSWORD_PLACEHOLDER
                 continue
             if isinstance(val, str):
@@ -188,12 +196,15 @@ def record_event(
     store raw PII or secrets.
     """
     from ai_employee.agent_platform_api.tenant import get_current_tenant_id
+
     enriched = dict(payload or {})
     enriched.setdefault("tenant_id", get_current_tenant_id())
     redacted_payload = _redact_payload(enriched)
     return audit_log().append(
-        action=action, actor=actor,
-        target_type=target_type, target_id=target_id,
+        action=action,
+        actor=actor,
+        target_type=target_type,
+        target_id=target_id,
         payload=redacted_payload,
     )
 
