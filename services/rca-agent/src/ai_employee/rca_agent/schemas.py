@@ -38,6 +38,11 @@ class AlarmEvent(RawAlarmEvent):
 class IncidentBuildRequest(BaseModel):
     alarms: list[RawAlarmEvent] = Field(min_length=1)
     time_window_minutes: int = Field(default=30, ge=1, le=240)
+    # R26: expose spec §6.2 convergence knobs (parent-child + topology)
+    # so the API caller can drive the full convergence pipeline.  Both
+    # default to 0 (off) to preserve backward compat with pre-R26 callers.
+    topology_window_minutes: int = Field(default=0, ge=0, le=240)
+    parent_child_lag_seconds: int = Field(default=300, ge=0, le=3600)
 
 
 class IncidentResponse(BaseModel):

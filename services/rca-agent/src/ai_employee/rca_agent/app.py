@@ -104,7 +104,13 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         payload: IncidentBuildRequest,
         _principal: OIDCOrInternalPrincipal = Depends(write_auth),
     ) -> IncidentResponse:
-        return build_incident(state, payload.alarms, payload.time_window_minutes)
+        return build_incident(
+            state,
+            payload.alarms,
+            payload.time_window_minutes,
+            topology_window_minutes=payload.topology_window_minutes,
+            parent_child_lag_seconds=payload.parent_child_lag_seconds,
+        )
 
     @app.post(
         "/api/v1/rca/runs",

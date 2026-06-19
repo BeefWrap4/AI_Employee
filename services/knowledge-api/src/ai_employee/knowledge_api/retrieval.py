@@ -202,7 +202,14 @@ class RetrievalService:
                 detail={"error_code": "no_knowledge_in_scope"},
             )
 
-        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+        # R26: recall wider candidate pool (top_k * 5, capped at 50) so the
+        # reranker has actual signal to discriminate between.  Pre-R26 the
+        # fused results were truncated to top_k *before* rerank, which
+        # defeated the purpose of a second-stage cross-encoder / Stub
+        # re-ordering — the reranker only saw the candidates the fusion
+        # stage had already picked.
+        recall_window = min(50, max(top_k * 5, top_k))
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:recall_window]
         # 引用二次校验：再次确认每个候选 doc_id 在可见集合内
         allowed = set(doc_ids)
         hits: list[RetrievalHit] = []
