@@ -134,33 +134,38 @@
 
 ---
 
-## 七、差距闭环（R20–R23 收尾，2026-06-19 更新）
+## 七、差距闭环（R20–R24 收尾，2026-06-19 更新）
 
-本节为 `2026-06-19` 的收尾标注，记录 R20–R23 四轮迭代对上述差距的闭合情况。**R20–R23 全部完成，主干 `master` 已推送至 `origin/master`（HEAD = `503a09e`），全量回归 1416 passed / 0 failed。** 各轮交付与对应差距条目如下：
+本节记录 R20–R24 五轮迭代对上述差距的闭合情况，分两批标注：
+- **R20–R23（2026-06-19 早段推送）**：`master` HEAD = `503a09e`（HA + 幂等收尾 `93e6b97`），全量回归 1416 passed / 0 failed。
+- **R24（本批推送，2026-06-19 午段）**：`master` HEAD = `57568a7`（Auth/OIDC + LLM Trace + Audit/Redaction + 收尾），R24 合并期间 R23 基础上全量 **1419 passed / 12 skipped / 0 failed**。
 
 | 轮次 | 主题 | 闭合的差距条目 | 关键提交 |
 | --- | --- | --- | --- |
 | **R20** | 审批治理（补充信息 / 转派 / 超时升级 / 状态机统一 / 终态守卫） | §三 §5.4 人机协同：补充信息 ✅、转派专家 ✅、超时升级 ✅；审批状态机统一 + 终态守卫 404（支撑 R23 幂等的「审批决策不重放」） | `f6a2f85` `dd5c37d` `e303e31` `d243dd6` `33edfbf` |
 | **R21** | approval-service / mcp-gateway 独立化 | §三 §9 部署单元：`approval-service` ✅、`mcp-gateway` ✅ 独立服务；MCP 工具委托 + 审批委托接线；B1 `service_name=None` 500 修复 | `e0f3e92` `ca6a4d2` `8acf2c5` `309e5ed` `090b809` `9338ecb` |
 | **R22** | MinIO 对象存储抽象 | §一 §9 + §四 对象存储(MinIO) 🔴 → ✅：`ObjectStore` Protocol（LocalFs / S3 / MinIO 三后端）、knowledge-api 写穿、agent-platform 上传/下载端点、k8s/Helm 清单 | `04f3ebc` `5bf67d5` `c82f651` `ffe81da` `59e6e0d` `45f4f12` |
-| **R23** | 高可用（多副本）+ 幂等性 | §三 §9 高可用（多副本/幂等）🔴 → ✅：`IdempotencyStore`（InMemory/Redis）+ `Idempotency-Key` 接线 + `RedisEventBus` 多副本事件总线 + Helm 多副本 values + HA 文档 + leader-failover 回归测试；配合 R21 独立服务把 `approval-service`/`mcp-gateway`/`ingestion-worker`/`rca-agent`/`tool-registry` 副本数抬到 2 | `cdac26a` `acbf5dc` `eefae48` `47f2c63` `503a09e` |
+| **R23** | 高可用（多副本）+ 幂等性 | §三 §9 高可用（多副本/幂等）🔴 → ✅：`IdempotencyStore`（InMemory/Redis）+ `Idempotency-Key` 接线 + `RedisEventBus` 多副本事件总线 + Helm 多副本 values + HA 文档 + leader-failover 回归测试；配合 R21 独立服务把 `approval-service`/`mcp-gateway`/`ingestion-worker`/`rca-agent`/`tool-registry` 副本数抬到 2 | `cdac26a` `acbf5dc` `eefae48` `47f2c63` `503a09e` `93e6b97` |
+| **R24** | Auth/OIDC + LLM Trace + Audit/Redaction | §三 §9 LLM Trace（Langfuse）🔴 → ✅：LlmClient 默认 Langfuse emitter + knowledge-api / LangGraph runtime 接线 + 真 token usage + parent_trace_id 透传；§三 §9 SSO/OIDC 🔴 → ✅：真 RS256 验签 + JWKS refresh-on-kid-miss + `require_oidc_or_internal` 依赖 + 三个服务关键生产写端点接入 + Helm/k8s/.env 配置占位；§四 P2 脱敏 + Prompt 版本（脱敏子项）🔴 → ✅：`redact_dict` 递归规则 + LLM gateway trace / RCA ticket writeback / agent platform audit / 两处 `tool_call_log` 四个出口统一脱敏；细节 + 测试矩阵见 `Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md` | `0d08260` `72bc665` `41d625c` `c484f02` `04d8dbb` `53dbade` `7f29caa` `a524736` `76684d4` `839ad8f` `24b186b` `34de564` `d18e552` `f3ec492` `d8cd3f1` `adb6310` `b5f19c9` `3fccd28` `57568a7` |
+
+R24 主题偏离了 R23 收尾建议的「PG 默认化 + 真中间件集成测试」主线，转向治理深度（SSO/OIDC + LLM Trace + 脱敏）。理由：(1) 治理深度改动面集中在 R23 已交付的 fastapi 依赖 / llm-gateway client / rca 写回 / agent platform audit 等少量模块，与 R23 HA 改动正交；(2) PG 迁移是单独数据库工程，需独立 staging 验证，本轮先做纯代码闭环；(3) 三域互不阻塞可并行（3 个 merge commit 分别合并）。PG 迁移退为 R25+ 最高优先级候选。
 
 ### 7.1 待办清单收尾状态（对照 §五）
 
 **P0 — 阻塞真正部署/演示**
-1. Dockerfile 缺失 — **仍未完成**（k8s manifest 引用镜像仍无构建文件，待 R24+）
-2. PostgreSQL 迁移 — **部分**：R23 HA 文档明确 `pg_store` 默认化是抬 `knowledge-api`/`approval-service` 副本的前置，但迁移本身未做（R24 主线候选）
-3. RCA 告警收敛算法 — **仍未完成**（`del time_window_minutes` TODO 仍在，待 R24+）
+1. Dockerfile 缺失 — **仍未完成**（k8s manifest 引用镜像仍无构建文件，待 R25+）
+2. PostgreSQL 迁移 — **仍未完成**：R23 HA 文档与 R24 收尾均明确 `pg_store` 默认化是抬 `knowledge-api`/`approval-service` 副本的前置；R24 选了治理深度主线，PG 仍未动 → **R25 最高优先级候选**
+3. RCA 告警收敛算法 — **仍未完成**（`del time_window_minutes` TODO 仍在，待 R25+）
 
 **P1 — spec 明确要求但缺失的核心能力**
 4. Reranker 二阶段重排 — 未完成
 5. 平台 Agent 模板补齐（变更评估 / 工单总结）— 未完成（3/5）
-6. tool_call_log 独立持久化 + 工具健康检查/超时/熔断 — **部分**：R23 补了多副本，但 `ToolSpec` 的 `timeout_ms`/`retry_policy`/`health_status` 主动探活与熔断仍缺
-7. 限流 — **部分**：`SlidingWindowLimiter` Redis 后端就位（R23 HA 配套），网关级限流接入待 R24+
-8. 剩余可观测指标埋点 — 未完成
+6. tool_call_log 独立持久化 + 工具健康检查/超时/熔断 — **部分**：R23 补了多副本，R24 c-5 把 `tool_call_log.record()` 入参/出参递归脱敏（剩余 `ToolSpec.timeout_ms`/`retry_policy`/`health_status` 主动探活与熔断仍缺）
+7. 限流 — **部分**：`SlidingWindowLimiter` Redis 后端就位（R23 HA 配套），网关级限流接入待 R25+
+8. 剩余可观测指标埋点 — **部分**：R24 b 域接通 Langfuse emitter + 真 token usage + parent_trace_id；剩余自定义业务指标埋点未铺
 
 **P2 — 深度治理与生产化**
-9–16. SSO/OIDC、Kafka 告警流、LangGraph v1 + LLM Trace、Faithfulness/安全策略评测、OCR + 滑动窗口 + 表格结构化、审批补充/转派/超时升级、脱敏 + Prompt 版本、ECharts + 多轮 + 流式 — **R19/R20 已闭合 13/14/16 中的多项**（多轮追问 ✅ R19、ECharts ✅ R19、审批补充/转派/超时升级 ✅ R20、Faithfulness/Answer Relevance ✅ R18、安全策略评测 ✅ R18、工具调用正确性评测 ✅ R18）；SSO / Kafka / LangGraph / LLM Trace / OCR / 滑动窗口 / 脱敏 仍未完成。
+9–16. SSO/OIDC、Kafka 告警流、LangGraph v1 + LLM Trace、Faithfulness/安全策略评测、OCR + 滑动窗口 + 表格结构化、审批补充/转派/超时升级、脱敏 + Prompt 版本、ECharts + 多轮 + 流式 — **R24 闭合了 SSO/OIDC（a 域）+ LLM Trace（b 域）+ 脱敏（c 域）三项 🔴**；R19/R20 之前已闭合 ECharts ✅ R19、多轮追问 ✅ R19、审批补充/转派/超时升级 ✅ R20、Faithfulness/Answer Relevance ✅ R18、安全策略评测 ✅ R18、工具调用正确性评测 ✅ R18。剩余 Kafka 告警流、LangGraph v1 深度集成、OCR + 滑动窗口 + 表格结构化、Prompt 版本（A/B）、限流网关化、备份 runbook 仍未完成。
 
 **P3 — 架构补全**
 17. mcp-gateway / approval-service 独立化 — **✅ 闭合（R21）**
@@ -170,8 +175,9 @@
 ### 7.2 总体差距清零状态
 
 - **P3 架构补全**：3 项中 2 项闭合（17/18），仅剩「备份」一项未做 → **P3 基本清零**。
-- **P0**：3 项中 0 项完全闭合（Dockerfile / PG 迁移 / 收敛算法 均待 R24+）→ **P0 仍有阻塞项**，但其中「PG 迁移」与 R23 HA 强耦合，已是下一轮最高优先级。
-- **P1/P2**：多数项已由 R18–R23 闭合（评测三类型、多轮、ECharts、审批治理三件套、对象存储、HA/幂等），剩余 Reranker、模板 2 类、限流网关化、可观测埋点、SSO、Kafka、LangGraph、LLM Trace、OCR、脱敏、备份 为渐进项。
-- **结论**：R20–R23 四轮已把差距分析中**架构补全类（P3）与治理三件套（P2 审批治理）、对象存储（P3）、HA/幂等（P3）全部清零**；剩余差距集中在 **P0 的 PG 迁移 / Dockerfile / 收敛算法** 与 **P1/P2 的真实中间件集成（Kafka/LangGraph）+ 治理深度（SSO/Trace/限流）+ 模板/评测铺面**。建议 R24 主线接 P0-2（PostgreSQL 默认化）+ R23 §5 候选 3（真实中间件集成测试），把「文档化 HA」推到「CI 验证 HA」。
+- **P0**：3 项中 0 项完全闭合（Dockerfile / PG 迁移 / 收敛算法 均待 R25+）→ **P0 仍有阻塞项**，其中「PG 迁移」已是 R23 / R24 两轮收尾反复标记的最高优先级。
+- **P1**：5 项中 0 项完全闭合，但 tool_call_log 脱敏（R24 c-5）、可观测埋点（R24 b 域接通 Langfuse）各推进一格。
+- **P2**：R24 把 §三 §9 的 🔴 两项（SSO/OIDC、LLM Trace）+ §四 P2 脱敏子项一次性清零 → **P2 治理深度大幅推进**，剩余 Kafka、LangGraph v1、OCR、Prompt 版本、备份为渐进项。
+- **结论**：R20–R24 五轮已把差距分析中**架构补全（P3）+ 治理三件套（P2 审批治理）+ 对象存储（P3）+ HA/幂等（P3）+ SSO/OIDC + LLM Trace + 脱敏**全部清零；剩余差距集中在 **P0 的 PG 迁移 / Dockerfile / 收敛算法** 与 **P1/P2 的真实中间件集成（Kafka/LangGraph）+ 治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 / OCR）+ 模板/评测铺面（Reranker / 2 类 Agent 模板）**。建议 R25 主线接 **P0-2（PG 默认化）+ R24 §6 候选 3（OIDC 真 IdP 演练）**：PG 解决 R23/R24 反复标记的 HA 悬空，OIDC 真演练把 R24 a 域从「代码闭环」推到「staging 闭环」，互相不阻塞。
 
-> 收尾 spec 见 `docs/superpowers/specs/2026-06-19-r23-ha-idempotency.md`（R23）、`docs/superpowers/specs/2026-06-19-r22-minio-object-store.md`（R22）。R20/R21 的分项交付见上表提交链。
+> 收尾 spec：`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）、`docs/superpowers/specs/2026-06-19-r23-ha-idempotency.md`（R23）、`docs/superpowers/specs/2026-06-19-r22-minio-object-store.md`（R22）。R20/R21 的分项交付见上表提交链。
