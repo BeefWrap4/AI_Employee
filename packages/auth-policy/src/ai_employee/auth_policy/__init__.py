@@ -10,8 +10,10 @@ from ai_employee.auth_policy.casbin_engine import (  # noqa: F401
     casbin_check,
 )
 from ai_employee.auth_policy.fastapi_dep import (
+    OIDCOrInternalPrincipal,
     require_internal_or_jwt,
     require_jwt,
+    require_oidc_or_internal,
 )
 from ai_employee.auth_policy.jwt import (
     DEFAULT_ALGORITHM,
@@ -92,6 +94,7 @@ __all__ = [
     "OIDCConfig",
     "OIDCDisabled",
     "OIDCInvalid",
+    "OIDCOrInternalPrincipal",
     "OIDCVerifier",
     "TokenClaims",
     "build_oidc_verifier",
@@ -107,6 +110,7 @@ __all__ = [
     "permissions_for_roles",
     "require_internal_or_jwt",
     "require_jwt",
+    "require_oidc_or_internal",
     "verify_oidc_token",
     "verify_token",
 ]

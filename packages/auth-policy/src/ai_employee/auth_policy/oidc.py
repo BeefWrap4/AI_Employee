@@ -99,18 +99,36 @@ class StubJwksClient:
 
 
 class RemoteJwksClient:
-    """Fetches the JWKS over HTTP and caches indefinitely.
+    """Fetches the JWKS over HTTP and caches with TTL.
 
-    Production deployments should add a TTL + refresh-on-kid-miss; for
-    the MVP a single fetch per process is sufficient because keys
-    rotate rarely and a pod restart picks up new keys.
+    Production behaviour:
+
+    * First call to :meth:`fetch` performs an HTTP GET and caches the
+      parsed ``keys`` list alongside the timestamp of the fetch.
+    * Subsequent calls within ``jwks_ttl_s`` return the cached keys.
+    * If the caller requests a specific ``kid`` and it is not in the
+      cached set, the cache is invalidated and the JWKS is re-fetched
+      once (handles key rotation without waiting for TTL expiry).
+    * When the TTL has elapsed, the cache is refreshed on the next
+      call (with refresh-on-kid-miss still applicable).
     """
 
-    def __init__(self, url: str, *, http_client: Any = None, timeout_s: float = 2.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        http_client: Any = None,
+        timeout_s: float = 2.0,
+        jwks_ttl_s: float = 3600.0,
+        clock: Any = None,
+    ) -> None:
         self._url = url
         self._timeout_s = timeout_s
         self._http = http_client
+        self._jwks_ttl_s = float(jwks_ttl_s)
+        self._clock = clock or time.time
         self._cache: list[dict[str, Any]] | None = None
+        self._fetched_at: float | None = None
 
     def _client(self):
         if self._http is not None:
@@ -119,18 +137,39 @@ class RemoteJwksClient:
 
         return httpx.Client(timeout=self._timeout_s)
 
-    def fetch(self) -> list[dict[str, Any]]:
-        if self._cache is not None:
-            return list(self._cache)
+    def _http_get(self) -> list[dict[str, Any]]:
         client = self._client()
         resp = client.get(self._url, timeout=self._timeout_s)
-        # httpx raises_for_status; fake clients may not, so guard.
         if hasattr(resp, "raise_for_status"):
             resp.raise_for_status()
         body = resp.json()
         keys = body.get("keys", []) if isinstance(body, dict) else []
+        return list(keys)
+
+    def _cache_expired(self) -> bool:
+        if self._cache is None or self._fetched_at is None:
+            return True
+        return (self._clock() - self._fetched_at) >= self._jwks_ttl_s
+
+    def _store(self, keys: list[dict[str, Any]]) -> list[dict[str, Any]]:
         self._cache = list(keys)
+        self._fetched_at = self._clock()
         return list(self._cache)
+
+    def fetch(self, kid: str | None = None) -> list[dict[str, Any]]:
+        """Return JWKS keys, refreshing on cache miss or TTL expiry.
+
+        If ``kid`` is given and the cached JWKS does not contain it, the
+        cache is invalidated and the JWKS is re-fetched once.  The
+        re-fetched keys are returned regardless of whether the requested
+        ``kid`` is present (the caller raises ``OIDCInvalid`` if the key
+        is still missing).
+        """
+        if self._cache is not None and not self._cache_expired():
+            if kid is None or any(k.get("kid") == kid for k in self._cache):
+                return list(self._cache)
+        # Cold cache, expired TTL, or kid miss → fetch.
+        return self._store(self._http_get())
 
 
 # --------------------------------------------------------------------------- #
@@ -159,8 +198,11 @@ def _decode_unverified(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
 def _verify_signature(token: str, *, header: dict[str, Any], jwks: list[dict[str, Any]]) -> None:
     """Verify the token signature against a JWKS key set.
 
-    Uses PyJWT when installed; otherwise raises ``OIDCInvalid`` so the
-    caller can fall back to claim-only validation in trusted networks.
+    Uses :func:`pyjwt.decode` with ``verify_signature=True`` against
+    each candidate JWKS key (filtered by ``kid`` when present) so a
+    tampered token or one signed with a different key is rejected.  The
+    issuer / audience / expiry checks are performed separately by
+    :func:`verify_oidc_token` after this returns.
     """
     try:
         import jwt as pyjwt  # type: ignore[import-not-found]
@@ -169,18 +211,48 @@ def _verify_signature(token: str, *, header: dict[str, Any], jwks: list[dict[str
             "PyJWT is required for OIDC signature verification",
         ) from exc
     kid = header.get("kid")
-    keys = [k for k in jwks if (not kid or k.get("kid") == kid)]
-    if not keys:
+    candidate_keys = [k for k in jwks if (not kid or k.get("kid") == kid)]
+    if not candidate_keys:
         raise OIDCInvalid(f"no matching JWKS key for kid={kid!r}")
+    alg = header.get("alg") or "RS256"
+    if alg not in {"RS256", "RS384", "RS512"}:
+        raise OIDCInvalid(f"unsupported alg={alg!r}")
     last_err: Exception | None = None
-    for key in keys:
+    for key in candidate_keys:
         try:
-            pyjwt.PyJWK(key)
-            return  # key is structurally valid; full verify done by caller
+            public_key = pyjwt.PyJWK(key).key
         except Exception as exc:
             last_err = exc
-    if last_err is not None:
-        raise OIDCInvalid(f"signature key invalid: {last_err}")
+            continue
+        try:
+            pyjwt.decode(
+                token,
+                key=public_key,
+                algorithms=[alg],
+                # Only verify the signature here.  Claim checks (iss/aud/exp)
+                # are performed by :func:`verify_oidc_token` after this
+                # returns so a single failing claim doesn't mask a real
+                # signature mismatch.
+                options={
+                    "verify_signature": True,
+                    "verify_exp": False,
+                    "verify_aud": False,
+                    "verify_iss": False,
+                    "verify_iat": False,
+                    "verify_nbf": False,
+                },
+            )
+            return
+        except pyjwt.InvalidSignatureError as exc:
+            last_err = exc
+            continue
+        except pyjwt.InvalidTokenError as exc:
+            last_err = exc
+            continue
+    raise OIDCInvalid(
+        f"signature verification failed: {last_err!r}" if last_err
+        else "signature verification failed: no usable key"
+    )
 
 
 def verify_oidc_token(
@@ -199,7 +271,9 @@ def verify_oidc_token(
         raise OIDCDisabled("OIDC is not configured (set OIDC_ISSUER + OIDC_CLIENT_ID)")
     header, payload = _decode_unverified(token)
     if verify_signature and jwks_client is not None:
-        keys = jwks_client.fetch()
+        # Pass the kid so refresh-on-kid-miss can fire when the cache
+        # doesn't contain it.
+        keys = jwks_client.fetch(kid=header.get("kid"))
         _verify_signature(token, header=header, jwks=keys)
 
     # Claim checks.

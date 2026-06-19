@@ -13,6 +13,15 @@ global:
     jwtSecret: "REPLACE_WITH_LONG_RANDOM_SECRET"
     qwenApiKey: "REPLACE_WITH_QWEN_API_KEY"
     internalToken: "REPLACE_WITH_INTERNAL_TOKEN"
+    # R24-A: OIDC / SSO placeholders.  Leave empty so the
+    # ``require_oidc_or_internal`` dep falls through to HS256 JWT /
+    # internal-token.  Wire up an IdP (Keycloak, Auth0, Okta, ...)
+    # by setting all four variables in a values overlay; the OIDC
+    # branch auto-enables once OIDC_ISSUER + OIDC_CLIENT_ID are set.
+    oidcIssuer: ""
+    oidcClientId: ""
+    oidcAudience: ""
+    oidcJwksUrl: ""
 
   # Auth: set to true to drop the legacy internal-token path (JWT only).
   jwtAuthStrict: false
