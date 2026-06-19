@@ -78,6 +78,35 @@ def test_failure_breakdown_per_tool(store: PlatformToolCallLogStore) -> None:
     assert errs["boom"] == 1
 
 
+# --------------------------------------------------------------------------- #
+# R24-C: redaction in tool_call_log record()
+# --------------------------------------------------------------------------- #
+
+
+def test_record_redacts_phone_in_input_summary(store: PlatformToolCallLogStore) -> None:
+    store.record(
+        run_id="run-1", tool_name="cmdb.lookup",
+        input_summary="phone 13800138000 in payload",
+        output_summary="ok",
+        status="success", latency_ms=10, error_code=None,
+    )
+    rows = store.list_for_run("run-1")
+    assert "13800138000" not in rows[0]["input_summary"]
+    assert "***" in rows[0]["input_summary"]
+
+
+def test_record_redacts_email_in_output_summary(store: PlatformToolCallLogStore) -> None:
+    store.record(
+        run_id="run-1", tool_name="cmdb.lookup",
+        input_summary="ok",
+        output_summary="user admin@example.com returned",
+        status="success", latency_ms=10, error_code=None,
+    )
+    rows = store.list_for_run("run-1")
+    assert "admin@example.com" not in rows[0]["output_summary"]
+    assert "***" in rows[0]["output_summary"]
+
+
 def test_record_persists_across_instances(tmp_path) -> None:
     """SQLite commits so a fresh store on the same DB sees prior rows."""
     db = os.path.join(str(tmp_path), "shared.sqlite3")

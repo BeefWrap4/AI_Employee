@@ -180,3 +180,32 @@ def test_tool_call_log_success_rate(tmp_path) -> None:
         output_summary="y", status="success", latency_ms=10, error_code=None,
     )
     assert log_store.success_rate(tool_name="kpi") == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# R24-C: redaction in tool_call_log record()
+# --------------------------------------------------------------------------- #
+
+
+def test_rca_tool_call_log_redacts_input_summary(tmp_path) -> None:
+    log_store = RcaToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
+    log_store.record(
+        run_id="r1", tool_name="kpi", input_summary="phone 13800138000",
+        output_summary="kpi value", status="success", latency_ms=10, error_code=None,
+    )
+    rows = log_store.list_for_run("r1")
+    assert len(rows) == 1
+    assert "13800138000" not in rows[0]["input_summary"]
+    assert "***" in rows[0]["input_summary"]
+
+
+def test_rca_tool_call_log_redacts_output_summary(tmp_path) -> None:
+    log_store = RcaToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
+    log_store.record(
+        run_id="r1", tool_name="kpi", input_summary="kpi query",
+        output_summary="contact admin@example.com", status="success",
+        latency_ms=10, error_code=None,
+    )
+    rows = log_store.list_for_run("r1")
+    assert len(rows) == 1
+    assert "admin@example.com" not in rows[0]["output_summary"]
