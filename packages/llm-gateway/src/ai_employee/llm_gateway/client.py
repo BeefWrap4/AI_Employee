@@ -13,8 +13,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import httpx
+from ai_employee.common_schemas.redaction import RedactionConfig, redact_text
 from ai_employee.llm_gateway.retry import RetryExhaustedError
 from ai_employee.llm_gateway.retry import retry as retry_decorator
+
+_DEFAULT_REDACTION = RedactionConfig()
 
 if TYPE_CHECKING:  # pragma: no cover
     from ai_employee.observability.langfuse_emitter import LangfuseEmitter
@@ -200,7 +203,12 @@ class LlmClient:
         latency_ms: float,
         status: str,
     ) -> None:
-        """Push one record to the Langfuse emitter (best-effort)."""
+        """Push one record to the Langfuse emitter (best-effort).
+
+        Both the prompt text and the LLM response are redacted before
+        being emitted so that PII / secrets do not leak into the trace
+        store (phone, email, ID, IP, IMSI, password-shaped tokens).
+        """
         if self.langfuse_emitter is None:
             return
         try:
@@ -208,8 +216,8 @@ class LlmClient:
                 trace_id=trace_id,
                 span_id=span_id,
                 model=self.model,
-                prompt=prompt,
-                response=response,
+                prompt=redact_text(prompt, _DEFAULT_REDACTION),
+                response=redact_text(response, _DEFAULT_REDACTION),
                 latency_ms=latency_ms,
                 metadata={"status": status},
             )

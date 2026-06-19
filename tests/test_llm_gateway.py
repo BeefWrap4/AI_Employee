@@ -267,6 +267,90 @@ class TestLlmClientLangfuse:
         assert len(emitter.calls) == 1
         assert emitter.calls[0].get("metadata", {}).get("status") == "failed"
 
+    def test_emit_trace_redacts_phone_from_prompt(self) -> None:
+        """Phones in the prompt must be masked before being sent to the trace."""
+        emitter = _RecordingEmitter()
+        client = LlmClient(
+            base_url="http://test",
+            api_key="sk-test",
+            model="qwen-plus",
+            langfuse_emitter=emitter,  # type: ignore[arg-type]
+        )
+        with mock.patch.object(
+            httpx,
+            "post",
+            return_value=_fake_response(
+                200,
+                {
+                    "choices": [{"message": {"content": "ok"}}],
+                    "model": "qwen-plus",
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+                },
+            ),
+        ):
+            client.chat(
+                messages=[{"role": "user", "content": "call 13800138000 now"}],
+            )
+        assert len(emitter.calls) == 1
+        prompt_recorded = emitter.calls[0]["prompt"]
+        assert "13800138000" not in prompt_recorded
+        assert "***" in prompt_recorded
+
+    def test_emit_trace_redacts_phone_from_response(self) -> None:
+        """Phones in the LLM response must be masked in the trace."""
+        emitter = _RecordingEmitter()
+        client = LlmClient(
+            base_url="http://test",
+            api_key="sk-test",
+            model="qwen-plus",
+            langfuse_emitter=emitter,  # type: ignore[arg-type]
+        )
+        with mock.patch.object(
+            httpx,
+            "post",
+            return_value=_fake_response(
+                200,
+                {
+                    "choices": [
+                        {"message": {"content": "Contact 13800138000 for help"}}
+                    ],
+                    "model": "qwen-plus",
+                    "usage": {},
+                },
+            ),
+        ):
+            client.chat(messages=[{"role": "user", "content": "give me a hotline"}])
+        assert len(emitter.calls) == 1
+        response_recorded = emitter.calls[0]["response"]
+        assert "13800138000" not in response_recorded
+        assert "***" in response_recorded
+
+    def test_emit_trace_redacts_email(self) -> None:
+        """Emails should also be masked in the trace."""
+        emitter = _RecordingEmitter()
+        client = LlmClient(
+            base_url="http://test",
+            api_key="sk-test",
+            model="qwen-plus",
+            langfuse_emitter=emitter,  # type: ignore[arg-type]
+        )
+        with mock.patch.object(
+            httpx,
+            "post",
+            return_value=_fake_response(
+                200,
+                {
+                    "choices": [{"message": {"content": "reply to admin@example.com"}}],
+                    "model": "qwen-plus",
+                    "usage": {},
+                },
+            ),
+        ):
+            client.chat(messages=[{"role": "user", "content": "ping admin@example.com"}])
+        assert len(emitter.calls) == 1
+        assert "admin@example.com" not in emitter.calls[0]["prompt"]
+        assert "admin@example.com" not in emitter.calls[0]["response"]
+
 
 class TestRetry:
     def test_retry_on_429_succeeds_eventually(self) -> None:
