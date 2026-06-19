@@ -131,3 +131,47 @@
 | 项目三 §11 | ≥3 模板、MCP 工具注册鉴权审计健康检查、长运行持久化+审批恢复、轨迹/模型/工具/证据查看、回放+版本对比、高风险不可绕过审批 | 5/6（健康检查/长运行深度不足）🟡 |
 
 **总评**：作为 MVP 工程骨架，完成度高、可演示、可扩展、有测试与 CI 防护。距 spec 描述的"生产级平台"主要差在真实中间件集成（Kafka/PG/对象存储/LangGraph）、治理深度（限流/熔断/SSO/Trace）和若干模板/评测类型的铺面。这些大多是 spec 标注的"MVP 非目标"或可渐进迁移项，建议按 P0→P1→P2 推进。
+
+---
+
+## 七、差距闭环（R20–R23 收尾，2026-06-19 更新）
+
+本节为 `2026-06-19` 的收尾标注，记录 R20–R23 四轮迭代对上述差距的闭合情况。**R20–R23 全部完成，主干 `master` 已推送至 `origin/master`（HEAD = `503a09e`），全量回归 1416 passed / 0 failed。** 各轮交付与对应差距条目如下：
+
+| 轮次 | 主题 | 闭合的差距条目 | 关键提交 |
+| --- | --- | --- | --- |
+| **R20** | 审批治理（补充信息 / 转派 / 超时升级 / 状态机统一 / 终态守卫） | §三 §5.4 人机协同：补充信息 ✅、转派专家 ✅、超时升级 ✅；审批状态机统一 + 终态守卫 404（支撑 R23 幂等的「审批决策不重放」） | `f6a2f85` `dd5c37d` `e303e31` `d243dd6` `33edfbf` |
+| **R21** | approval-service / mcp-gateway 独立化 | §三 §9 部署单元：`approval-service` ✅、`mcp-gateway` ✅ 独立服务；MCP 工具委托 + 审批委托接线；B1 `service_name=None` 500 修复 | `e0f3e92` `ca6a4d2` `8acf2c5` `309e5ed` `090b809` `9338ecb` |
+| **R22** | MinIO 对象存储抽象 | §一 §9 + §四 对象存储(MinIO) 🔴 → ✅：`ObjectStore` Protocol（LocalFs / S3 / MinIO 三后端）、knowledge-api 写穿、agent-platform 上传/下载端点、k8s/Helm 清单 | `04f3ebc` `5bf67d5` `c82f651` `ffe81da` `59e6e0d` `45f4f12` |
+| **R23** | 高可用（多副本）+ 幂等性 | §三 §9 高可用（多副本/幂等）🔴 → ✅：`IdempotencyStore`（InMemory/Redis）+ `Idempotency-Key` 接线 + `RedisEventBus` 多副本事件总线 + Helm 多副本 values + HA 文档 + leader-failover 回归测试；配合 R21 独立服务把 `approval-service`/`mcp-gateway`/`ingestion-worker`/`rca-agent`/`tool-registry` 副本数抬到 2 | `cdac26a` `acbf5dc` `eefae48` `47f2c63` `503a09e` |
+
+### 7.1 待办清单收尾状态（对照 §五）
+
+**P0 — 阻塞真正部署/演示**
+1. Dockerfile 缺失 — **仍未完成**（k8s manifest 引用镜像仍无构建文件，待 R24+）
+2. PostgreSQL 迁移 — **部分**：R23 HA 文档明确 `pg_store` 默认化是抬 `knowledge-api`/`approval-service` 副本的前置，但迁移本身未做（R24 主线候选）
+3. RCA 告警收敛算法 — **仍未完成**（`del time_window_minutes` TODO 仍在，待 R24+）
+
+**P1 — spec 明确要求但缺失的核心能力**
+4. Reranker 二阶段重排 — 未完成
+5. 平台 Agent 模板补齐（变更评估 / 工单总结）— 未完成（3/5）
+6. tool_call_log 独立持久化 + 工具健康检查/超时/熔断 — **部分**：R23 补了多副本，但 `ToolSpec` 的 `timeout_ms`/`retry_policy`/`health_status` 主动探活与熔断仍缺
+7. 限流 — **部分**：`SlidingWindowLimiter` Redis 后端就位（R23 HA 配套），网关级限流接入待 R24+
+8. 剩余可观测指标埋点 — 未完成
+
+**P2 — 深度治理与生产化**
+9–16. SSO/OIDC、Kafka 告警流、LangGraph v1 + LLM Trace、Faithfulness/安全策略评测、OCR + 滑动窗口 + 表格结构化、审批补充/转派/超时升级、脱敏 + Prompt 版本、ECharts + 多轮 + 流式 — **R19/R20 已闭合 13/14/16 中的多项**（多轮追问 ✅ R19、ECharts ✅ R19、审批补充/转派/超时升级 ✅ R20、Faithfulness/Answer Relevance ✅ R18、安全策略评测 ✅ R18、工具调用正确性评测 ✅ R18）；SSO / Kafka / LangGraph / LLM Trace / OCR / 滑动窗口 / 脱敏 仍未完成。
+
+**P3 — 架构补全**
+17. mcp-gateway / approval-service 独立化 — **✅ 闭合（R21）**
+18. 对象存储 MinIO 接入 — **✅ 闭合（R22）**
+19. 高可用：多副本 + 幂等 + 备份 — **多副本 + 幂等 ✅ 闭合（R23）；备份仍未完成**
+
+### 7.2 总体差距清零状态
+
+- **P3 架构补全**：3 项中 2 项闭合（17/18），仅剩「备份」一项未做 → **P3 基本清零**。
+- **P0**：3 项中 0 项完全闭合（Dockerfile / PG 迁移 / 收敛算法 均待 R24+）→ **P0 仍有阻塞项**，但其中「PG 迁移」与 R23 HA 强耦合，已是下一轮最高优先级。
+- **P1/P2**：多数项已由 R18–R23 闭合（评测三类型、多轮、ECharts、审批治理三件套、对象存储、HA/幂等），剩余 Reranker、模板 2 类、限流网关化、可观测埋点、SSO、Kafka、LangGraph、LLM Trace、OCR、脱敏、备份 为渐进项。
+- **结论**：R20–R23 四轮已把差距分析中**架构补全类（P3）与治理三件套（P2 审批治理）、对象存储（P3）、HA/幂等（P3）全部清零**；剩余差距集中在 **P0 的 PG 迁移 / Dockerfile / 收敛算法** 与 **P1/P2 的真实中间件集成（Kafka/LangGraph）+ 治理深度（SSO/Trace/限流）+ 模板/评测铺面**。建议 R24 主线接 P0-2（PostgreSQL 默认化）+ R23 §5 候选 3（真实中间件集成测试），把「文档化 HA」推到「CI 验证 HA」。
+
+> 收尾 spec 见 `docs/superpowers/specs/2026-06-19-r23-ha-idempotency.md`（R23）、`docs/superpowers/specs/2026-06-19-r22-minio-object-store.md`（R22）。R20/R21 的分项交付见上表提交链。
