@@ -45,7 +45,11 @@ from ai_employee.rca_agent.ticket_writeback import (
     TicketWritebackUnavailable,
     build_writeback_adapter,
 )
-from fastapi import FastAPI, HTTPException, status
+from ai_employee.auth_policy.fastapi_dep import (
+    require_oidc_or_internal,
+    OIDCOrInternalPrincipal,
+)
+from fastapi import Depends, FastAPI, HTTPException, status
 
 SERVICE_VERSION = "0.1.0"
 
@@ -57,6 +61,15 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         state.writeback_adapter = build_writeback_adapter()
     if state.writebacks is None:
         state.writebacks = TicketWritebackStore()
+
+    # R24-A.4: production write endpoints now require authentication via
+    # OIDC (RS256) when SSO is enabled, the legacy HS256 JWT, or the
+    # ``X-Internal-Token`` shared secret.  Each dependency tier uses
+    # the appropriate RBAC permission so OIDC/JWT principals are
+    # permission-checked while internal service callers (legacy
+    # telemetry / write-back adapters) remain trusted.
+    write_auth = require_oidc_or_internal(permissions=["rca:write"])
+    review_auth = require_oidc_or_internal(permissions=["rca:approve"])
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -72,7 +85,10 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         response_model=AlarmEvent,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_alarm_event(payload: RawAlarmEvent) -> AlarmEvent:
+    def create_alarm_event(
+        payload: RawAlarmEvent,
+        _principal: OIDCOrInternalPrincipal = Depends(write_auth),
+    ) -> AlarmEvent:
         return normalize_alarm(state, payload)
 
     @app.post(
@@ -80,7 +96,10 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         response_model=IncidentResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_incident(payload: IncidentBuildRequest) -> IncidentResponse:
+    def create_incident(
+        payload: IncidentBuildRequest,
+        _principal: OIDCOrInternalPrincipal = Depends(write_auth),
+    ) -> IncidentResponse:
         return build_incident(state, payload.alarms, payload.time_window_minutes)
 
     @app.post(
@@ -88,7 +107,10 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         response_model=RcaRunResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_rca_run(payload: RcaRunCreate) -> RcaRunResponse:
+    def create_rca_run(
+        payload: RcaRunCreate,
+        _principal: OIDCOrInternalPrincipal = Depends(write_auth),
+    ) -> RcaRunResponse:
         if not payload.incident_id and not payload.alarms:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -211,7 +233,11 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         "/api/v1/rca/reports/{report_id}/review",
         response_model=ReportReviewResponse,
     )
-    def review_report(report_id: str, payload: ReportReviewRequest) -> ReportReviewResponse:
+    def review_report(
+        report_id: str,
+        payload: ReportReviewRequest,
+        _principal: OIDCOrInternalPrincipal = Depends(review_auth),
+    ) -> ReportReviewResponse:
         report = state.reports.get(report_id)
         if report is None:
             raise HTTPException(
@@ -310,7 +336,9 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         response_model=CandidateReviewResponse,
     )
     def review_candidate(
-        candidate_id: str, payload: CandidateReviewRequest
+        candidate_id: str,
+        payload: CandidateReviewRequest,
+        _principal: OIDCOrInternalPrincipal = Depends(review_auth),
     ) -> CandidateReviewResponse:
         candidate = state.candidates.get(candidate_id)
         if candidate is None:
@@ -350,7 +378,10 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         "/api/v1/candidate-knowledge/{candidate_id}/import",
         response_model=CandidateKnowledge,
     )
-    def import_candidate(candidate_id: str) -> CandidateKnowledge:
+    def import_candidate(
+        candidate_id: str,
+        _principal: OIDCOrInternalPrincipal = Depends(review_auth),
+    ) -> CandidateKnowledge:
         candidate = state.candidates.get(candidate_id)
         if candidate is None:
             raise HTTPException(
@@ -407,7 +438,9 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
         response_model=TicketWritebackResponse,
     )
     def writeback_rca_summary(
-        ticket_id: str, payload: TicketWritebackRequest
+        ticket_id: str,
+        payload: TicketWritebackRequest,
+        _principal: OIDCOrInternalPrincipal = Depends(write_auth),
     ) -> TicketWritebackResponse:
         report = state.reports.get(payload.rca_report_id)
         if report is None:

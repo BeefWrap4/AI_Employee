@@ -67,11 +67,16 @@ def _client(data_dir: Path) -> TestClient:
         data_dir=os.environ["KNOWLEDGE_DATA_DIR"],
     )
     store.init_schema()
-    return TestClient(create_api_app(store=store, worker_client=InProcessWorkerClient()))
+    return TestClient(create_api_app(store=store, worker_client=InProcessWorkerClient()),
+                      headers={"X-Internal-Token": os.environ["KNOWLEDGE_API_INTERNAL_TOKEN"]})
 
 
 def run_smoke(data_dir: Path) -> dict[str, Any]:
     client = _client(data_dir)
+    # R24-A.4: the production write endpoints require authentication.
+    # Local smoke scripts use the service-specific X-Internal-Token
+    # fallback set on the TestClient above; production callers should
+    # use OIDC or a JWT.
     content = (
         "# 5G RRC 建立失败处理 SOP\n\n"
         "RRC 建立失败时先检查无线侧告警和接入 KPI。\n\n"

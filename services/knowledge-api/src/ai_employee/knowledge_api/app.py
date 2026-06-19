@@ -15,6 +15,10 @@ from ai_employee.common_schemas.idempotency import (
 from ai_employee.common_schemas.knowledge import DocumentStatus
 from ai_employee.knowledge_api.internal_auth import require_internal_token
 from ai_employee.knowledge_api.retrieval import RetrievalService
+from ai_employee.auth_policy.fastapi_dep import (
+    require_oidc_or_internal,
+    OIDCOrInternalPrincipal,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -122,6 +126,17 @@ def create_app(
     # 暴露 retrieval 让测试可注入 query provider
     app.state.retrieval = retrieval
     auth = require_internal_token(cfg["internal_token"])
+    # R24-A.4: production write endpoints now accept OIDC Bearer tokens,
+    # the legacy HS256 JWT, or the internal-token fallback.  When OIDC
+    # env vars are unset this dep degrades to ``require_internal_or_jwt``
+    # behaviour so backward compatibility is preserved.  The internal
+    # token is read from ``KNOWLEDGE_API_INTERNAL_TOKEN`` to keep the
+    # service-specific secret isolated from the cross-service
+    # ``INTERNAL_TOKEN`` used by other services.
+    write_auth = require_oidc_or_internal(
+        permissions=["knowledge:write"],
+        internal_token_env="KNOWLEDGE_API_INTERNAL_TOKEN",
+    )
 
     # R23: idempotency store so a retried document upload with the same
     # Idempotency-Key + content returns the cached doc_id instead of
@@ -157,6 +172,7 @@ def create_app(
         acl_tags_json: str = Form("[]"),
         version: str = Form("v1"),
         mime_type: str | None = Form(None),
+        _principal: OIDCOrInternalPrincipal = Depends(write_auth),
     ) -> DocumentResponse:
         content = await file.read()
         # R23: idempotency.  The cache key is the Idempotency-Key header

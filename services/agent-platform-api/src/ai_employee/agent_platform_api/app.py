@@ -86,7 +86,11 @@ from ai_employee.common_schemas.idempotency import (
     build_idempotency_store,
 )
 from ai_employee.observability import render_prometheus_text
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
+from ai_employee.auth_policy.fastapi_dep import (
+    require_oidc_or_internal,
+    OIDCOrInternalPrincipal,
+)
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 SERVICE_VERSION = "0.1.0"
@@ -166,6 +170,16 @@ def create_app(
     eval_state = eval_store or EvalStore()
     run_state = run_store or AgentRunStore()
     idem_store = _resolve_idempotency_store(idempotency_store)
+
+    # R24-A.4: production write endpoints (agent-run creation, approval
+    # decisions, eval runs) require authentication via OIDC (RS256)
+    # when SSO is enabled, the legacy HS256 JWT, or the
+    # ``X-Internal-Token`` shared secret.  Each tier uses the matching
+    # RBAC permission so OIDC/JWT principals are checked while legacy
+    # internal-service callers remain trusted.
+    run_auth = require_oidc_or_internal(permissions=["agent:run"])
+    approval_auth = require_oidc_or_internal(permissions=["agent:approve"])
+    eval_auth = require_oidc_or_internal(permissions=["knowledge:read"])
 
     # R23-3: when EVENT_BUS_BACKEND=redis (and REDIS_URL is reachable),
     # wrap the in-process bus in a RedisEventBus so run events published
@@ -314,7 +328,11 @@ def create_app(
         response_model=AgentRunResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_agent_run(payload: AgentRunCreate, request: Request) -> AgentRunResponse:
+    def create_agent_run(
+        payload: AgentRunCreate,
+        request: Request,
+        _principal: OIDCOrInternalPrincipal = Depends(run_auth),
+    ) -> AgentRunResponse:
         # R23: honour an Idempotency-Key header so a retried POST
         # (client timeout + replay, or a load-balancer redirect to
         # another replica) returns the original run verbatim instead
@@ -482,7 +500,11 @@ def create_app(
         "/api/v1/approval-tasks/{task_id}/decision",
         response_model=ApprovalTask,
     )
-    def decide_approval(task_id: str, payload: ApprovalDecisionRequest) -> ApprovalTask:
+    def decide_approval(
+        task_id: str,
+        payload: ApprovalDecisionRequest,
+        _principal: OIDCOrInternalPrincipal = Depends(approval_auth),
+    ) -> ApprovalTask:
         from ai_employee.agent_platform_api.runtime import (
             ApprovalTaskNotFound,
             ApprovalTaskNotModifiable,
@@ -918,7 +940,11 @@ def create_app(
         response_model=EvalRunResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_eval_run(payload: EvalRunRequest, request: Request) -> EvalRunResponse:
+    def create_eval_run(
+        payload: EvalRunRequest,
+        request: Request,
+        _principal: OIDCOrInternalPrincipal = Depends(eval_auth),
+    ) -> EvalRunResponse:
         # R23: idempotency — a replayed eval POST returns the cached
         # eval_run_id instead of re-running the (expensive) eval.
         idem_key = _idempotency_key(request)

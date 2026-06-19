@@ -83,11 +83,21 @@ def _claims_from_request(request: Request) -> TokenClaims | None:
         )
 
 
-def _internal_token_ok(request: Request) -> bool:
-    """Validate the legacy X-Internal-Token header against the configured secret."""
-    expected = os.getenv("INTERNAL_TOKEN")
+def _internal_token_ok(request: Request, env_var: str = "INTERNAL_TOKEN") -> bool:
+    """Validate the legacy X-Internal-Token header against the configured secret.
+
+    ``env_var`` lets services that use a service-specific token
+    (e.g. ``KNOWLEDGE_API_INTERNAL_TOKEN``) reuse this check without
+    changing the shared ``INTERNAL_TOKEN`` secret.
+    """
+    expected = os.getenv(env_var)
     if not expected:
-        return False
+        # Fall back to the shared INTERNAL_TOKEN when the service-specific
+        # one is unset or empty, so callers configured only with the
+        # global secret still authenticate.
+        expected = os.getenv("INTERNAL_TOKEN")
+        if not expected:
+            return False
     provided = request.headers.get("X-Internal-Token")
     return bool(provided) and provided == expected
 
@@ -264,6 +274,8 @@ def _enforce_permissions(principal: OIDCOrInternalPrincipal, perms: list[str]) -
 
 def require_oidc_or_internal(
     permissions: list[str] | None = None,
+    *,
+    internal_token_env: str = "INTERNAL_TOKEN",
 ) -> Callable[..., OIDCOrInternalPrincipal]:
     """Production dependency: OIDC first, HS256 JWT, then internal token.
 
@@ -276,6 +288,10 @@ def require_oidc_or_internal(
        HS256 JWT path is tried.
     3. If neither yields a valid token, the ``X-Internal-Token`` shared
        secret is checked (rejected in ``JWT_AUTH_STRICT=true`` mode).
+       The internal token is read from ``internal_token_env``
+       (default ``INTERNAL_TOKEN``); services that historically used a
+       service-specific variable (e.g. ``KNOWLEDGE_API_INTERNAL_TOKEN``)
+       pass that name here.
     4. If all paths fail, ``401 authentication_required`` is raised.
 
     The returned :class:`OIDCOrInternalPrincipal` exposes the resolved
@@ -311,7 +327,7 @@ def require_oidc_or_internal(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error_code": "authentication_required"},
             )
-        if _internal_token_ok(request):
+        if _internal_token_ok(request, env_var=internal_token_env):
             return OIDCOrInternalPrincipal(kind="internal")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
