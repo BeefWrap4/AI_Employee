@@ -9,6 +9,7 @@ If ``helm`` CLI is on PATH we run ``helm template`` to render the
 chart; otherwise we render a minimal manifest by hand to assert
 the chart's structure.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -33,7 +34,9 @@ def rendered() -> str:
         pytest.skip("helm CLI not installed; skipping live template render")
     result = subprocess.run(
         ["helm", "template", "ai-employee", str(CHART_PATH)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -56,10 +59,15 @@ def test_values_yaml_loads() -> None:
         values = yaml.safe_load(f)
     assert "global" in values
     assert "services" in values
-    # 5 services defined.
+    # 7 services defined (R23 adds approval-service + mcp-gateway).
     assert set(values["services"].keys()) == {
-        "knowledge-api", "ingestion-worker", "rca-agent",
-        "agent-platform-api", "tool-registry",
+        "knowledge-api",
+        "ingestion-worker",
+        "rca-agent",
+        "agent-platform-api",
+        "tool-registry",
+        "approval-service",
+        "mcp-gateway",
     }
 
 
@@ -72,10 +80,15 @@ def test_template_renders_all_services(rendered: str) -> None:
     """Every enabled service produces a Deployment + Service."""
     docs = list(yaml.safe_load_all(rendered))
     kinds = [d.get("kind") for d in docs if d]
-    # 5 services × {Deployment, ServiceAccount, ConfigMap, PVC?} + extras
+    # 7 services × {Deployment, ServiceAccount, ConfigMap, PVC?} + extras
     for svc in (
-        "knowledge-api", "ingestion-worker", "rca-agent",
-        "agent-platform-api", "tool-registry",
+        "knowledge-api",
+        "ingestion-worker",
+        "rca-agent",
+        "agent-platform-api",
+        "tool-registry",
+        "approval-service",
+        "mcp-gateway",
     ):
         assert any(
             d and d.get("kind") == "Deployment" and d.get("metadata", {}).get("name") == svc
@@ -86,8 +99,10 @@ def test_template_renders_all_services(rendered: str) -> None:
 def test_template_renders_hpa_for_agent_platform(rendered: str) -> None:
     docs = list(yaml.safe_load_all(rendered))
     hpas = [
-        d for d in docs
-        if d and d.get("kind") == "HorizontalPodAutoscaler"
+        d
+        for d in docs
+        if d
+        and d.get("kind") == "HorizontalPodAutoscaler"
         and d.get("metadata", {}).get("name") == "agent-platform-api"
     ]
     assert hpas, "expected HPA for agent-platform-api"
@@ -100,8 +115,13 @@ def test_template_renders_hpa_for_agent_platform(rendered: str) -> None:
 def test_template_renders_pdb_for_each_service(rendered: str) -> None:
     docs = list(yaml.safe_load_all(rendered))
     pdbs = [d for d in docs if d and d.get("kind") == "PodDisruptionBudget"]
-    services = {"knowledge-api", "ingestion-worker", "rca-agent",
-                "agent-platform-api", "tool-registry"}
+    services = {
+        "knowledge-api",
+        "ingestion-worker",
+        "rca-agent",
+        "agent-platform-api",
+        "tool-registry",
+    }
     pdb_services = {d["metadata"]["name"] for d in pdbs}
     assert services <= pdb_services
 
@@ -145,9 +165,7 @@ def test_deployment_uses_nonroot_security_context(rendered: str) -> None:
     for d in deployments:
         pod_spec = d["spec"]["template"]["spec"]
         sec = pod_spec.get("securityContext", {})
-        assert sec.get("runAsNonRoot") is True, (
-            f"pod {d['metadata']['name']} missing runAsNonRoot"
-        )
+        assert sec.get("runAsNonRoot") is True, f"pod {d['metadata']['name']} missing runAsNonRoot"
 
 
 def test_hpa_targets_correct_deployment(rendered: str) -> None:
@@ -158,8 +176,13 @@ def test_hpa_targets_correct_deployment(rendered: str) -> None:
             assert target["kind"] == "Deployment"
             # name should match an existing service.
             assert target["name"] in {
-                "knowledge-api", "ingestion-worker", "rca-agent",
-                "agent-platform-api", "tool-registry",
+                "knowledge-api",
+                "ingestion-worker",
+                "rca-agent",
+                "agent-platform-api",
+                "tool-registry",
+                "approval-service",
+                "mcp-gateway",
             }
 
 
@@ -185,7 +208,15 @@ def test_no_duplicate_resources_in_render(rendered: str) -> None:
         key = (d.get("kind"), d.get("metadata", {}).get("name", ""))
         seen[key] = seen.get(key, 0) + 1
     for (kind, name), count in seen.items():
-        if kind in {"Deployment", "ServiceAccount", "ConfigMap", "PodDisruptionBudget", "HorizontalPodAutoscaler", "NetworkPolicy", "PersistentVolumeClaim"}:
+        if kind in {
+            "Deployment",
+            "ServiceAccount",
+            "ConfigMap",
+            "PodDisruptionBudget",
+            "HorizontalPodAutoscaler",
+            "NetworkPolicy",
+            "PersistentVolumeClaim",
+        }:
             assert count == 1, f"duplicate {kind}/{name}: {count}"
 
 
@@ -200,12 +231,20 @@ def rendered_with_object_store() -> str:
         pytest.skip("helm CLI not installed; skipping live template render")
     result = subprocess.run(
         [
-            "helm", "template", "ai-employee", str(CHART_PATH),
-            "--set", "objectStore.url=http://minio:9000",
-            "--set", "objectStore.accessKey=test",
-            "--set", "objectStore.secretKey=test",
+            "helm",
+            "template",
+            "ai-employee",
+            str(CHART_PATH),
+            "--set",
+            "objectStore.url=http://minio:9000",
+            "--set",
+            "objectStore.accessKey=test",
+            "--set",
+            "objectStore.secretKey=test",
         ],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -216,10 +255,16 @@ def rendered_with_minio() -> str:
         pytest.skip("helm CLI not installed; skipping live template render")
     result = subprocess.run(
         [
-            "helm", "template", "ai-employee", str(CHART_PATH),
-            "--set", "objectStore.minio.enabled=true",
+            "helm",
+            "template",
+            "ai-employee",
+            str(CHART_PATH),
+            "--set",
+            "objectStore.minio.enabled=true",
         ],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -227,20 +272,14 @@ def rendered_with_minio() -> str:
 def test_object_store_env_vars_injected(rendered_with_object_store: str) -> None:
     """objectStore.url/credentials are exported as env vars to every pod."""
     docs = list(yaml.safe_load_all(rendered_with_object_store))
-    deployments = [
-        d for d in docs if d and d.get("kind") == "Deployment"
-    ]
+    deployments = [d for d in docs if d and d.get("kind") == "Deployment"]
     assert deployments, "no deployments rendered"
     for dep in deployments:
-        env = (
-            dep["spec"]["template"]["spec"]["containers"][0].get("env", [])
-        )
+        env = dep["spec"]["template"]["spec"]["containers"][0].get("env", [])
         env_names = {e["name"] for e in env}
         assert "OBJECT_STORE_URL" in env_names, dep["metadata"]["name"]
         assert "OBJECT_STORE_BUCKET" in env_names, dep["metadata"]["name"]
-        url_value = next(
-            e["value"] for e in env if e["name"] == "OBJECT_STORE_URL"
-        )
+        url_value = next(e["value"] for e in env if e["name"] == "OBJECT_STORE_URL")
         assert url_value == "http://minio:9000", dep["metadata"]["name"]
 
 
@@ -250,9 +289,7 @@ def test_minio_statefulset_renders_when_enabled(rendered_with_minio: str) -> Non
     kinds = {d.get("kind") for d in docs if d}
     assert "StatefulSet" in kinds
     assert "PersistentVolumeClaim" in kinds
-    sset = next(
-        d for d in docs if d and d.get("kind") == "StatefulSet"
-    )
+    sset = next(d for d in docs if d and d.get("kind") == "StatefulSet")
     assert sset["metadata"]["name"] == "minio"
     # The MinIO container uses the configured image.
     container = sset["spec"]["template"]["spec"]["containers"][0]
@@ -263,6 +300,7 @@ def test_minio_disabled_by_default(rendered: str) -> None:
     """With the default values the chart does NOT ship a MinIO pod."""
     docs = list(yaml.safe_load_all(rendered))
     sset = next(
-        (d for d in docs if d and d.get("kind") == "StatefulSet"), None,
+        (d for d in docs if d and d.get("kind") == "StatefulSet"),
+        None,
     )
     assert sset is None
