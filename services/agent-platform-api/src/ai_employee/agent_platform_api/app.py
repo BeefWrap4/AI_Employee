@@ -47,6 +47,7 @@ from ai_employee.agent_platform_api.runtime import (
     resume_run_from_node,
     route_approval,
     run_to_persist_dict,
+    select_runtime,
 )
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
@@ -332,7 +333,7 @@ def create_app(
                     "template_id": payload.template_id,
                 },
             )
-        run = create_run(state, payload)
+        run = create_run(state, payload, runtime=select_runtime())
         # R21: when delegating to a standalone approval-service, push the
         # newly-created approval task to the service so it owns the state
         # machine.  In-memory mode is a no-op (the task already lives in

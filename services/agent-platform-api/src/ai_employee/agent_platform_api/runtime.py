@@ -159,7 +159,20 @@ def list_templates() -> list[AgentTemplate]:
     return list(TEMPLATES.values())
 
 
-def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunResponse:
+def create_run(store: AgentPlatformStore, payload: AgentRunCreate, *, runtime: object | None = None) -> AgentRunResponse:
+    """Create a new agent run.
+
+    When ``runtime`` is supplied (i.e. ``RUNTIME_BACKEND=langgraph``), the
+    run is driven through :class:`LangGraphRuntime` so the production
+    LangGraph state graph drives the node trace.  The resulting run is
+    mirrored back into ``store`` (renaming ``lg_run_NNN`` → the
+    ``agent_run_NNN`` scheme consumers expect) so the legacy trace /
+    list / resume endpoints keep working unchanged.  When ``runtime`` is
+    ``None`` (the default ``dag`` backend) the self-built DAG in this
+    module is used directly — preserving pre-R24-B behaviour.
+    """
+    if runtime is not None:
+        return _create_run_via_langgraph(store, payload, runtime)
     template = TEMPLATES[payload.template_id]
     store.run_count += 1
     run_id = f"agent_run_{store.run_count:03d}"
@@ -218,7 +231,7 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
         actor=payload.requested_by,
         target_type="agent_run",
         target_id=run_id,
-        payload={"template_id": template.template_id, "status": status},
+        payload={"template_id": template.template_id, "status": status, "runtime": "dag"},
     )
     if requires_approval:
         store.approval_task_count += 1
@@ -237,6 +250,68 @@ def create_run(store: AgentPlatformStore, payload: AgentRunCreate) -> AgentRunRe
             current_approver=payload.requested_by,
         )
     return run
+
+
+def _create_run_via_langgraph(
+    store: AgentPlatformStore,
+    payload: AgentRunCreate,
+    runtime: object,
+) -> AgentRunResponse:
+    """Drive ``create_run`` through a LangGraph runtime and mirror back.
+
+    The LangGraph runtime has its own id counter (``lg_run_NNN``) and
+    its own task store.  To keep the platform's public contract
+    unchanged, we:
+
+    * mint an ``agent_run_NNN`` id from the platform's store,
+    * ask the LangGraph runtime to run the same payload (purely for
+      node-trace semantics — the response's id is rewritten),
+    * persist the resulting ``AgentRunResponse`` and (when applicable)
+      the pending approval task under the platform's ids.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
+    template = TEMPLATES[payload.template_id]
+    store.run_count += 1
+    run_id = f"agent_run_{store.run_count:03d}"
+    graph_run = runtime.run(payload)  # type: ignore[attr-defined]
+    # Rewrite the response so the public id + trace_id follow the
+    # platform's ``agent_run_NNN`` scheme.
+    rewritten = graph_run.model_copy(
+        update={
+            "run_id": run_id,
+            "trace_id": f"trace_{run_id}",
+        },
+    )
+    store.runs[run_id] = rewritten
+    record_event(
+        action="run.created",
+        actor=payload.requested_by,
+        target_type="agent_run",
+        target_id=run_id,
+        payload={
+            "template_id": template.template_id,
+            "status": rewritten.status,
+            "runtime": "langgraph",
+        },
+    )
+    if rewritten.approval_status == "pending":
+        store.approval_task_count += 1
+        task_id = f"approval_task_{store.approval_task_count:03d}"
+        now = _dt.now(_tz.utc).isoformat()
+        store.approval_tasks[task_id] = ApprovalTask(
+            task_id=task_id,
+            run_id=run_id,
+            template_id=template.template_id,
+            requested_by=payload.requested_by,
+            status="pending",
+            risk_level="approval_required",
+            reason="Human approval required before final write-back.",
+            created_at=now,
+            updated_at=now,
+            current_approver=payload.requested_by,
+        )
+    return rewritten
 
 
 def decide_approval_task(
