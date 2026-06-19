@@ -37,13 +37,24 @@ objectStore:
     rootPassword: "minioadmin"
     consolePort: 9001
 
-# Per-service overrides. Replicas default to 1 (SQLite is single-writer).
+# Per-service overrides.
+#
+# R23 HA prerequisites (spec §8): a service can run >1 replica only when
+# its state is externalised — Postgres (DB), Redis (lease / rate-limit /
+# idempotency / event bus), and S3/MinIO (object store).  Services that
+# still write to a local SQLite file or a PVC are pinned to 1 replica
+# (SQLite is single-writer; a PVC with ReadWriteOnce can't be shared).
+# Flip them to 2 only after migrating the service to Postgres and setting
+# APPROVAL_SERVICE_URL / MCP_GATEWAY_URL / REDIS_URL / OBJECT_STORE_URL.
 services:
   knowledge-api:
     enabled: true
     pdb:
       minAvailable: 1
     port: 8010
+    # SQLite-backed (KNOWLEDGE_SQLITE_PATH on the PVC).  Keep 1 until
+    # the pg_store backend is the default, then raise to 2 with a
+    # shared Postgres + the object store for raw uploads.
     replicas: 1
     storage: 5Gi
     env:
@@ -57,7 +68,10 @@ services:
     pdb:
       minAvailable: 1
     port: 8011
-    replicas: 1
+    # Stateless once embeddings are offloaded to the shared provider;
+    # 2 replicas are safe.  Keep 1 only if a PVC is required for
+    # intermediate parse artefacts.
+    replicas: 2
     storage: 0
     env:
       EMBEDDING_PROVIDER: qwen
@@ -69,7 +83,8 @@ services:
     pdb:
       minAvailable: 1
     port: 8020
-    replicas: 1
+    # Read-only against Prometheus / ES / Neo4j; stateless.  HA-safe.
+    replicas: 2
     storage: 2Gi
     env:
       PROMETHEUS_ENABLED: "false"
@@ -81,10 +96,15 @@ services:
     enabled: true
     port: 8030
     # HA: 2 replicas are safe because the scheduler acquires a Redis
-    # leader lease (build_leader_election) so only one ticks cron.
+    # leader lease (build_leader_election) so only one ticks cron, the
+    # idempotency store is Redis-backed (R23-1/2), and the event bus
+    # mirrors onto Redis pub/sub (R23-3).  Requires APPROVAL_SERVICE_URL
+    # + MCP_GATEWAY_URL so per-pod in-memory state is not the source of
+    # truth (R21).
     replicas: 2
     storage: 2Gi
-    env: {}
+    env:
+      EVENT_BUS_BACKEND: redis
     pdb:
       minAvailable: 1
     hpa:
@@ -99,8 +119,35 @@ services:
     pdb:
       minAvailable: 1
     port: 8040
-    replicas: 1
+    # Stateless once the tool registry is delegated to mcp-gateway
+    # (MCP_GATEWAY_URL).  2 replicas are safe in that mode.
+    replicas: 2
     storage: 1Gi
+    env: {}
+
+  # R21 standalone services (spec §9).  Both are Postgres/Redis-backed
+  # and therefore HA-safe at 2 replicas.
+  approval-service:
+    enabled: true
+    pdb:
+      minAvailable: 1
+    port: 8060
+    # Owns approval task state machine + persistence.  HA-safe when
+    # backed by Postgres (PLATFORM_DB_BACKEND=postgres); with the
+    # default SQLite keep at 1.
+    replicas: 2
+    storage: 1Gi
+    env: {}
+
+  mcp-gateway:
+    enabled: true
+    pdb:
+      minAvailable: 1
+    port: 8050
+    # Owns tool registry / discovery / invocation.  HA-safe when the
+    # tool store is externalised (Postgres or Redis); 2 replicas.
+    replicas: 2
+    storage: 0
     env: {}
 
 # Optional ingress for the platform API + web portal.
