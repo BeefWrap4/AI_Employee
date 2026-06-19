@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from ai_employee.rca_agent.schemas import (
     AlarmEvent,
@@ -69,10 +70,29 @@ class RcaStore:
 def normalize_alarm(store: RcaStore, raw: RawAlarmEvent) -> AlarmEvent:
     store.alarm_count += 1
     store.alarm_count_total += 1
+    if hasattr(raw, "model_dump"):
+        raw_dump = raw.model_dump()
+    else:
+        raw_dump = {
+            k: getattr(raw, k)
+            for k in (
+                "alarm_id",
+                "alarm_code",
+                "alarm_name",
+                "vendor",
+                "site_id",
+                "cell_id",
+                "ne_id",
+                "severity",
+                "start_time",
+                "raw_payload",
+            )
+            if hasattr(raw, k)
+        }
     event = AlarmEvent(
-        **raw.model_dump(),
+        **raw_dump,
         alarm_event_id=f"alarm_evt_{store.alarm_count:03d}",
-        fingerprint=f"{raw.vendor}:{raw.site_id}:{raw.ne_id}:{raw.alarm_code}",
+        fingerprint=f"{raw_dump['vendor']}:{raw_dump['site_id']}:{raw_dump['ne_id']}:{raw_dump['alarm_code']}",
     )
     store.alarms[event.alarm_event_id] = event
     if hasattr(store, "save_alarm"):
@@ -87,6 +107,7 @@ def build_incident(
     *,
     topology_window_minutes: int = 0,
     parent_child_lag_seconds: int = 300,
+    topology_client: Any | None = None,
 ) -> IncidentResponse:
     """Normalize, dedup, and correlate raw alarms into incident(s).
 
@@ -117,7 +138,11 @@ def build_incident(
     if parent_child_lag_seconds > 0:
         groups = _merge_parent_child(groups, parent_child_lag_seconds)
     if topology_window_minutes > 0:
-        groups = _merge_by_topology(groups, topology_window_minutes)
+        groups = _merge_by_topology(
+            groups,
+            topology_window_minutes,
+            topology_client=topology_client,
+        )
     incidents = [_build_incident_record(store, group) for group in groups]
     for incident in incidents:
         store.incidents[incident.incident_id] = incident
@@ -155,7 +180,11 @@ def _group_by_site_and_window(
         window_start = _parse_time(site_events[0].start_time)
         for event in site_events[1:]:
             t = _parse_time(event.start_time)
-            if window_start is not None and t is not None and (t - window_start).total_seconds() <= window_minutes * 60:
+            if (
+                window_start is not None
+                and t is not None
+                and (t - window_start).total_seconds() <= window_minutes * 60
+            ):
                 current.append(event)
             else:
                 groups.append(current)
@@ -179,7 +208,9 @@ def _alarm_parent_id(event: AlarmEvent) -> str | None:
 
 def _alarm_upstream_sites(event: AlarmEvent) -> list[str]:
     """Pull ``upstream_site_ids`` out of the raw payload (if any)."""
-    sites = event.raw_payload.get("upstream_site_ids") if isinstance(event.raw_payload, dict) else None
+    sites = (
+        event.raw_payload.get("upstream_site_ids") if isinstance(event.raw_payload, dict) else None
+    )
     if isinstance(sites, list):
         return [str(s) for s in sites]
     return []
@@ -193,7 +224,8 @@ def _find_in_group(group: list[AlarmEvent], alarm_id: str) -> AlarmEvent | None:
 
 
 def _merge_parent_child(
-    groups: list[list[AlarmEvent]], lag_seconds: int,
+    groups: list[list[AlarmEvent]],
+    lag_seconds: int,
 ) -> list[list[AlarmEvent]]:
     """Absorb child alarms into their parent group's incident.
 
@@ -242,19 +274,31 @@ def _merge_parent_child(
 
 
 def _merge_by_topology(
-    groups: list[list[AlarmEvent]], window_minutes: int,
+    groups: list[list[AlarmEvent]],
+    window_minutes: int,
+    *,
+    topology_client: Any | None = None,
 ) -> list[list[AlarmEvent]]:
     """Absorb alarms on UPSTREAM sites into the downstream's group.
 
-    For each alarm A that declares ``upstream_site_ids`` containing the
-    site of another alarm B, if B's ``start_time`` is within
-    ``window_minutes`` of A, B is moved into A's group.
+    Two signal sources, merged:
+
+    1. **Explicit upstream declaration**: any alarm A that declares
+       ``upstream_site_ids`` containing the site of another alarm B
+       absorbs B if B's ``start_time`` is within ``window_minutes`` of A.
+    2. **Neo4j graph topology** (R27, optional): when ``topology_client``
+       is supplied, for each alarm A's site, ask Neo4j for upstream
+       dependencies (Switch / Router / TransportLink nodes within 3
+       hops).  Any other alarm whose site equals one of those upstream
+       dependency ``node_id``s is also absorbed.
     """
     if not groups or window_minutes <= 0:
         return groups
 
     merges: dict[int, int] = {}
     window_sec = window_minutes * 60
+
+    # Source 1: explicit upstream_site_ids.
     for gi, group in enumerate(groups):
         for ev_a in group:
             upstreams = set(_alarm_upstream_sites(ev_a))
@@ -274,6 +318,32 @@ def _merge_by_topology(
                         continue
                     merges[gj] = gi
                     break
+
+    # Source 2: Neo4j upstream dependency graph.
+    if topology_client is not None:
+        upstream_cache: dict[str, set[str]] = {}
+        for gi, group in enumerate(groups):
+            for ev_a in group:
+                site = ev_a.site_id
+                if site in upstream_cache:
+                    upstream_sites = upstream_cache[site]
+                else:
+                    try:
+                        result = topology_client.query_upstream_dependencies(site_id=site)
+                        upstream_sites = {d.node_id for d in result.dependencies}
+                    except Exception:
+                        upstream_sites = set()
+                    upstream_cache[site] = upstream_sites
+                if not upstream_sites:
+                    continue
+                for gj, group_j in enumerate(groups):
+                    if gj == gi or gj in merges:
+                        continue
+                    for ev_b in group_j:
+                        if ev_b.site_id not in upstream_sites:
+                            continue
+                        merges[gj] = gi
+                        break
 
     return _apply_group_merges(groups, merges)
 
@@ -310,10 +380,13 @@ def _apply_group_merges(
     # Order by the earliest alarm in each surviving bucket.
     surviving = sorted(
         buckets.items(),
-        key=lambda kv: min(
-            (_parse_time(e.start_time) for e in kv[1]),
-            default=None,
-        ) or _EPOCH_END,
+        key=lambda kv: (
+            min(
+                (_parse_time(e.start_time) for e in kv[1]),
+                default=None,
+            )
+            or _EPOCH_END
+        ),
     )
     return [events for _, events in surviving]
 
@@ -342,9 +415,17 @@ def _empty_incident(store: RcaStore) -> IncidentResponse:
         severity="info",
         site_id="",
         primary_alarm=AlarmEvent(
-            alarm_id="empty", alarm_code="", alarm_name="", vendor="",
-            site_id="", ne_id="", severity="info", start_time="",
-            raw_payload={}, alarm_event_id="alarm_evt_empty", fingerprint="",
+            alarm_id="empty",
+            alarm_code="",
+            alarm_name="",
+            vendor="",
+            site_id="",
+            ne_id="",
+            severity="info",
+            start_time="",
+            raw_payload={},
+            alarm_event_id="alarm_evt_empty",
+            fingerprint="",
         ),
         related_alarm_count=0,
         alarm_events=[],
@@ -372,7 +453,7 @@ def run_rca(
     else:
         incident = build_incident(store, raw_alarms)
 
-    _rca_log = getattr(store, 'rca_tool_call_log', None)
+    _rca_log = getattr(store, "rca_tool_call_log", None)
     # Allocate run_id and report_id BEFORE collect_evidence so per-adapter
     # tool calls are tagged with the right run_id in the tool_call_log.
     store.run_count += 1
@@ -506,6 +587,7 @@ def collect_evidence(
     adapter_map = adapters or build_adapters()
     tool_evidence: list[Evidence] = []
     import time as _t
+
     for source_type, adapter in adapter_map.items():
         _start = _t.monotonic()
         _status = "success"
@@ -598,58 +680,214 @@ def _legacy_collect_evidence(incident: IncidentResponse) -> list[Evidence]:
     ]
 
 
+def _score_hypothesis(
+    *,
+    cause: str,
+    incident: IncidentResponse,
+    evidence: list[Evidence],
+    primary_alarm: AlarmEvent,
+    topology_deps: list[dict[str, Any]] | None = None,
+) -> tuple[float, list[str], list[str]]:
+    """Spec §6.5 root-cause ranking: compute a 0..1 confidence score from
+    six weighted factors plus a base prior, plus split evidence into
+    supporting vs contradicting by per-factor contribution.
+
+    Returns ``(confidence, supporting_ids, contradicting_ids)``.
+
+    Factors and their weights (sum = 1.0):
+
+    * **time_relevance** (0.20) — gap between alarm start and evidence ts
+    * **topology_distance** (0.15) — pre-resolved hops (caller-supplied)
+    * **kpi_strength** (0.20) — metric evidence confidence in [0,1]
+    * **history_similarity** (0.10) — number of historical tickets that
+      share the alarm_code; saturates at 3
+    * **sop_match** (0.15) — knowledge evidence whose content mentions
+      the cause keyword
+    * **counter_evidence** (0.20) — penalises for contradicting evidence
+      explicitly tagged ``contradicts_root_cause=True``
+    """
+
+    # Time relevance: average 1 - normalised gap (smaller gap = higher).
+    time_score = 0.0
+    time_count = 0
+    primary_ts = _parse_time(primary_alarm.start_time)
+    supporting: list[str] = []
+    contradicting: list[str] = []
+    for ev in evidence:
+        ev_ts = _parse_time(getattr(ev, "ts", "") or primary_alarm.start_time)
+        if primary_ts is None or ev_ts is None:
+            time_score += 0.5
+        else:
+            gap_min = abs((ev_ts - primary_ts).total_seconds()) / 60.0
+            # 0 min → 1.0; 60 min → 0.0; clamp.
+            time_score += max(0.0, 1.0 - gap_min / 60.0)
+        time_count += 1
+        if getattr(ev, "contradicts_root_cause", False):
+            contradicting.append(ev.evidence_id)
+        else:
+            supporting.append(ev.evidence_id)
+    time_relevance = (time_score / time_count) if time_count else 0.5
+
+    # KPI strength: average metric evidence confidence.
+    metric_ev = [e for e in evidence if e.source_type == "metric"]
+    if metric_ev:
+        kpi_strength = sum(e.confidence for e in metric_ev) / len(metric_ev)
+    else:
+        kpi_strength = 0.3  # neutral prior
+
+    # Topology distance: closer hops → higher score.
+    topology_distance = 0.5
+    if topology_deps:
+        hops = [int(d.get("hops", 99)) for d in topology_deps if d.get("node_id")]
+        if hops:
+            min_hop = min(hops)
+            topology_distance = max(0.0, 1.0 - (min_hop - 1) * 0.25)
+
+    # History similarity: count tickets that share alarm_code; saturates
+    # at 3 → 1.0.
+    ticket_ev = [e for e in evidence if e.source_type == "ticket"]
+    alarm_code = (primary_alarm.alarm_code or "").upper()
+    matching_tickets = 0
+    for t in ticket_ev:
+        if alarm_code and alarm_code in (t.content or "").upper():
+            matching_tickets += 1
+    history_similarity = min(1.0, matching_tickets / 3.0)
+
+    # SOP match: knowledge evidence whose content mentions cause keyword.
+    sop_match = 0.0
+    cause_kw = cause.upper().split("_")[0] if cause else ""
+    for e in evidence:
+        if e.source_type != "knowledge":
+            continue
+        if cause_kw and cause_kw in (e.content or "").upper():
+            sop_match = 1.0
+            break
+
+    # Counter-evidence: fraction of evidence that explicitly contradicts.
+    counter_evidence = len(contradicting) / len(evidence) if evidence else 0.0
+
+    # Base prior from cause type (mild default to keep all hypotheses
+    # competitive — the real signal is the factors above).
+    base = 0.30
+    if "LINK" in cause.upper() or "TRANSPORT" in cause.upper():
+        base = 0.45
+    elif "PARAMETER" in cause.upper() or "CONFIG" in cause.upper():
+        base = 0.30
+    elif "WIRELESS" in cause.upper() or "ACCESS" in cause.upper():
+        base = 0.45
+
+    # Cause-alarm match: if the alarm code does not overlap with the
+    # cause's keyword set, apply a small base penalty.  This is what
+    # makes the wireless case (alarm code = RRC_SETUP_FAIL_HIGH) rank
+    # the wireless cause above the link cause even when both have
+    # identical evidence.
+    alarm_code_norm = (primary_alarm.alarm_code or "").upper()
+    if "LINK" in cause.upper() and not (
+        "LINK" in alarm_code_norm or "TRANSPORT" in alarm_code_norm
+    ):
+        base -= 0.20
+    if "WIRELESS" in cause.upper() and not (
+        "RRC" in alarm_code_norm or "ACCESS" in alarm_code_norm or "WIRELESS" in alarm_code_norm
+    ):
+        base -= 0.20
+
+    score = (
+        base
+        + 0.20 * time_relevance
+        + 0.15 * topology_distance
+        + 0.20 * kpi_strength
+        + 0.10 * history_similarity
+        + 0.15 * sop_match
+        - 0.20 * counter_evidence
+    )
+    score = max(0.0, min(1.0, score))
+    return score, supporting, contradicting
+
+
 def generate_hypotheses(
     incident: IncidentResponse,
     evidence: list[Evidence],
+    *,
+    topology_deps: list[dict[str, Any]] | None = None,
 ) -> list[Hypothesis]:
-    alarm_codes = {event.alarm_code.upper() for event in incident.alarm_events}
-    by_type: dict[str, list[str]] = {}
-    for item in evidence:
-        by_type.setdefault(item.source_type, []).append(item.evidence_id)
-    metric_ids = by_type.get("metric", [])
-    log_ids = by_type.get("log", [])
-    topology_ids = by_type.get("topology", [])
-    knowledge_ids = by_type.get("knowledge", [])
-    ticket_ids = by_type.get("ticket", [])
-    if any("LINK" in code or "TRANSPORT" in code for code in alarm_codes):
-        primary = Hypothesis(
-            hypothesis_id="h_001",
-            root_cause_type="transmission_link_degradation",
-            description="Transmission link degradation is the most likely root cause of access failures.",
-            supporting_evidence_ids=[*metric_ids, *topology_ids, *knowledge_ids, *ticket_ids],
-            contradicting_evidence_ids=[],
-            confidence=0.78,
-            next_check=[
-                "Confirm port error counters with the transmission team.",
-                "Check recent cutover or fiber maintenance records.",
-            ],
+    """R27: 6-factor ranked hypotheses (spec §6.5).
+
+    Each candidate cause is scored by :func:`_score_hypothesis` which
+    combines a base prior with time relevance, topology distance, KPI
+    strength, history similarity, SOP match, and counter-evidence.
+    Returns a list sorted by ``confidence`` descending.
+    """
+    primary_alarm = incident.alarm_events[0] if incident.alarm_events else None
+    if primary_alarm is None:
+        return []
+
+    candidates: list[tuple[str, str]] = []
+    # Always include all three cause candidates (spec §6.5 — every
+    # RCA should propose at least one link / wireless / parameter
+    # hypothesis so the human reviewer can weigh them).
+    candidates.append(("h_001", "transmission_link_degradation"))
+    candidates.append(("h_002", "wireless_access_anomaly"))
+    candidates.append(("h_003", "recent_parameter_change"))
+
+    scored: list[Hypothesis] = []
+    for hid, cause in candidates:
+        score, supporting, contradicting = _score_hypothesis(
+            cause=cause,
+            incident=incident,
+            evidence=evidence,
+            primary_alarm=primary_alarm,
+            topology_deps=topology_deps,
         )
-    else:
-        primary = Hypothesis(
-            hypothesis_id="h_001",
-            root_cause_type="wireless_access_anomaly",
-            description="Wireless access anomaly is likely, but transmission evidence still needs confirmation.",
-            supporting_evidence_ids=[*metric_ids, *log_ids, *knowledge_ids],
-            contradicting_evidence_ids=[],
-            confidence=0.62,
-            next_check=["Check cell KPI trend and neighboring-cell alarms."],
+        scored.append(
+            Hypothesis(
+                hypothesis_id=hid,
+                root_cause_type=cause,
+                description=_hypothesis_description(cause, primary_alarm),
+                supporting_evidence_ids=supporting,
+                contradicting_evidence_ids=contradicting,
+                confidence=score,
+                next_check=_hypothesis_next_check(cause),
+            )
         )
-    secondary = Hypothesis(
-        hypothesis_id="h_002",
-        root_cause_type="recent_parameter_change",
-        description="Recent configuration changes could contribute and should be ruled out.",
-        supporting_evidence_ids=([log_ids[1]] if len(log_ids) >= 2 else list(log_ids))
-        + ([ticket_ids[-1]] if ticket_ids else []),
-        contradicting_evidence_ids=list(metric_ids) + list(topology_ids),
-        confidence=0.46,
-        next_check=["Compare parameter changes before and after the alarm window."],
+
+    scored.sort(key=lambda h: h.confidence, reverse=True)
+    # Backward compat (R23-): when no evidence is tagged
+    # ``contradicts_root_cause=True`` the trade-off is still surfaced by
+    # populating each hypothesis's contradicting list with the *other*
+    # hypothesis's supporting ids.  When explicit contradiction tags are
+    # present the score-driven split wins.
+    has_explicit_contradiction = any(getattr(e, "contradicts_root_cause", False) for e in evidence)
+    if not has_explicit_contradiction and len(scored) >= 2:
+        for h in scored:
+            others = [s for s in scored if s.hypothesis_id != h.hypothesis_id]
+            h.contradicting_evidence_ids = list(others[0].supporting_evidence_ids)
+    return scored
+
+
+def _hypothesis_description(cause: str, primary: AlarmEvent) -> str:
+    base = f"Root cause candidate: {cause} for {primary.alarm_code} on {primary.site_id}."
+    if "LINK" in cause.upper() or "TRANSPORT" in cause.upper():
+        return (
+            base
+            + " Transmission link degradation is the most likely root cause of access failures."
+        )
+    if "PARAMETER" in cause.upper() or "CONFIG" in cause.upper():
+        return base + " Recent configuration changes could contribute and should be ruled out."
+    return (
+        base
+        + " Wireless access anomaly is likely, but transmission evidence still needs confirmation."
     )
-    # Retroactively populate each hypothesis's contradicting list with
-    # the *other* hypothesis's supporting evidence so the trade-off
-    # surfaces for human review (spec §6.5).
-    primary.contradicting_evidence_ids = list(secondary.supporting_evidence_ids)
-    secondary.contradicting_evidence_ids = list(primary.supporting_evidence_ids)
-    return [primary, secondary]
+
+
+def _hypothesis_next_check(cause: str) -> list[str]:
+    if "LINK" in cause.upper() or "TRANSPORT" in cause.upper():
+        return [
+            "Confirm port error counters with the transmission team.",
+            "Check recent cutover or fiber maintenance records.",
+        ]
+    if "PARAMETER" in cause.upper() or "CONFIG" in cause.upper():
+        return ["Compare parameter changes before and after the alarm window."]
+    return ["Check cell KPI trend and neighboring-cell alarms."]
 
 
 def generate_report_markdown(
@@ -672,12 +910,8 @@ def generate_report_markdown(
         for item in hypotheses
     )
     # 影响范围 (spec §6.6): unique sites / NEs / cells in incident + evidence.
-    impacted_ne = sorted({
-        event.ne_id for event in incident.alarm_events if event.ne_id
-    })
-    impacted_cells = sorted({
-        event.cell_id for event in incident.alarm_events if event.cell_id
-    })
+    impacted_ne = sorted({event.ne_id for event in incident.alarm_events if event.ne_id})
+    impacted_cells = sorted({event.cell_id for event in incident.alarm_events if event.cell_id})
     impact_section = (
         f"- 主站点: `{incident.site_id}`\n"
         f"- 影响网元 ({len(impacted_ne)}): "

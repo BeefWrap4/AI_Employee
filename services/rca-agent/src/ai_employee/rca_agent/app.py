@@ -55,7 +55,49 @@ SERVICE_VERSION = "0.1.0"
 
 
 def create_app(store: RcaStore | None = None) -> FastAPI:
-    app = FastAPI(title="AI Employee RCA Agent", version=SERVICE_VERSION)
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        # R27: spawn a Kafka consumer background task when KAFKA_ENABLED.
+        # When Kafka is disabled (or build fails) this is a no-op and
+        # the HTTP ``POST /api/v1/alarms/events`` endpoint remains the
+        # only alarm path.
+        from ai_employee.rca_agent.kafka_ingest import build_alarm_consumer
+
+        consumer = build_alarm_consumer()
+        if consumer is not None:
+            import asyncio
+
+            async def _poll_loop():
+                while True:
+                    try:
+                        consumer.process_batch(state=state, max_messages=100)
+                    except Exception as exc:  # pragma: no cover - defensive
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "kafka alarm consumer loop error: %s", exc
+                        )
+                    await asyncio.sleep(0.5)
+
+            task = asyncio.create_task(_poll_loop())
+            try:
+                yield
+            finally:
+                task.cancel()
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
+        else:
+            yield
+
+    app = FastAPI(
+        title="AI Employee RCA Agent",
+        version=SERVICE_VERSION,
+        lifespan=_lifespan,
+    )
     # R25-L: shared rate-limit middleware (no-op unless RATE_LIMIT_ENABLED=true).
     from ai_employee.rate_limit import install_rate_limiter
 
@@ -110,6 +152,7 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
             payload.time_window_minutes,
             topology_window_minutes=payload.topology_window_minutes,
             parent_child_lag_seconds=payload.parent_child_lag_seconds,
+            topology_client=getattr(state, "topology_client", None),
         )
 
     @app.post(
@@ -565,8 +608,16 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
 def _default_store() -> RcaStore:
     sqlite_path = os.getenv("RCA_SQLITE_PATH")
     if sqlite_path:
-        return SQLiteRcaStore(sqlite_path)
-    return RcaStore()
+        store = SQLiteRcaStore(sqlite_path)
+    else:
+        store = RcaStore()
+    # R27: attach a Neo4j topology client when NEO4J_URL is set.  The
+    # ``build_topology_client`` factory is fail-closed (returns None on
+    # any connectivity failure), so this attachment is always safe.
+    from ai_employee.rca_agent.topology import build_topology_client
+
+    store.topology_client = build_topology_client()  # type: ignore[attr-defined]
+    return store
 
 
 def _page_bounds(page: int, page_size: int) -> tuple[int, int, int, int]:

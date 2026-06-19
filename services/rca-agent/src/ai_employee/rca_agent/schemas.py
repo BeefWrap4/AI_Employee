@@ -62,6 +62,9 @@ class Evidence(BaseModel):
     source_ref: str
     content: str
     confidence: float = Field(ge=0, le=1)
+    # R27: optional time + contradiction flag for the 6-factor scorer.
+    ts: str | None = None
+    contradicts_root_cause: bool = False
 
 
 class Hypothesis(BaseModel):

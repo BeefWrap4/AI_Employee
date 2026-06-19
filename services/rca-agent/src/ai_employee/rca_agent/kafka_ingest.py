@@ -11,8 +11,10 @@ The Kafka client is pluggable behind :class:`KafkaConsumerProtocol`.
 ``KAFKA_ENABLED=1``; otherwise it returns ``None`` so services without
 a broker keep working.  Tests inject :class:`FakeKafkaConsumer`.
 """
+
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -175,42 +177,116 @@ class KafkaAlarmConsumer:
         self._consumer.close()
 
 
+class _SyncAdapter:
+    """Bridge AIOKafkaConsumer to a sync poll/commit/close interface.
+
+    aiokafka is async-only, so we run a dedicated background thread
+    with its own event loop and drive ``getmany``/``commit`` from
+    there.  ``poll()`` blocks up to ``timeout_ms`` then returns
+    whatever the background thread has buffered; ``commit()`` is a
+    fire-and-forget roundtrip; ``close()`` shuts the loop down.
+    """
+
+    _BATCH_QUEUE_MAX = 1000
+
+    def __init__(self, async_consumer: Any) -> None:
+        import queue as _queue
+        import threading
+
+        self._consumer = async_consumer
+        self._queue: _queue.Queue = _queue.Queue(maxsize=self._BATCH_QUEUE_MAX)
+        self._stop = threading.Event()
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="aiokafka-poll",
+            daemon=True,
+        )
+        self._thread.start()
+        # Start the consumer (fire-and-forget).
+        asyncio.run_coroutine_threadsafe(self._consumer.start(), self._loop)
+
+    def _run(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        try:
+            while not self._stop.is_set():
+                fut = asyncio.run_coroutine_threadsafe(
+                    self._consumer.getmany(timeout_ms=200, max_records=100),
+                    self._loop,
+                )
+                try:
+                    batches = fut.result(timeout=1.0)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("kafka getmany failed: %s", exc)
+                    continue
+                if not batches:
+                    continue
+                for _tp, msgs in batches.items():
+                    for m in msgs:
+                        raw = m.value
+                        if isinstance(raw, (bytes, str)):
+                            try:
+                                raw = raw.decode() if isinstance(raw, bytes) else raw
+                            except Exception:
+                                continue
+                        try:
+                            self._queue.put_nowait({"value": raw, "offset": m.offset})
+                        except Exception:
+                            pass
+        finally:
+            self._loop.close()
+
+    def poll(self, *, timeout_ms: int) -> list[dict[str, Any]]:
+        import time as _time
+
+        deadline = _time.monotonic() + (timeout_ms / 1000.0)
+        out: list[dict[str, Any]] = []
+        while _time.monotonic() < deadline and len(out) < 100:
+            try:
+                out.append(self._queue.get(timeout=0.05))
+            except Exception:
+                break
+        return out
+
+    def commit(self) -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._consumer.commit(),
+                self._loop,
+            ).result(timeout=2.0)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("kafka commit best-effort: %s", exc)
+
+    def close(self) -> None:
+        self._stop.set()
+        try:
+            self._thread.join(timeout=3.0)
+        except Exception:
+            pass
+
+
 def _connect_kafka(
-    *, bootstrap_servers: str, group_id: str, topic: str,
+    *,
+    bootstrap_servers: str,
+    group_id: str,
+    topic: str,
 ) -> KafkaConsumerProtocol:
     try:
         from aiokafka import AIOKafkaConsumer  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - import guard
         raise RuntimeError(
-            "aiokafka is required for KafkaAlarmConsumer; "
-            "install with `pip install aiokafka`",
+            "aiokafka is required for KafkaAlarmConsumer; install with `pip install aiokafka`",
         ) from exc
-    # AIOKafkaConsumer is async; wrap a thin sync adapter.  For the MVP
-    # local-compose path we use a synchronous poll loop driven by the
-    # scheduler; the real async integration is a follow-up.
-    import asyncio
-
+    # AIOKafkaConsumer is async; wrap a thin sync adapter.  The
+    # ``_SyncAdapter`` (defined at module level above) owns a dedicated
+    # background thread that drives ``getmany`` synchronously, so the
+    # rest of the consumer pipeline can stay purely synchronous.
     consumer = AIOKafkaConsumer(
         topic,
         bootstrap_servers=bootstrap_servers,
         group_id=group_id,
         value_deserializer=lambda v: v,
     )
-
-    class _SyncAdapter:
-        def __init__(self, async_consumer):
-            self._consumer = async_consumer
-            self._loop = asyncio.new_event_loop()
-
-        def poll(self, *, timeout_ms: int) -> list[dict[str, Any]]:
-            return []  # async wiring deferred
-
-        def commit(self) -> None:
-            pass
-
-        def close(self) -> None:
-            self._loop.close()
-
     return _SyncAdapter(consumer)
 
 
@@ -228,7 +304,9 @@ def build_alarm_consumer() -> KafkaAlarmConsumer | None:
     group_id = os.environ.get("KAFKA_GROUP_ID", "rca-agent")
     try:
         consumer = _connect_kafka(
-            bootstrap_servers=bootstrap, group_id=group_id, topic=topic,
+            bootstrap_servers=bootstrap,
+            group_id=group_id,
+            topic=topic,
         )
     except Exception as exc:
         logger.warning("Kafka unavailable (%s): %s", bootstrap, exc)
