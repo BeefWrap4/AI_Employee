@@ -19,6 +19,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_employee.agent_platform_api.tool_resilience import (
+    CircuitBreaker as PlatformCircuitBreaker,
+    RetryPolicy,
+    ToolInvocationError as ResilienceToolInvocationError,
+    apply_resilience,
+)
 from ai_employee.auth_policy import (
     PERM_AGENT_APPROVE,
     PERM_TOOL_INVOKE,
@@ -27,7 +33,7 @@ from ai_employee.auth_policy import (
     require_internal_or_jwt,
 )
 from ai_employee.common_schemas.tool_registry import (
-    ToolInvocationError,
+    ToolInvocationError as CommonToolInvocationError,
     ToolNotFound,
     ToolRegistry,
     ToolSpec,
@@ -132,6 +138,11 @@ def create_app(
                 "risk_level": spec.risk_level,
                 "service_name": spec.service_name,
                 "version": spec.version,
+                # R25-T: carry resilience columns so tests can inject
+                # persisted specs with custom timeout/retry values.
+                "timeout_ms": spec.timeout_ms,
+                "retry_policy": spec.retry_policy,
+                "health_check_url": spec.health_check_url,
             }
         )
 
@@ -294,6 +305,27 @@ def create_app(
         import json as _json
         import time as _time
 
+        # R25-T: read resilience knobs from the spec and apply
+        # ``apply_resilience`` so a single call is composed of
+        #   (timeout enforcement) -> (retry_policy retries) -> (CircuitBreaker)
+        # Default backward compat: timeout_ms=5000, max_attempts=1.
+        # ``retry_policy`` on the platform schema is {max_attempts, backoff_seconds}
+        # but the common-schemas ToolSpec uses ``max_retries`` (a count of
+        # *additional* attempts after the first).  Translate here so the
+        # platform layer keeps a single canonical shape.
+        spec_timeout_ms = int(
+            (row.get("timeout_ms") if isinstance(row, dict) else (row["timeout_ms"] if isinstance(row, dict) else None)) or 5000
+        )
+        raw_retry = (row.get("retry_policy") if isinstance(row, dict) else (row["retry_policy"] if row is not None else None)) or {}
+        if not isinstance(raw_retry, dict):
+            raw_retry = {}
+        if "max_attempts" in raw_retry:
+            max_attempts = max(1, int(raw_retry.get("max_attempts", 1)))
+        else:
+            # Common-schemas shape: max_retries == extra attempts.
+            max_attempts = max(1, 1 + int(raw_retry.get("max_retries", 0)))
+        backoff_seconds = float(raw_retry.get("backoff_seconds", 0.0) or 0.0)
+
         start = _time.monotonic()
         status_str = "success"
         error_code: str | None = None
@@ -302,9 +334,70 @@ def create_app(
             def _do_invoke() -> dict[str, Any]:
                 return registry_state.invoke(name, payload.arguments)
 
-            # Circuit breaker wraps the call.
+            # Wrap the handler with a hard timeout.  ``apply_resilience`` does
+            # not enforce wall-clock timeouts itself, so we run the call in a
+            # worker thread and join with the configured budget.  On timeout
+            # we raise a sentinel that the retry loop / breaker will treat
+            # as a transient failure.
+            def _invoke_with_timeout() -> dict[str, Any]:
+                import threading as _thr
+
+                holder: dict[str, Any] = {}
+
+                def _runner() -> None:
+                    try:
+                        holder["result"] = _do_invoke()
+                    except BaseException as exc:  # noqa: BLE001
+                        holder["error"] = exc
+
+                worker = _thr.Thread(target=_runner, daemon=True)
+                worker.start()
+                worker.join(timeout=max(0.001, spec_timeout_ms / 1000.0))
+                if worker.is_alive():
+                    # Timeout exceeded: raise as ResilienceToolInvocationError so
+                    # apply_resilience treats it correctly and surfaces
+                    # the error_code.
+                    raise ResilienceToolInvocationError(
+                        f"tool {name} exceeded timeout_ms={spec_timeout_ms}",
+                        attempts=0,
+                        error_code="tool_timeout",
+                    )
+                if "error" in holder:
+                    raise holder["error"]
+                return holder.get("result")
+
+            platform_breaker = PlatformCircuitBreaker(
+                failure_threshold=5, cooldown_seconds=60.0,
+            )
+            retry = RetryPolicy(
+                max_attempts=max_attempts, backoff_seconds=backoff_seconds,
+            )
+
+            # The platform's CircuitBreaker short-circuits before invoking
+            # the op.  We layer it around the entire apply_resilience call so
+            # a flood of failures also trips the in-process breaker.
+            def _resilience_op() -> dict[str, Any]:
+                if not platform_breaker.allow():
+                    raise ResilienceToolInvocationError(
+                        "circuit breaker is open",
+                        attempts=0,
+                        error_code="circuit_open",
+                    )
+                try:
+                    outcome = apply_resilience(
+                        _invoke_with_timeout,
+                        retry=retry,
+                        breaker=None,  # platform_breaker is checked here
+                        measure_latency=False,
+                    )
+                except Exception:
+                    platform_breaker.record_failure()
+                    raise
+                platform_breaker.record_success()
+                return outcome  # type: ignore[return-value]
+
             try:
-                result = breaker_state.call(name, _do_invoke)
+                result = breaker_state.call(name, _resilience_op)
             except CircuitOpenError:
                 status_str = "failed"
                 error_code = "CIRCUIT_OPEN"
@@ -318,12 +411,32 @@ def create_app(
                 )
         except HTTPException:
             raise
-        except ToolInvocationError as exc:
+        except ResilienceToolInvocationError as exc:
             status_str = "failed"
-            error_code = "INVOCATION_ERROR"
+            error_code = exc.error_code.upper() if exc.error_code else "INVOCATION_ERROR"
+            # Retries exhausted → 504; circuit_open → 503; timeout → 408.
+            if exc.error_code == "circuit_open":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error_code": "circuit_open",
+                        "tool_name": name,
+                        "message": str(exc),
+                    },
+                ) from exc
+            http_code = (
+                status.HTTP_408_REQUEST_TIMEOUT
+                if exc.error_code == "tool_timeout"
+                else status.HTTP_504_GATEWAY_TIMEOUT
+            )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error_code": "tool_invocation_error", "message": str(exc)},
+                status_code=http_code,
+                detail={
+                    "error_code": exc.error_code or "tool_invocation_failed",
+                    "tool_name": name,
+                    "message": str(exc),
+                    "attempts": exc.attempts,
+                },
             ) from exc
         except Exception as exc:
             status_str = "failed"

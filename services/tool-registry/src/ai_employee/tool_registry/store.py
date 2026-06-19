@@ -63,6 +63,12 @@ class ToolRegistryStore:
                 ("timeout_ms", "INTEGER NOT NULL DEFAULT 5000"),
                 ("retry_policy", "TEXT NOT NULL DEFAULT '{}'"),
                 ("health_check_url", "TEXT"),
+                # R25-T: live health probe writes back here.  ``unknown``
+                # is the default until a probe runs.
+                ("health_status", "TEXT NOT NULL DEFAULT 'unknown'"),
+                ("health_latency_ms", "REAL NOT NULL DEFAULT 0"),
+                ("health_error", "TEXT"),
+                ("health_checked_at", "TEXT"),
             ):
                 cols = {r[1] for r in conn.execute("PRAGMA table_info(tools)").fetchall()}
                 if col not in cols:
@@ -142,6 +148,33 @@ class ToolRegistryStore:
             else:
                 rows = conn.execute("SELECT * FROM tools ORDER BY name").fetchall()
         return [_row_to_dict(row) for row in rows]
+
+    def update_health_status(
+        self,
+        name: str,
+        status: str,
+        latency_ms: float = 0.0,
+        error: str | None = None,
+    ) -> bool:
+        """Persist the latest probe result for ``name``.
+
+        Returns ``True`` when the row was updated, ``False`` if the tool
+        no longer exists (e.g. unregistered between probe iterations).
+        """
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                """UPDATE tools
+                   SET health_status = ?, health_latency_ms = ?,
+                       health_error = ?, health_checked_at = ?,
+                       updated_at = ?
+                   WHERE name = ?""",
+                (
+                    status, float(latency_ms), error, _now_iso(), _now_iso(),
+                    name,
+                ),
+            )
+            conn.commit()
+            return cur.rowcount > 0
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
