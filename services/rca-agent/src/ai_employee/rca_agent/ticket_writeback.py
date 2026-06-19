@@ -18,8 +18,10 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import httpx
+from ai_employee.common_schemas.redaction import RedactionConfig, redact_text
 
 DEFAULT_TICKET_API_URL = "http://127.0.0.1:8089/tickets"
+_DEFAULT_REDACTION = RedactionConfig()
 
 
 class TicketWritebackError(Exception):
@@ -92,11 +94,20 @@ class HttpTicketWritebackAdapter:
         final_root_cause: str | None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/{ticket_id}/comments"
+        # Redact PII / secrets from outbound ticket payloads so we never
+        # write phone numbers, emails, ID cards, IPs, IMSI, or password
+        # tokens into the ticketing system.
+        redacted_summary = redact_text(summary_markdown, _DEFAULT_REDACTION)
+        redacted_root_cause = (
+            redact_text(final_root_cause, _DEFAULT_REDACTION)
+            if final_root_cause
+            else None
+        )
         payload = {
             "rca_report_id": rca_report_id,
             "incident_id": incident_id,
-            "final_root_cause": final_root_cause,
-            "body": summary_markdown,
+            "final_root_cause": redacted_root_cause,
+            "body": redacted_summary,
         }
         try:
             resp = httpx.post(url, json=payload, timeout=self._timeout)

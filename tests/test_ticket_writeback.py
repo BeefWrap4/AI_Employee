@@ -111,3 +111,68 @@ def test_store_records_attempts() -> None:
     matches = store.list_for_ticket("T-001")
     assert len(matches) == 2
     assert {m.status for m in matches} == {"success", "failed"}
+
+
+# --------------------------------------------------------------------------- #
+# R24-C: redaction of PII / secrets in write-back payloads
+# --------------------------------------------------------------------------- #
+
+
+def test_fixture_adapter_redacts_summary_markdown() -> None:
+    """Phones in summary_markdown are masked in the recorded payload."""
+    adapter = FixtureTicketWritebackAdapter()
+    adapter.post_summary(
+        ticket_id="T-002",
+        rca_report_id="rca_002",
+        incident_id="inc_002",
+        summary_markdown="联系 13800138000 处理",
+        final_root_cause="transmission_link_degradation",
+    )
+    assert len(adapter.posted) == 1
+    summary = adapter.posted[0]["summary_chars"]  # only length is recorded
+    # Length is preserved (redaction only masks in place, not truncates).
+    assert summary == len("联系 13800138000 处理")
+
+
+def test_http_adapter_redacts_summary_and_root_cause() -> None:
+    """The HTTP adapter must redact PII before sending the payload."""
+    import json
+
+    fake_resp = MagicMock()
+    fake_resp.status_code = 201
+    fake_resp.content = b'{"ticket_id":"T-001","comment_id":"c-001"}'
+    fake_resp.json.return_value = {"ticket_id": "T-001", "comment_id": "c-001"}
+    adapter = HttpTicketWritebackAdapter("http://ticket.local:8089")
+    with patch("httpx.post", return_value=fake_resp) as mock_post:
+        adapter.post_summary(
+            ticket_id="T-001",
+            rca_report_id="r1",
+            incident_id="i1",
+            summary_markdown="联系 13800138000 处理告警 admin@example.com",
+            final_root_cause="transmission_link_degradation",
+        )
+    sent_body = mock_post.call_args.kwargs["json"]
+    assert "13800138000" not in sent_body["body"]
+    assert "admin@example.com" not in sent_body["body"]
+    assert "***" in sent_body["body"]
+    # final_root_cause has no PII here, so it must pass through unchanged.
+    assert sent_body["final_root_cause"] == "transmission_link_degradation"
+
+
+def test_http_adapter_redacts_root_cause() -> None:
+    """When final_root_cause contains PII, it must be redacted too."""
+    fake_resp = MagicMock()
+    fake_resp.status_code = 201
+    fake_resp.content = b'{"ticket_id":"T-001","comment_id":"c-001"}'
+    fake_resp.json.return_value = {"ticket_id": "T-001", "comment_id": "c-001"}
+    adapter = HttpTicketWritebackAdapter("http://ticket.local:8089")
+    with patch("httpx.post", return_value=fake_resp) as mock_post:
+        adapter.post_summary(
+            ticket_id="T-001",
+            rca_report_id="r1",
+            incident_id="i1",
+            summary_markdown="normal summary",
+            final_root_cause="customer phone 13800138000 reported failure",
+        )
+    sent_body = mock_post.call_args.kwargs["json"]
+    assert "13800138000" not in sent_body["final_root_cause"]

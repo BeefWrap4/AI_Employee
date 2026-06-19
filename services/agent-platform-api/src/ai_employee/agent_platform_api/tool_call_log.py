@@ -21,6 +21,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from ai_employee.common_schemas.redaction import RedactionConfig, redact_text
+
+_TOOL_CALL_REDACTION = RedactionConfig()
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS platform_tool_call_log (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +101,15 @@ class PlatformToolCallLogStore:
         latency_ms: int,
         error_code: str | None,
     ) -> None:
+        # Redact PII / secrets from tool input/output summaries before
+        # persistence so the audit log never stores phone numbers, emails,
+        # ID cards, IPs, IMSI, or password-shaped tokens.
+        safe_input = redact_text(input_summary, _TOOL_CALL_REDACTION)
+        safe_output = (
+            redact_text(output_summary, _TOOL_CALL_REDACTION)
+            if output_summary is not None
+            else None
+        )
         with self._lock, self._connect() as conn:
             conn.execute(
                 """INSERT INTO platform_tool_call_log
@@ -106,8 +119,8 @@ class PlatformToolCallLogStore:
                 (
                     run_id,
                     tool_name,
-                    input_summary[:1000],
-                    output_summary,
+                    safe_input[:1000],
+                    safe_output,
                     status,
                     latency_ms,
                     error_code,
