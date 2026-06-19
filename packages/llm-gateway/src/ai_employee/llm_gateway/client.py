@@ -104,6 +104,8 @@ class LlmClient:
         messages: list[dict[str, str]],
         temperature: float = 0.0,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        *,
+        parent_trace_id: str | None = None,
     ) -> ChatResponse:
         """Send a chat-completion request.
 
@@ -115,6 +117,11 @@ class LlmClient:
             Sampling temperature (default 0.0).
         max_tokens:
             Maximum tokens to generate (default 1024).
+        parent_trace_id:
+            When supplied, reuse the trace id so multiple ``chat()``
+            calls inside the same logical run (e.g. RAG query + RAG
+            rewriter) share a single Langfuse trace.  When omitted a
+            fresh trace id is generated so each call is its own trace.
 
         Returns
         -------
@@ -123,12 +130,13 @@ class LlmClient:
         """
         _do_request = retry_decorator(max_retries=self.max_retries)(self._raw_request)
 
-        # Emit a Langfuse trace record (success or failure) when an emitter is
-        # configured.  Generates fresh trace/span ids so each chat() is its
-        # own trace.  Tracing must never break the underlying call.
+        # Emit a Langfuse trace record (success or failure) when an emitter
+        # is configured.  Reuses the parent trace id when supplied so
+        # multi-step agent runs surface as one trace; otherwise generates
+        # fresh trace/span ids.  Tracing must never break the call.
         from ai_employee.observability import new_span_id, new_trace_id
 
-        trace_id = new_trace_id()
+        trace_id = parent_trace_id or new_trace_id()
         span_id = new_span_id()
         prompt_text = "\n".join(
             m.get("content", "") for m in messages if m.get("role") == "user"
