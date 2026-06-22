@@ -40,13 +40,26 @@ def _pg_db():
 def _dbs(tmp_path):
     yield "sqlite", _sqlite_db(tmp_path)
     if os.getenv("TEST_POSTGRES_URL"):
-        yield "postgres", _pg_db()
+        pg = _pg_db()
+        # R30-A: list_documents now returns (items, total) — clean shared
+        # PG tables so per-test counts aren't polluted by prior runs.
+        _truncate_knowledge_tables(pg)
+        yield "postgres", pg
 
 
 def _store(db, tmp_path):
     s = PgKnowledgeStore(db=db, data_dir=str(tmp_path))
     s.init_schema()
     return s
+
+
+def _truncate_knowledge_tables(db) -> None:
+    """Wipe shared PG knowledge tables so each PG-leg test starts clean."""
+    if db.backend != Backend.POSTGRES:
+        return
+    db.execute("DELETE FROM chunks")
+    db.execute("DELETE FROM documents")
+    db.commit()
 
 
 def _safe_uri(tmp_path, name: str) -> str:
@@ -141,7 +154,10 @@ def test_list_documents_returns_created(tmp_path) -> None:
             acl_tags=[],
             version="v1",
         )
-        docs = store.list_documents()
+        # R30-A: list_documents is now paginated (matches SQLiteStore);
+        # callers that want the full list pass a large page_size.
+        docs, total = store.list_documents(page=1, page_size=100)
+        assert total == 2
         titles = {d["title"] for d in docs}
         assert {"a", "b"}.issubset(titles)
 
