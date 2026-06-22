@@ -297,4 +297,9 @@ R30 §7.4 建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 
 
 **R32 建议主线**：**P0-1 Dockerfile 全服务补齐（7 服务 + web-portal）+ P0-3 RCA 告警收敛算法**（仍是改动面最大的两条 P0 遗留，与 R31 改动面正交）。次要：限流网关化（ingress-level）、模板铺面 5/5 真实三方接入、LangGraph 编排层深层（真子图 + 多 gate + 长运行 resume）。
 
+### 7.6 R32-A 收尾（2026-06-23，限流网关化闭合）
+
+- **P1-7 限流网关化 — ✅ 闭合（R32-A）**：新增 `services/api-gateway`（端口 8070）作为 spec §三 §5.1 要求的单一 ingress 网关，按路径前缀路由到 6 个后端（`/api/knowledge|/api/rca|/api/platform|/api/tools|/api/approvals|/api/mcp`），并在网关层统一收口四项横切关注点：认证（复用 `auth-policy` 的 `require_internal_or_jwt`，`API_GATEWAY_AUTH_REQUIRED` 默认 false 开放、生产翻 true）、限流（复用 `install_rate_limiter`，与 6 服务同一共享包）、审计（`AuditMiddleware` 记录 trace_id+run_id+method+path+backend+status）、trace_id 生成+透传（无 `X-Trace-Id` 时生成 UUID，始终透传到后端+响应）。`BackendProxy` Protocol + `HttpBackendProxy`（httpx）让测试注入 stub 不开 socket。Dockerfile + k8s + helm + docker-compose 全套部署清单就位；helm `test_values_yaml_loads` 扩到 9 服务。**约束**：新增服务，零改动后端，全量 1647 测试 0 失败。
+- **剩余 P1/P2**：模板铺面 5/5 真实三方接入、LangGraph 编排层深层（真子图 + 多 gate + 长运行 resume）、OCR + 滑动窗口 + 表格结构化；P0 仍剩 Dockerfile 全服务补齐 + RCA 告警收敛算法。
+
 > 收尾 spec：`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。

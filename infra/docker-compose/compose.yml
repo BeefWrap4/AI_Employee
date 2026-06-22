@@ -263,6 +263,35 @@ services:
       timeout: 5s
       retries: 5
 
+  api-gateway:
+    # R32-A single ingress-level API gateway (spec §三 §5.1).  Routes
+    # /api/{knowledge,rca,platform,tools,approvals,mcp}/* to the six
+    # backends and owns auth + rate-limit + audit + trace_id/run_id
+    # propagation.  Auth defaults to open (false) so local dev traffic
+    # flows; set API_GATEWAY_AUTH_REQUIRED=true to enforce credentials.
+    build:
+      context: ../..
+      dockerfile: services/api-gateway/Dockerfile
+    environment:
+      APP_PORT: "8070"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+      API_GATEWAY_AUTH_REQUIRED: "false"
+      API_GATEWAY_KNOWLEDGE_API_URL: http://knowledge-api:8010
+      API_GATEWAY_RCA_AGENT_URL: http://rca-agent:8020
+      API_GATEWAY_AGENT_PLATFORM_API_URL: http://agent-platform-api:8030
+      API_GATEWAY_TOOL_REGISTRY_URL: http://tool-registry:8040
+      API_GATEWAY_APPROVAL_SERVICE_URL: http://approval-service:8040
+      API_GATEWAY_MCP_GATEWAY_URL: http://mcp-gateway:8050
+    depends_on:
+      - knowledge-api
+    ports:
+      - "8070:8070"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8070/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres-data:
   minio-data:

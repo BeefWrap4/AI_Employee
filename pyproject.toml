@@ -68,6 +68,7 @@ packages = [
   "ai_employee.event_gateway",
   "ai_employee.object_store",
   "ai_employee.rate_limit",
+  "ai_employee.api_gateway",
 ]
 
 [tool.setuptools.package-dir]
@@ -87,6 +88,7 @@ packages = [
 "ai_employee.object_store" = "packages/object-store/src/ai_employee/object_store"
 
 "ai_employee.rate_limit" = "packages/rate-limit/src/ai_employee/rate_limit"
+"ai_employee.api_gateway" = "services/api-gateway/src/ai_employee/api_gateway"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -103,4 +105,5 @@ pythonpath = [  "services/knowledge-api/src",
   "services/tool-registry/src",
   "packages/object-store/src",
   "services/event-gateway/src",
+  "services/api-gateway/src",
 ]

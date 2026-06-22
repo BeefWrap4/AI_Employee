@@ -188,6 +188,29 @@ services:
       KAFKA_GROUP_ID: "event-gateway"
       EVENT_GATEWAY_RCA_URL: "http://rca-agent:8020"
 
+  # R32-A: single ingress-level API gateway (spec §三 §5.1).  Routes
+  # /api/{knowledge,rca,platform,tools,approvals,mcp}/* to the six
+  # backends and owns auth + rate-limit + audit + trace_id/run_id
+  # propagation.  Stateless; HA-safe at 2 replicas.  Auth defaults to
+  # open (false) so dev/test traffic flows — flip API_GATEWAY_AUTH_REQUIRED
+  # to "true" (via a values overlay) to enforce JWT/X-Internal-Token in
+  # production.  Backend URLs default to the in-cluster Service DNS.
+  api-gateway:
+    enabled: true
+    pdb:
+      minAvailable: 1
+    port: 8070
+    replicas: 2
+    storage: 0
+    env:
+      API_GATEWAY_AUTH_REQUIRED: "false"
+      API_GATEWAY_KNOWLEDGE_API_URL: "http://knowledge-api:8010"
+      API_GATEWAY_RCA_AGENT_URL: "http://rca-agent:8020"
+      API_GATEWAY_AGENT_PLATFORM_API_URL: "http://agent-platform-api:8030"
+      API_GATEWAY_TOOL_REGISTRY_URL: "http://tool-registry:8040"
+      API_GATEWAY_APPROVAL_SERVICE_URL: "http://approval-service:8040"
+      API_GATEWAY_MCP_GATEWAY_URL: "http://mcp-gateway:8050"
+
 # Optional ingress for the platform API + web portal.
 ingress:
   enabled: false
