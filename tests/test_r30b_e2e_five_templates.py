@@ -138,8 +138,10 @@ def test_each_template_runs_end_to_end_via_langgraph(
         assert result.status == "completed"
         assert all(t.status == "completed" for t in result.tool_calls)
         # Read-only templates execute every declared tool exactly once.
+        # R32-B: the parallel subgraph fan-out makes invocation order
+        # non-deterministic, so assert set equality rather than sequence.
         invoked = [name for name, _ in mcp.calls]
-        assert invoked == declared
+        assert sorted(invoked) == sorted(declared)
 
 
 def test_all_five_templates_have_distinct_prompt_versions(

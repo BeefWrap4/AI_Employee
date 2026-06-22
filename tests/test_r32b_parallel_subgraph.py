@@ -35,7 +35,6 @@ resume-then-execute path.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +45,6 @@ from ai_employee.agent_platform_api.langgraph_runtime import (
 from ai_employee.agent_platform_api.schemas import AgentRunCreate
 from ai_employee.llm_gateway.client import ChatResponse
 
-
 # --------------------------------------------------------------------------- #
 # Fakes (mirror test_langgraph_checkpoint_resume.py so real node bodies run)
 # --------------------------------------------------------------------------- #
@@ -55,7 +53,9 @@ from ai_employee.llm_gateway.client import ChatResponse
 class FakeLlmClient:
     """Records every chat invocation; returns a configured response."""
 
-    def __init__(self, *, content: str = "LLM drafted an answer.", model: str = "fake-model") -> None:
+    def __init__(
+        self, *, content: str = "LLM drafted an answer.", model: str = "fake-model"
+    ) -> None:
         self.content = content
         self.model = model
         self.calls: list[list[dict[str, str]]] = []
@@ -172,7 +172,11 @@ def test_tool_plan_executes_tools_in_parallel_subgraph(
     leg.
     """
     mcp = _RecordingMcp(
-        delays={"cmdb.lookup": 0.15, "ticket.history.search": 0.15, "knowledge-api.chat.query": 0.15},
+        delays={
+            "cmdb.lookup": 0.15,
+            "ticket.history.search": 0.15,
+            "knowledge-api.chat.query": 0.15,
+        },
         results={
             "cmdb.lookup": {"ne_id": "ne-1", "class": "RNC"},
             "ticket.history.search": {"tickets": []},
@@ -297,16 +301,40 @@ def test_subgraph_failure_isolates_failed_tool(
     assert resumed.status == "completed"
     by_name = {t.tool_name: t for t in resumed.tool_calls}
     assert by_name["ticket.history.search"].status == "failed"
-    assert getattr(by_name["ticket.history.search"], "error_code", None) == "tool_invocation_error"
     assert by_name["cmdb.lookup"].status == "completed"
     assert by_name["knowledge-api.chat.query"].status == "completed"
-    # The aggregated output records the failure so callers can surface it.
+    # The aggregated output records the failure (with error_code) so
+    # callers can surface it — the ToolCallSummary schema drops the
+    # error_code field (pydantic extra=ignore), so the canonical place
+    # to assert failure isolation is the aggregated tool_results list
+    # and the tool_call_log row.
     err_entries = [
-        r for r in resumed.output.get("tool_results", [])
+        r
+        for r in resumed.output.get("tool_results", [])
         if r.get("tool_name") == "ticket.history.search"
     ]
     assert err_entries
     assert err_entries[0].get("status") == "failed"
+    assert err_entries[0].get("error_code") == "tool_invocation_error"
+    # The other two tools have successful aggregated entries.
+    ok_entries = [
+        r
+        for r in resumed.output.get("tool_results", [])
+        if r.get("tool_name") in ("cmdb.lookup", "knowledge-api.chat.query")
+    ]
+    assert len(ok_entries) == 2
+    assert {e.get("status") for e in ok_entries} == {"completed"}
+    # The tool_call_log row for the failed tool carries the error_code.
+    from ai_employee.agent_platform_api.tool_call_log import (
+        PlatformToolCallLogStore,
+    )
+
+    store = PlatformToolCallLogStore()
+    rows = store.list_for_run(resumed.run_id)
+    failed_rows = [r for r in rows if r["tool_name"] == "ticket.history.search"]
+    assert failed_rows
+    assert failed_rows[0]["status"] == "failure"
+    assert failed_rows[0]["error_code"] == "tool_invocation_error"
 
 
 # --------------------------------------------------------------------------- #
