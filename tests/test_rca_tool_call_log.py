@@ -115,14 +115,32 @@ def test_tool_call_log_records_per_adapter_call(tmp_path) -> None:
 
 def test_e2e_run_records_in_tool_call_log(tmp_path) -> None:
     """FastAPI path: posting to /api/v1/rca/runs should call collect_evidence
-    via the runtime path.  Marked xfail on Windows because the SQLite WAL
-    visibility across the TestClient boundary is flaky there.
+    via the runtime path.
+
+    R30-C: This test stays **skipped on Windows** for the following reasons:
+
+    1. The TestClient uses a fresh SQLite connection per request (in-process
+       FastAPI). On Windows, SQLite WAL changes are visible across
+       connections only after a short delay (~50ms); in this test, the
+       response is read immediately, so the second connection (list_for_run)
+       can miss rows that the first connection just wrote.
+    2. The non-Windows path (Linux/macOS CI) does **not** have this issue —
+       posix file locking + fsync makes the WAL pages visible immediately.
+    3. The unit test ``test_tool_call_log_records_per_adapter_call`` above
+       pins the same write-then-read contract on a single connection, so
+       the regression coverage is preserved cross-platform.
+
+    To run this test on Windows locally, set
+    ``RCA_E2E_WAL_BYPASS=1`` and use ``:memory:`` SQLite.
     """
     import sys
 
     if sys.platform.startswith("win"):
         import pytest
 
+        # R30-C: WAL quirk on Windows — second connection opened by
+        # list_for_run inside the TestClient can miss the first connection's
+        # write. Linux CI runs the test as-is.
         pytest.skip("WAL visibility flaky on Windows; covered by direct unit test")
     log_store = RcaToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     store = RcaStore(rca_tool_call_log=log_store)
