@@ -20,7 +20,7 @@ This is the AI Employee monorepo: three progressive telecom-ops AI projects on a
 
 ### Services
 
-`services/` houses the eight FastAPI apps; `packages/` holds libs that multiple services import. Service ports follow the convention `8010–8060` (10-step), allocated in the order they were extracted.
+`services/` houses ten FastAPI apps; `packages/` holds libs that multiple services import. Service ports follow the convention `8010–8070` (10-step), allocated in the order they were extracted. `api-gateway` (8070) is the single ingress-level front door for user traffic (R32-A).
 
 ```
 services/knowledge-api          (8010)  RAG knowledge base (project-1)
@@ -30,6 +30,8 @@ services/agent-platform-api     (8030)  Agent runtime, approvals, tools (project
 services/tool-registry          (8040)  MCP tool registry
 services/approval-service       (8040)  Standalone approval task service (post-R21)
 services/mcp-gateway            (8050)  MCP protocol gateway (post-R21)
+services/event-gateway          (8060)  Kafka alarm consumer + event-ingest (post-R29-C)
+services/api-gateway            (8070)  Single ingress gateway — routing + auth + ratelimit + trace + audit (R32-A)
 services/eval-service           (— CLI)  Eval center CLI runner (no HTTP)
 apps/web-portal                 (80)    Vite SPA
 packages/common-schemas                       Pydantic models, idempotency, metrics bridge, redaction, knowledge types

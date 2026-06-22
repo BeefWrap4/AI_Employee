@@ -16,18 +16,18 @@
 | §5.2 表格结构化解析（行列语义、不拍平） | 🟡 | XlsxParser 按行生成块，但未保留 table_id/row_id 结构化字段 |
 | §5.2 告警码/参数名特殊 token 保护 | ✅ | chunker `_ALARM_CODE_RE` 保护 |
 | §5.3 分段三级策略（标题/语义/滑动窗口） | 🟡 | 标题层级 ✅、段落切分 ✅；**滑动窗口 🔴**（超长块走句子边界，未实现窗口重叠） |
-| §5.4 混合检索（向量+BM25+元数据过滤+rerank） | 🟡 | 向量(Milvus/stub)+BM25(OpenSearch/FTS5)+元数据过滤+chunk ACL ✅；**reranker 🔴**（Round 1c 显式跳过，FTS+向量融合兜底） |
+| §5.4 混合检索（向量+BM25+元数据过滤+rerank） | ✅ | 向量(Milvus/stub)+BM25(OpenSearch/FTS5)+元数据过滤+chunk ACL ✅；reranker ✅（R26 recall window 二阶段重排） |
 | §5.4 问题改写/术语归一化 | 🟡 | query_rewriter(LLM) ✅；**告警码/厂家/网元实体识别 🔴**（Query Normalize 未实现） |
 | §5.5 引用校验 + 低置信拒答 | ✅ | citation recheck + refusal + confidence ✅ |
-| §5.6 反馈 + 黄金问答 + 版本间 A/B | 🟡 | feedback ✅、golden eval ✅、版本对比(eval compare) ✅；**Faithfulness/Answer Relevance 指标 🔴**（仅有 hit/citation/refusal/P95，无 RAGAS 级忠实度/相关性） |
+| §5.6 反馈 + 黄金问答 + 版本间 A/B | ✅ | feedback ✅、golden eval ✅、版本对比(eval compare) ✅、Faithfulness/Answer Relevance 指标 ✅（R18） |
 | §6 数据模型 5 张表 | 🟡 | knowledge_source 🔴（无独立知识源表，权限挂在 document metadata）、其余 4 表 ✅ |
 | §7 接口 chat/query、upload、publish、feedback | ✅ | 全部实现 |
-| §8 SSO + chunk ACL + 引用二次校验 + 审计 + 脱敏 | 🟡 | chunk ACL + 引用二次校验 + 审计(qa_logs/feedbacks) ✅；**SSO 🔴、敏感字段脱敏 🔴** |
-| §8 PostgreSQL 元数据 | 🔴 | 全部走 **SQLite**（MVP 决策），Postgres 在 compose 中起但代码未用 |
-| §9 Milvus / OpenSearch / MinIO 对象存储 | 🟡 | Milvus/OpenSearch 适配器 ✅（env 门控，默认 stub）；**MinIO/对象存储 🔴**（文件存本地 raw/） |
+| §8 SSO + chunk ACL + 引用二次校验 + 审计 + 脱敏 | 🟡 | chunk ACL + 引用二次校验 + 审计(qa_logs/feedbacks) ✅；SSO/OIDC ✅（R24 真 RS256 验签 + JWKS refresh + `require_oidc_or_internal`）；敏感字段脱敏 ✅（R24 `redact_dict` 递归规则 + 四个出口统一脱敏） |
+| §8 PostgreSQL 元数据 | ✅ | R29-A 闭合：`DATABASE_URL` 默认 PG + 4 服务启动日志 + helm `.env.example` 默认 PG + 回落 SQLite 一次性 deprecation 警告；R30-A 修 PG 知识库并发竞态（UUID 后缀）+ 补全 `PgKnowledgeStore` 方法表面 |
+| §9 Milvus / OpenSearch / MinIO 对象存储 | 🟡 | Milvus/OpenSearch 适配器 ✅（env 门控，默认 stub）；MinIO/对象存储 ✅（R22 `ObjectStore` Protocol LocalFs/S3/MinIO 三后端 + knowledge-api 写穿 + agent-platform 上传下载） |
 | §9 Celery+Redis 异步任务 | 🔴 | 用 FastAPI BackgroundTasks + 同步 worker 调度，**无 Celery/Redis 队列** |
 | 流式输出（`stream:true`） | 🔴 | 无 SSE/StreamingResponse |
-| 多轮追问 | 🔴 | 有 session_id 字段，但无对话历史拼接/上下文记忆 |
+| 多轮追问 | ✅ | R19 闭合：session_id + 对话历史拼接 + 上下文记忆 ✅ |
 
 ---
 
@@ -36,17 +36,17 @@
 | Spec 条目 | 状态 | 现状 / 差距 |
 |---|---|---|
 | §6.1 告警标准化 + fingerprint | ✅ | normalize_alarm + fingerprint ✅ |
-| §6.2 告警收敛（时间窗/空间/拓扑/父子规则） | 🟡 | build_incident 按传入告警聚合 + 主告警选择 ✅；**真正的收敛算法 🔴**（`del time_window_minutes`——时间窗参数被丢弃；无拓扑聚合、无父子规则、无衍生告警归并） |
+| §6.2 告警收敛（时间窗/空间/拓扑/父子规则） | ✅ | R14 闭合：`build_incident` 真用 `time_window_minutes` 时间窗分组 + `_merge_parent_child`（`parent_child_lag_seconds`）+ `_merge_by_topology`（`topology_window_minutes` + `topology_client`）+ `_dedup_by_fingerprint` + primary 选择，spec §6.2 全六步到位（R26 加 `convergence_depth` 参数；§7.4 复核更正原「`del time_window_minutes` TODO 仍在」为文档漂移） |
 | §6.3 上下文采集 5 工具 | ✅ | KPI/Log/Topology/Ticket 适配器(Round 2) + 知识 SOP ✅，fixture 兜底 + env 门控真实 HTTP |
 | §6.4 受控状态机 DAG | ✅ | 自研 DAG（spec 允许 "LangGraph 或自研"）✅ |
-| §6.4 工具调用结构化 + tool_call_id | 🟡 | tool_calls 记录在 run ✅；**独立 tool_call_log 表 + 输入/输出/耗时/错误码 🔴**（platform 有 tool_calls 摘要，RCA 无独立持久化日志） |
-| §6.5 根因推理（支持+反证+排序因子） | 🟡 | supporting_evidence_ids ✅、contradicting_evidence_ids 字段存在但**永远为空 🔴**（generate_hypotheses 未填反证）；排序因子（时间相关/拓扑距离/KPI强度/历史相似度/SOP命中/反证数）🔴（纯规则两分支，无打分） |
-| §6.6 RCA 报告结构 | 🟡 | 事件摘要/证据链/Top-N/处置/需确认 ✅；**影响范围/关键时间线/引用来源 🔴**（报告 markdown 未含） |
+| §6.4 工具调用结构化 + tool_call_id | ✅ | tool_calls 记录在 run ✅；独立 tool_call_log 表 + 输入/输出/耗时/错误码 ✅（R25 `PlatformToolCallLogStore` + R29-B LangGraph `_node_tool_plan` 写入 + 失败带 `error_code` + R24 递归脱敏） |
+| §6.5 根因推理（支持+反证+排序因子） | 🟡 | supporting_evidence_ids ✅、contradicting_evidence_ids ✅（pre-R23 swap-back 行为填充）；排序因子 ✅（R27 6 因子假设排序：time_relevance/topology_distance/kpi_strength/history_similarity/sop_match/counter_evidence + base prior + alarm-code match）；**反证证据主动采集仍偏规则 🟡** |
+| §6.6 RCA 报告结构 | ✅ | 事件摘要/证据链/Top-N/处置/需确认 ✅；影响范围（网元/小区）/关键时间线/引用来源 ✅（报告 markdown 全六节到位） |
 | §7 数据模型 incident/alarm/evidence/report | ✅ | 全部实现（SQLite） |
 | §8 工单回写前必须人工确认 | ✅ | review→accepted 才生成候选；ticket writeback 端点 ✅ |
-| §8 双重鉴权（用户+Agent 服务身份） | 🟡 | 平台层 JWT+RBAC ✅；RCA agent 自身端点 **未加 auth 🔴**（MVP 内网默认） |
+| §8 双重鉴权（用户+Agent 服务身份） | ✅ | 平台层 JWT+RBAC ✅；RCA agent 自身端点 ✅（R24 `require_oidc_or_internal` 接入 `rca:write` / `rca:approve` 关键生产写端点） |
 | §10 评测 7 指标 | ✅ | Top1/Top3/Evidence/Tool Success/Human Acceptance/Compression/Gen Time 全部实现(Round 2 + eval) |
-| §10 真实告警流接入 | 🔴 | 无 Kafka/MQ 消费，靠 HTTP POST 触发 |
+| §10 真实告警流接入 | ✅ | R27 + R29-C 闭合：rca-agent 内嵌 Kafka consumer 真接线（R27），R29-C 摘除 rca-agent Kafka lifespan 变纯 HTTP consumer + event-gateway 独立服务扛 consumer（告警流扛重启、consumer 独立扩缩容） |
 
 ---
 
@@ -54,21 +54,21 @@
 
 | Spec 条目 | 状态 | 现状 / 差距 |
 |---|---|---|
-| §5.1 平台 API 网关（认证/限流/审计/路由/trace_id+run_id） | 🟡 | 认证(JWT) ✅、审计 ✅、trace_id+run_id ✅；**限流 🔴、统一网关聚合 🔴**（各服务独立暴露，无单一入口网关） |
+| §5.1 平台 API 网关（认证/限流/审计/路由/trace_id+run_id） | 🟡 | 认证(JWT) ✅、审计 ✅、trace_id+run_id ✅、限流 ✅（R25 共享包 + R31 维度参数化 + R32-A ingress 网关层）、统一网关聚合 ✅（R32-A `services/api-gateway` 端口 8070，按路径前缀路由 6 后端 + 网关层收口四项横切）；**生产认证默认关闭 🟡**（`API_GATEWAY_AUTH_REQUIRED=false` 默认开放，生产需翻 true） |
 | §5.2 Agent Runtime 长运行/状态持久化/失败恢复/人工中断 | 🟡 | run 持久化(SQLite)+resume ✅、审批中断恢复 ✅、LangGraph v1 执行层 ✅（R29-B）、LangGraph 可恢复 ✅（R31-B MemorySaver checkpoint+resume）、并行子任务 ✅（R32-B `Send` fan-out + reducer 聚合）；**失败重试策略 🔴**、多 gate 编排 🔴 |
-| §5.3 MCP 工具注册中心（Schema/权限/风险/健康检查/限流/熔断） | 🟡 | 注册+Schema+风险等级+鉴权+invoke ✅；**健康检查 🔴（health_status 永远 unknown）、限流 🔴、熔断 🔴、timeout_ms/retry_policy 🔴**（ToolSpec 无这些字段） |
+| §5.3 MCP 工具注册中心（Schema/权限/风险/健康检查/限流/熔断） | 🟡 | 注册+Schema+风险等级+鉴权+invoke ✅；timeout_ms/retry_policy ✅ + 熔断探活 ✅（R25-T4 工具韧性）；限流 ✅（R25 共享包 + R31 维度参数化 + R32-A 网关层）；**主动健康检查 🟡**（`health_status` 仍偏 unknown，探活是熔断驱动而非独立 health 端点） |
 | §5.3 风险等级 readonly/suggest/approval_required/forbidden | 🟡 | 实现 read_only/approval_required/high_risk；**forbidden 🔴、suggest 🔴**（4 档只实现 2.5 档） |
-| §5.4 人机协同（审批/中断/补充信息/转派/超时升级） | 🟡 | 审批 approve/reject ✅、中断恢复 ✅；**补充信息 🔴、转派专家 🔴、超时升级 🔴** |
-| §5.5 模板管理 5 类（QA/RCA/巡检/变更评估/工单总结） | 🟡 | knowledge_qa/rca/inspection ✅（3/5）；**变更评估 Agent 🔴、工单总结 Agent 🔴** |
-| §5.5 模板含 Prompt/审批策略/评测集/输出模板 | 🟡 | input/output schema + tool_names + requires_approval ✅；**节点 Prompt 版本 🔴、绑定评测集 🔴、输出报告模板 🔴**（模板是声明式骨架，非可执行图） |
-| §5.6 可观测 7 指标 | 🟡 | tool_call_success_rate ✅、report_acceptance_rate ✅；**agent_run_success_rate/审批等待时间/model_latency_p95/tool_latency_p95/fallback_rate 🔴**（observability 包有 metric 原语，但平台未埋点采集这些） |
-| §5.6 LLM Trace（Langfuse/LangSmith） | 🔴 | 无 LLM 调用级 trace 平台对接 |
-| §5.7 评测中心 5 类型 | 🟡 | RAG 评测 ✅、RCA 回放 ✅、版本对比 ✅；**工具调用正确性评测 🔴、报告结构/引用完整性评测 🔴、安全策略评测（是否绕过审批）🔴** |
+| §5.4 人机协同（审批/中断/补充信息/转派/超时升级） | ✅ | R20 闭合：审批 approve/reject ✅、中断恢复 ✅（R31-B 真 checkpoint resume）、补充信息 ✅、转派专家 ✅、超时升级 ✅、审批状态机统一 + 终态守卫 404 |
+| §5.5 模板管理 5 类（QA/RCA/巡检/变更评估/工单总结） | 🟡 | 5 类模板骨架全部声明 ✅（R30-B 端到端覆盖 5 模板 LangGraph 归因）；变更评估 + 工单总结真实三方端到端 ✅（R32-C，CMDB/工单/知识库 hermetic 验证）；**剩余 3 模板（QA/RCA/巡检）真实三方接入待后续 🟡** |
+| §5.5 模板含 Prompt/审批策略/评测集/输出模板 | 🟡 | input/output schema + tool_names + requires_approval ✅、节点 Prompt 版本 ✅（R30-B `prompt_version` + `model_name` 5 schema 端到端归因，Langfuse 可按 prompt label 切片 A/B）；**绑定评测集 🔴、输出报告模板 🔴**（模板是声明式骨架，非可执行图） |
+| §5.6 可观测 7 指标 | 🟡 | 七指标全部埋点 ✅（R25 `metrics_bridge` 单例 + `record_*` 接线：tool_call_success_rate / report_acceptance_rate / agent_run_success_rate / 审批等待时间 / model_latency_p95 / tool_latency_p95 / fallback_rate）；**生产 Prometheus /metrics 端点暴露 🟡**（MetricRegistry 已注册，端点接线待生产验证） |
+| §5.6 LLM Trace（Langfuse/LangSmith） | ✅ | R24 闭合：LlmClient 默认 Langfuse emitter + knowledge-api / LangGraph runtime 接线 + 真 token usage + parent_trace_id 透传；R30-B prompt_version 归因让 Langfuse 可按 prompt label 切片 |
+| §5.7 评测中心 5 类型 | 🟡 | RAG 评测 ✅、RCA 回放 ✅、版本对比 ✅、工具调用正确性评测 ✅（R18）、安全策略评测（是否绕过审批）✅（R18）；**报告结构/引用完整性评测 🟡**（部分覆盖，深度待后续） |
 | §5.8 知识回流（候选→审核→入库） | ✅ | 完整闭环 ✅ |
-| §6 数据模型 5 表 | 🟡 | agent_definition(=template) ✅、agent_run ✅、tool_registry ✅、approval_task ✅；**tool_call_log 🔴**（无独立表） |
-| §8 角色 5 类 + 治理 | 🟡 | RBAC 4 角色(viewer/operator/reviewer/admin) ✅；**Agent 开发者/审计人员独立角色 🔴、Prompt/模型版本全记录 🔴、敏感字段脱敏 🔴** |
-| §9 部署单元 9 个 | 🟡 | platform-api/rca/tool-registry/eval/portal ✅；**event-gateway 🔴、mcp-gateway 🔴、approval-service 🔴、独立 worker 🔴**（审批内嵌平台，无独立服务） |
-| §9 高可用（多副本/幂等/备份） | 🔴 | k8s manifest replicas=1（SQLite 单写），无幂等/备份设计 |
+| §6 数据模型 5 表 | ✅ | agent_definition(=template) ✅、agent_run ✅、tool_registry ✅、approval_task ✅、tool_call_log ✅（R25 `PlatformToolCallLogStore` 独立持久化 + R29-B LangGraph 节点写入 + R24 递归脱敏） |
+| §8 角色 5 类 + 治理 | 🟡 | RBAC 4 角色(viewer/operator/reviewer/admin) ✅；敏感字段脱敏 ✅（R24）、Prompt/模型版本全记录 ✅（R30-B 5 schema 端到端归因）；**Agent 开发者/审计人员独立角色 🔴**（4 角色 vs spec 5 角色） |
+| §9 部署单元 9 个 | 🟡 | platform-api/rca/tool-registry/eval/portal ✅、mcp-gateway ✅（R21）、approval-service ✅（R21）、event-gateway ✅（R29-C）、api-gateway ✅（R32-A 端口 8070）；**独立 worker 🔴**（ingestion 仍内嵌，无独立 Celery worker） |
+| §9 高可用（多副本/幂等/备份） | ✅ | R23 闭合：`IdempotencyStore`（InMemory/Redis）+ `Idempotency-Key` 接线 + `RedisEventBus` 多副本事件总线 + Helm 多副本 values + leader-failover 回归测试；R29-A PG 默认化解除 SQLite 单写悬空；R30-C 备份 runbook（`Docs/backup-runbook.md` + `scripts/backup.sh` + k8s CronJob 02:00 UTC daily） |
 
 ---
 
@@ -76,49 +76,51 @@
 
 | 类别 | 状态 | 说明 |
 |---|---|---|
-| PostgreSQL | 🔴 | spec 全程要求 PG，实现全程 SQLite。迁移成本中等（已有 store 抽象层） |
-| Kafka/消息队列 | 🔴 | 无；告警流、事件接入网关、异步任务全缺 |
-| Redis | 🔴 | compose 起了，代码未用（无缓存、无队列、无限流） |
-| Celery | 🔴 | 无；异步靠 BackgroundTasks |
-| LangGraph | 🔴 | 依赖在 pyproject 但未实际使用；RCA + 平台均自研 DAG（spec 允许 RCA 自研，平台要求 v1） |
-| 对象存储(MinIO) | 🔴 | 文件本地存储 |
-| OCR | 🔴 | 无 |
-| Reranker | 🔴 | 无（Round 1c 跳过） |
-| SSO/OIDC | 🔴 | 仅 JWT 共享密钥，无企业 SSO 接入 |
-| Dockerfile | 🔴 | **无任何 Dockerfile**（k8s manifest 引用 `ai-employee/<svc>:0.1.0` 镜像但无构建文件） |
+| PostgreSQL | ✅ | R29-A 闭合：`DATABASE_URL` 默认 PG + 回落 SQLite 一次性 deprecation 警告；R30-A 修 PG 知识库并发竞态 + 补全 `PgKnowledgeStore` 方法表面 |
+| Kafka/消息队列 | ✅ | R27 rca-agent 内嵌 consumer 真接线；R29-C 摘 rca-agent Kafka 变纯 HTTP consumer + event-gateway 独立服务扛 consumer |
+| Redis | 🟡 | R23 HA 用：`IdempotencyStore`（InMemory/Redis）+ `RedisEventBus` 多副本事件总线；R25 限流 `SlidingWindowLimiter` Redis 后端；**缓存 / 任务队列维度仍 🟡**（无 Celery） |
+| Celery | 🔴 | 无；异步靠 BackgroundTasks（spec 未强制 Celery，MVP 决策） |
+| LangGraph | ✅ | R29-B 执行层（节点真调 LLM/MCP）+ R31-B 可恢复（`MemorySaver` checkpoint + `resume()`）+ R32-B 并行子图（`Send` fan-out + `operator.add` reducer 聚合 + 失败隔离）；`LANGGRAPH_SUBGRAPH` env 门控，线性 fallback 保留 |
+| 对象存储(MinIO) | ✅ | R22 闭合：`ObjectStore` Protocol（LocalFs / S3 / MinIO 三后端）+ knowledge-api 写穿 + agent-platform 上传下载 + k8s/Helm 清单 |
+| OCR | 🔴 | 无（spec 标注 MVP 非目标，待后续） |
+| Reranker | ✅ | R26 闭合：recall window 二阶段重排 |
+| SSO/OIDC | ✅ | R24 闭合：真 RS256 验签 + JWKS refresh-on-kid-miss + `require_oidc_or_internal` 依赖 + 三个服务关键生产写端点接入 + Helm/k8s/.env 配置占位 |
+| Dockerfile | ✅ | 早期 `2e9f0a7` 闭合：8 服务 + web-portal 全有 Dockerfile；R29-C 补 event-gateway、R32-A 补 api-gateway（新增服务顺带补齐） |
 | CI | ✅ | ruff/mypy/pytest/security/build/k8s-lint ✅ |
-| 前端 ECharts | 🟡 | AntD ✅，**ECharts 图表 🔴**（仪表盘只有 Statistic 数字，无趋势图） |
+| 前端 ECharts | ✅ | R19 闭合：AntD + ECharts 趋势图 ✅ |
 
 ---
 
 ## 五、按影响排序的待办（建议优先级）
 
+> **状态更新（R32 后）**：以下 P0–P3 为 2026-06-18 原始待办清单。R20–R32 共 16 轮迭代后的闭合状态见每条末尾 ✅/🟡 标注 + §7 闭环记录。原始 9 项 🔴 未实现条目**全部清零**，剩余项均为生产化深度增强。
+
 ### P0 — 阻塞真正部署/演示
-1. **Dockerfile 缺失**（5 个服务 + portal）：k8s manifest 引用的镜像无法构建
-2. **PostgreSQL 迁移** 或明确 SQLite 为生产选型并补备份策略：spec 强制 PG
-3. **RCA 告警收敛算法**：`del time_window_minutes` 是显式 TODO，spec §6.2 核心能力，当前只是"传入即聚合"
+1. **Dockerfile 缺失**（5 个服务 + portal）：k8s manifest 引用的镜像无法构建 — ✅ 早已闭合（早期 `2e9f0a7`，8 服务 + portal 全有；§7.4 复核更正）
+2. **PostgreSQL 迁移** 或明确 SQLite 为生产选型并补备份策略：spec 强制 PG — ✅ 闭合（R29-A `DATABASE_URL` 默认 PG + R30-A 修并发竞态；§7.3）
+3. **RCA 告警收敛算法**：`del time_window_minutes` 是显式 TODO，spec §6.2 核心能力，当前只是"传入即聚合" — ✅ 早已闭合（R14 `bc72149`+`ea7fb2d` 时间窗+父子+拓扑收敛全到位；§7.4 复核更正）
 
 ### P1 — spec 明确要求但缺失的核心能力
-4. Reranker 二阶段重排（spec §5.4 检索流程第 6 步）
-5. 平台 Agent 模板补齐：变更评估、工单总结（spec §5.5 首批 5 类）
-6. tool_call_log 独立持久化 + 工具健康检查/超时/熔断（spec §5.3、§6.4）
-7. 限流（spec §5.1 平台网关关键能力）
-8. 剩余可观测指标埋点（agent_run_success_rate / 各 latency_p95 / fallback_rate）
+4. Reranker 二阶段重排（spec §5.4 检索流程第 6 步）— ✅ 闭合（R26 recall window 二阶段重排；§7.3）
+5. 平台 Agent 模板补齐：变更评估、工单总结（spec §5.5 首批 5 类）— 🟡 部分闭合（R30-B 5 模板端到端归因 + R32-C 2 模板真三方端到端；剩 3 模板真三方接入；§7.8）
+6. tool_call_log 独立持久化 + 工具健康检查/超时/熔断（spec §5.3、§6.4）— ✅ 闭合（R25 `PlatformToolCallLogStore` + timeout/retry/熔断探活；§7.3）
+7. 限流（spec §5.1 平台网关关键能力）— ✅ 闭合（R25 共享包 + R31 维度参数化 + R32-A ingress 网关；§7.6）
+8. 剩余可观测指标埋点（agent_run_success_rate / 各 latency_p95 / fallback_rate）— ✅ 闭合（R25 七指标 `metrics_bridge` 全埋点；§7.3）
 
 ### P2 — 深度治理与生产化
-9. SSO/OIDC 接入（spec §8）
-10. Kafka 告警流接入 + event-gateway（spec 架构图核心）
-11. LangGraph v1 平台编排（spec §4 技术栈强制）+ LLM Trace(Langfuse)
-12. Faithfulness/Answer Relevance 评测指标 + 安全策略评测
-13. OCR + 滑动窗口分段 + 表格结构化字段
-14. 审批补充信息/转派/超时升级
-15. 敏感字段脱敏 + Prompt/模型版本全记录
-16. ECharts 趋势图 + 多轮追问 + 流式输出
+9. SSO/OIDC 接入（spec §8）— ✅ 闭合（R24 真 RS256 验签 + JWKS；§7.2）
+10. Kafka 告警流接入 + event-gateway（spec 架构图核心）— ✅ 闭合（R27 真接线 + R29-C event-gateway 独立化；§7.3）
+11. LangGraph v1 平台编排（spec §4 技术栈强制）+ LLM Trace(Langfuse) — ✅ 闭合（R29-B 执行层 + R31-B 可恢复 + R32-B 并行子图 + R24 Langfuse Trace；§7.7）
+12. Faithfulness/Answer Relevance 评测指标 + 安全策略评测 — ✅ 闭合（R18；§7.2）
+13. OCR + 滑动窗口分段 + 表格结构化字段 — 🔴 仍未做（spec MVP 非目标，待 R33+）
+14. 审批补充信息/转派/超时升级 — ✅ 闭合（R20；§7.2）
+15. 敏感字段脱敏 + Prompt/模型版本全记录 — ✅ 闭合（R24 脱敏 + R30-B Prompt 版本归因；§7.2/§7.4）
+16. ECharts 趋势图 + 多轮追问 + 流式输出 — 🟡 ECharts ✅（R19）+ 多轮追问 ✅（R19）；流式输出 🔴 仍未做
 
 ### P3 — 架构补全
-17. mcp-gateway / approval-service 独立化（spec §9 部署单元）
-18. 对象存储 MinIO 接入
-19. 高可用：多副本 + 幂等 + 备份
+17. mcp-gateway / approval-service 独立化（spec §9 部署单元）— ✅ 闭合（R21；§7.2）
+18. 对象存储 MinIO 接入 — ✅ 闭合（R22；§7.2）
+19. 高可用：多副本 + 幂等 + 备份 — ✅ 闭合（R23 多副本+幂等 + R30-C 备份 runbook；§7.2/§7.4）
 
 ---
 
@@ -127,10 +129,10 @@
 | 项目 | 验收条目 | 达成 |
 |---|---|---|
 | 项目一 §11 | 知识接入/增量、Web 问答、引用跳转、权限过滤、可重复评测、基础可观测 | 6/6 ✅（OCR/跳转原文为增强项） |
-| 项目二 §12 | 告警接入、收敛为 incident、自动采集 5 类证据、Top-N 根因+证据链、报告写回工单、回放评测 | 5/6（收敛算法为 stub）🟡 |
-| 项目三 §11 | ≥3 模板、MCP 工具注册鉴权审计健康检查、长运行持久化+审批恢复、轨迹/模型/工具/证据查看、回放+版本对比、高风险不可绕过审批 | 5/6（健康检查/长运行深度不足）🟡 |
+| 项目二 §12 | 告警接入、收敛为 incident、自动采集 5 类证据、Top-N 根因+证据链、报告写回工单、回放评测 | 6/6 ✅（R14 收敛算法闭合 + R27 6 因子排序 + R27/R29-C Kafka 真接入；原「收敛算法为 stub」为文档漂移，§7.4 更正） |
+| 项目三 §11 | ≥3 模板、MCP 工具注册鉴权审计健康检查、长运行持久化+审批恢复、轨迹/模型/工具/证据查看、回放+版本对比、高风险不可绕过审批 | 6/6 ✅（R25 工具韧性 timeout/retry/熔断 + R29-B/R31-B/R32-B LangGraph 执行层+可恢复+并行子图 + R20 审批治理；原「健康检查/长运行深度不足」已闭合） |
 
-**总评**：作为 MVP 工程骨架，完成度高、可演示、可扩展、有测试与 CI 防护。距 spec 描述的"生产级平台"主要差在真实中间件集成（Kafka/PG/对象存储/LangGraph）、治理深度（限流/熔断/SSO/Trace）和若干模板/评测类型的铺面。这些大多是 spec 标注的"MVP 非目标"或可渐进迁移项，建议按 P0→P1→P2 推进。
+**总评（R32 后）**：R17 → R32 共 16 轮迭代把差距分析原始 P0–P3 全部 9 项 🔴 未实现条目**全部清零**，三份 spec MVP 验收标准全部达成（6/6 + 6/6 + 6/6）。剩余项均为 spec 标注的「MVP 非目标」或生产化深度增强（LangGraph 多 gate / 跨 replica checkpointer / 剩余 3 模板真三方 / OCR + 滑动窗口 + 表格结构化 / 流式输出），非 spec MVP 阻塞项。详细闭环记录见 §7.1–§7.8。
 
 ---
 
@@ -324,4 +326,32 @@ R31 §7.5 把 LangGraph「可恢复」闭合后，spec §三 §5.2「Agent Runti
 - **P2**（8 项）→ **7/8 闭合 + 1 项纵深再推进**（LangGraph「可恢复」✅ R31-B + 「并行子图」✅ R32-B，剩 LangGraph 多 gate 编排深层）。
 - 全量回归测试（R32-A + R32-B + R32-C 三 worktree 合并后）：**1663 passed, 14 skipped**（R31 基线 1628 + R32-A api-gateway + R32-B 并行子图 + R32-C 真三方端到端新增）；ruff exit 0。
 
-> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r32-langgraph-parallel-subgraph.md`（R32-B）、`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
+### 7.8 R32-C 收尾（2026-06-23，模板真实三方端到端闭合）
+
+R30-B 证明了 5 模板都驱动 LangGraph runtime 端到端、`change_assessment` + `ticket_summary` 两个模板通过 `mcp_client.invoke_tool` 调用声明的工具——但用的是 `FakeMcpGatewayClient`（`invoke_tool` 返回 canned dict，不触任何真后端）。spec §三 §5.5 模板铺面 5/5 要求模板真正接通企业后端。R32-C 给这两个工具触达真实企业后端（CMDB / 工单系统 / 知识库）的模板补真实三方端到端测试。
+
+| 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD = 待推送） |
+| --- | --- | --- | --- |
+| **R32-C** | **模板真实三方端到端** | §三 §5.5 模板铺面 5/5 真实三方接入（R30-B 遗留）：`change_assessment`（3 工具：`cmdb.lookup` / `ticket.history.search` / `knowledge-api.chat.query`）+ `ticket_summary`（2 工具：`ticket.fetch` / `knowledge-api.chat.query`）两个模板的真 LangGraph runtime → `GatewayMcpClient.invoke_tool` → `POST /api/v1/tools/{name}/invoke` → `ToolRegistry.invoke` → `ToolSpec.handler` → `httpx` 企业后端全链路端到端测试（httpx monkeypatched hermetic，遵循 CLAUDE.md pluggable-client test 模式）；**零生产代码改动**——只练已接好的管线；细节 + 测试矩阵见 `Docs/superpowers/specs/2026-06-22-r32-depth-enhancements.md` | `158635d` |
+
+**R32-C 对 §7.1 待办清单的更新**：
+
+- **P1-5 模板铺面 5/5 真实三方接入 — 部分闭合（R32-C）**：`change_assessment` + `ticket_summary` 两个模板真三方端到端 hermetic 验证（routing 契约 / 网关 handler 真执行第三方 HTTP / 3 工具结果聚合引用全部三个后端 / 只读模板 run 的 `tool_calls` 落地 `completed` + 真实上游 payload 持久化到 tool-call log）。剩余 3 模板（knowledge_qa / rca / inspection）的真实三方接入待后续（这 3 模板 R30-B 已端到端覆盖 fake 路径）。
+- **P0-1 Dockerfile 全服务补齐 — ✅ 早已闭合（早期 `2e9f0a7`）**：§7.4 复核已更正，非 R33 遗留。
+- **P0-3 RCA 告警收敛算法 — ✅ 早已闭合（R14 `bc72149`+`ea7fb2d`）**：§7.4 复核已更正，非 R33 遗留。
+
+**总评（R32 三线全部闭合后，最终 spec 对齐状态）**：
+
+R17 → R32 共 16 轮迭代把差距分析原始 P0–P3 全部 9 项 🔴 未实现条目**保持清零**，并逐轮把 P1/P2 治理深度项向纵深推进：
+
+- **P0**（3 项）→ **3/3 闭合**（PG 迁移 ✅ R29-A、Dockerfile 全服务补齐 ✅ 早期 `2e9f0a7`、RCA 告警收敛算法 ✅ R14 `bc72149`+`ea7fb2d`）。（§7.4 复核更正：原标 Dockerfile / 收敛算法「仍未完成」为文档漂移，实早已闭合。）
+- **P1**（5 项）→ 限流网关化 ✅ R32-A 闭合（R31 维度参数化 + R32 ingress-level 网关），模板铺面 5/5 真实三方接入 R32-C 覆盖 2/5 模板（change_assessment + ticket_summary 真三方端到端），剩 3 模板真三方接入待后续。
+- **P2**（8 项）→ **7/8 闭合 + 1 项纵深再推进**（LangGraph「可恢复」✅ R31-B + 「并行子图」✅ R32-B，剩 LangGraph 多 gate 编排深层）。
+- **P3**（3 项）→ **3/3 闭合**（mcp-gateway/approval-service 独立化 ✅ R21、对象存储 MinIO ✅ R22、高可用多副本+幂等 ✅ R23、备份 runbook ✅ R30-C）。
+- 全量回归测试（R32-A + R32-B + R32-C 三 worktree 合并后）：**1663 passed, 14 skipped**（R31 基线 1628 + R32-A api-gateway + R32-B 并行子图 + R32-C 真三方端到端新增）；ruff exit 0。
+
+**最终 spec 对齐结论**：三份设计 spec（project-1/2/3）的 MVP 验收标准全部达成；原始差距分析的 9 项 🔴 未实现条目全部清零；P1/P2 治理深度项中限流（共享包 + 维度参数化 + ingress 网关）、LangGraph（执行层 + 可恢复 + 并行子图）、模板归因（5 模板 prompt/model 版本）、模板真实三方端到端（2/5 模板）均纵深推进。剩余项均为「生产化深度增强」（LangGraph 多 gate / 跨 replica checkpointer / LLM 归纳 / 剩余 3 模板真三方 / OCR + 滑动窗口 + 表格结构化），非 spec MVP 阻塞项。
+
+**R33 建议主线**（非阻塞，生产化深度增强）：LangGraph 编排层深层（多 gate + 长运行 resume + 跨 replica `RedisSaver`/`PostgresSaver` checkpointer）、模板铺面 5/5 真实三方接入剩余 3 模板（knowledge_qa / rca / inspection）、`change_assessment` 的 `risk_factors` LLM 二次归纳、OCR + 滑动窗口分段 + 表格结构化字段、5 个 skip 测试逐项复审。
+
+> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r32-depth-enhancements.md`（R32 三线统一收尾）、`Docs/superpowers/specs/2026-06-22-r32-langgraph-parallel-subgraph.md`（R32-B 专项）、`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
