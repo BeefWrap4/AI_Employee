@@ -23,12 +23,18 @@ from ai_employee.rate_limit.limiter import (
     key_for_request,
 )
 from ai_employee.rate_limit.middleware import (
+    KeyFunc,
     RateLimitMiddleware,
     install_rate_limiter,
+    key_by_endpoint,
+    key_by_tenant,
+    key_by_tool,
+    key_by_user,
 )
 
 __all__ = [
     "InMemoryBackend",
+    "KeyFunc",
     "RateLimitBackend",
     "RateLimitMiddleware",
     "RedisBackend",
@@ -38,5 +44,9 @@ __all__ = [
     "build_sliding_window_limiter",
     "install_rate_limiter",
     "iter_decisions",
+    "key_by_endpoint",
+    "key_by_tenant",
+    "key_by_tool",
+    "key_by_user",
     "key_for_request",
 ]

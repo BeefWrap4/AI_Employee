@@ -13,9 +13,21 @@ The graph mirrors the DAG's node sequence:
 
   TemplateLoaded → RunStarted → ToolPlan → (ApprovalRequired | Completed)
 
+R31-B (spec §3 / §4 "可恢复"): the graph is compiled with a
+:class:`MemorySaver` checkpointer and ``interrupt_before=["ApprovalRequired"]``
+so an approval-required run *pauses* at the HITL gate rather than
+finalising.  The thread state is persisted under ``thread_id = run_id``;
+:meth:`resume` injects the decision via ``graph.update_state`` and then
+calls ``graph.invoke(None, config)`` so the graph engine itself drives
+the run through ``ApprovalRequired → (ApprovalApproved |
+ApprovalRejected) → END``.  This replaces the pre-R31 ``decide`` path
+that bypassed the graph engine with a ``model_copy`` stitch (R24 audit
+G6).  The legacy :meth:`decide` is retained as a fallback for the
+``RUNTIME_BACKEND=langgraph`` + checkpointer-failure path.
+
 For approval-required templates the graph pauses at ``ApprovalRequired``
-(returns ``waiting_approval``); :meth:`decide` then appends the
-``ApprovalApproved`` / ``ApprovalRejected`` node and finalises the run.
+(returns ``waiting_approval``); :meth:`decide` (legacy fallback) or
+:meth:`resume` (checkpointer path) then drives the run to completion.
 
 Node bodies (spec §3 / §4)
 --------------------------
@@ -190,10 +202,11 @@ class LangGraphRuntime:
         llm_client: Any | None = None,
         mcp_client: Any | None = None,
         tool_call_log: Any | None = None,
+        checkpointer: Any | None = None,
     ) -> None:
         """Construct the runtime with optional injected dependencies.
 
-        All three are keyword-only so the legacy zero-arg
+        All four are keyword-only so the legacy zero-arg
         ``LangGraphRuntime()`` shape (used by
         ``tests/test_langgraph_runtime.py`` and the singleton factory)
         keeps working.  When any dependency is omitted, a lazy default
@@ -201,6 +214,12 @@ class LangGraphRuntime:
         :func:`_build_default_mcp_client`.  Tests inject fakes through
         these kwargs to verify the real node-execution path without
         needing network access.
+
+        R31-B: ``checkpointer`` defaults to a fresh
+        :class:`MemorySaver` so every runtime is resumable out of the
+        box.  Callers that want cross-runtime durability (e.g. a test
+        asserting state survives a runtime swap) pass a shared
+        ``MemorySaver`` instance explicitly.
         """
         self._runs: dict[str, AgentRunResponse] = {}
         self._tasks: dict[str, ApprovalTask] = {}
@@ -210,6 +229,7 @@ class LangGraphRuntime:
         self._llm_client = llm_client
         self._mcp_client = mcp_client
         self._tool_call_log = tool_call_log
+        self._checkpointer = checkpointer
         self.node_names: set[str] = set()
         self.graph = self._build_graph()
 
@@ -252,12 +272,16 @@ class LangGraphRuntime:
         builder.add_node("RunStarted", self._node_run_started)
         builder.add_node("ToolPlan", self._node_tool_plan)
         builder.add_node("ApprovalRequired", self._node_approval_required)
+        builder.add_node("ApprovalApproved", self._node_approval_approved)
+        builder.add_node("ApprovalRejected", self._node_approval_rejected)
         builder.add_node("Completed", self._node_completed)
         for name in (
             "TemplateLoaded",
             "RunStarted",
             "ToolPlan",
             "ApprovalRequired",
+            "ApprovalApproved",
+            "ApprovalRejected",
             "Completed",
         ):
             self.node_names.add(name)
@@ -270,12 +294,60 @@ class LangGraphRuntime:
             self._route_after_tool_plan,
             {"approval": "ApprovalRequired", "done": "Completed"},
         )
-        builder.add_edge("ApprovalRequired", END)
+        # R31-B: after the ApprovalRequired node runs (during resume),
+        # the conditional edge routes to ApprovalApproved or
+        # ApprovalRejected based on the decision injected via
+        # ``graph.update_state`` before the resume invoke.
+        builder.add_conditional_edges(
+            "ApprovalRequired",
+            self._route_after_approval,
+            {"approve": "ApprovalApproved", "reject": "ApprovalRejected"},
+        )
+        builder.add_edge("ApprovalApproved", END)
+        builder.add_edge("ApprovalRejected", END)
         builder.add_edge("Completed", END)
-        return builder.compile()
+        # R31-B (spec §3 / §4 "可恢复"): compile with a MemorySaver
+        # checkpointer and pause before the HITL gate so the run can be
+        # resumed after the approval decision.  The checkpointer persists
+        # the thread under ``thread_id = run_id``; production deployments
+        # swap in RedisSaver / PostgresSaver for cross-replica durability.
+        checkpointer = self._get_checkpointer()
+        return builder.compile(
+            checkpointer=checkpointer,
+            interrupt_before=["ApprovalRequired"],
+        )
+
+    def _get_checkpointer(self) -> Any:
+        """Return the checkpointer for this runtime.
+
+        Defaults to a fresh :class:`MemorySaver` when none was injected
+        so every runtime is resumable out of the box.  Tests that need
+        cross-runtime durability pass a shared ``MemorySaver`` via the
+        ``checkpointer`` constructor kwarg.
+        """
+        if self._checkpointer is not None:
+            return self._checkpointer
+        from langgraph.checkpoint.memory import MemorySaver
+
+        self._checkpointer = MemorySaver()
+        return self._checkpointer
 
     def _route_after_tool_plan(self, state: _RunState) -> Literal["approval", "done"]:
         return "approval" if state.get("requires_approval") else "done"
+
+    def _route_after_approval(self, state: _RunState) -> Literal["approve", "reject"]:
+        """Route to the approval outcome node based on the decision.
+
+        The decision is injected onto the checkpoint state via
+        :meth:`resume` (``graph.update_state``) *before* the resume
+        invoke, so by the time the ApprovalRequired node runs and this
+        edge fires, ``approval_status`` already holds ``approved`` or
+        ``rejected``.  The ApprovalRequired node is careful not to
+        overwrite an already-decided status.
+        """
+        if state.get("approval_status") == "approved":
+            return "approve"
+        return "reject"
 
     # ------------------------------------------------------------------ #
     # Node implementations
@@ -455,8 +527,20 @@ class LangGraphRuntime:
         return state
 
     def _node_approval_required(self, state: _RunState) -> _RunState:
+        """Record the HITL pause.
+
+        R31-B: this node runs during *resume* (the run was parked at
+        ``interrupt_before=["ApprovalRequired"]`` after the first
+        invoke).  It must not overwrite a decision that
+        :meth:`resume` already injected via ``graph.update_state`` —
+        otherwise the conditional edge below would always see ``pending``
+        and route to reject.  We only seed ``approval_status="pending"``
+        when no decision has been injected yet (defensive — the normal
+        resume path always injects before resuming).
+        """
         state["status"] = "waiting_approval"
-        state["approval_status"] = "pending"
+        if state.get("approval_status") in (None, ""):
+            state["approval_status"] = "pending"
         state["final_node"] = "ApprovalRequired"
         state["node_trace"].append(
             {
@@ -465,6 +549,48 @@ class LangGraphRuntime:
                 "detail": "Human approval required before final write-back.",
             }
         )
+        return state
+
+    def _node_approval_approved(self, state: _RunState) -> _RunState:
+        """Finalise an approved run (driven by the graph engine on resume)."""
+        state["status"] = "completed"
+        state["approval_status"] = "approved"
+        state["final_node"] = "ApprovalApproved"
+        state["output"] = _approved_output(state.get("output", {}), approved=True)
+        state["node_trace"].append(
+            {
+                "node_name": "ApprovalApproved",
+                "status": "completed",
+                "detail": "Approval approved; run finalised.",
+            }
+        )
+        # Approval-required tool calls were held ``planned`` at the
+        # pause; on approval they move to ``completed``.
+        state["tool_calls"] = [
+            {**t, "status": "completed"} if t.get("status") == "planned" else t
+            for t in state.get("tool_calls", [])
+        ]
+        return state
+
+    def _node_approval_rejected(self, state: _RunState) -> _RunState:
+        """Terminate a rejected run (driven by the graph engine on resume)."""
+        state["status"] = "failed"
+        state["approval_status"] = "rejected"
+        state["final_node"] = "ApprovalRejected"
+        state["output"] = _approved_output(state.get("output", {}), approved=False)
+        state["node_trace"].append(
+            {
+                "node_name": "ApprovalRejected",
+                "status": "failed",
+                "detail": "Approval rejected; run terminated.",
+            }
+        )
+        # Rejected tool calls stay ``planned`` (never executed) — mirror
+        # the legacy ``decide`` path which marks them ``skipped``.
+        state["tool_calls"] = [
+            {**t, "status": "skipped"} if t.get("status") == "planned" else t
+            for t in state.get("tool_calls", [])
+        ]
         return state
 
     def _node_completed(self, state: _RunState) -> _RunState:
@@ -505,7 +631,17 @@ class LangGraphRuntime:
             "model_name": None,
             "prompt_version": None,
         }
-        final_state = self.graph.invoke(initial)
+        config = self._config(run_id)
+        final_state = self.graph.invoke(initial, config=config)
+        # R31-B: the checkpointer parks an approval-required run *before*
+        # the ApprovalRequired node runs, so the post-invoke state still
+        # says ``running`` and the node_trace lacks the HITL gate entry.
+        # Synthesise the paused-view state so the response matches the
+        # pre-R31 ``waiting_approval`` contract while leaving the
+        # checkpoint itself parked at the interrupt (``next ==
+        # ("ApprovalRequired",)``) for :meth:`resume` to drive forward.
+        if self._is_parked_at_approval(config):
+            final_state = self._paused_state(final_state)
         run = self._to_response(run_id, final_state)
         self._runs[run_id] = run
         if template.requires_approval:
@@ -521,6 +657,131 @@ class LangGraphRuntime:
                 reason="Human approval required before final write-back.",
             )
             self._tasks[task_id] = task
+        return run
+
+    # ------------------------------------------------------------------ #
+    # Checkpointer helpers (R31-B)
+    # ------------------------------------------------------------------ #
+
+    def _config(self, run_id: str) -> dict[str, Any]:
+        """Build the LangGraph config that pins a run to a thread."""
+        return {"configurable": {"thread_id": run_id}}
+
+    def _is_parked_at_approval(self, config: dict[str, Any]) -> bool:
+        """True when the checkpoint is paused before ApprovalRequired."""
+        try:
+            snapshot = self.graph.get_state(config)
+        except Exception:  # pragma: no cover - defensive
+            return False
+        nxt = getattr(snapshot, "next", None)
+        return bool(nxt) and "ApprovalRequired" in tuple(nxt)
+
+    @staticmethod
+    def _paused_state(final_state: _RunState) -> _RunState:
+        """Synthesise the paused-view state for a parked approval run.
+
+        The ApprovalRequired node has NOT executed (the run is parked at
+        ``interrupt_before``), so we project the ``waiting_approval``
+        status and the HITL trace entry the public contract expects —
+        without mutating the checkpoint.  The real ApprovalRequired
+        node runs during :meth:`resume` and appends its own trace then.
+        """
+        state: _RunState = dict(final_state)  # shallow copy
+        state["status"] = "waiting_approval"
+        state["approval_status"] = "pending"
+        state["final_node"] = "ApprovalRequired"
+        trace = list(state.get("node_trace", []))
+        if not any(isinstance(t, dict) and t.get("node_name") == "ApprovalRequired" for t in trace):
+            trace.append(
+                {
+                    "node_name": "ApprovalRequired",
+                    "status": "pending",
+                    "detail": "Human approval required before final write-back.",
+                }
+            )
+        state["node_trace"] = trace
+        return state
+
+    def has_checkpoint(self, run_id: str) -> bool:
+        """True when a persisted thread exists for ``run_id``."""
+        try:
+            snapshot = self.graph.get_state(self._config(run_id))
+        except Exception:  # pragma: no cover - defensive
+            return False
+        # A non-persisted thread returns an empty snapshot (no values,
+        # no next); treat that as "no checkpoint".
+        return bool(getattr(snapshot, "next", None)) or bool(getattr(snapshot, "values", None))
+
+    def next_node(self, run_id: str) -> str | None:
+        """Return the next node the parked thread will execute, or None.
+
+        Used by tests to assert the run is parked at the
+        ApprovalRequired interrupt (read-only runs return ``None``
+        because they completed in one invoke).
+        """
+        try:
+            snapshot = self.graph.get_state(self._config(run_id))
+        except Exception:  # pragma: no cover - defensive
+            return None
+        nxt = getattr(snapshot, "next", None)
+        if not nxt:
+            return None
+        return next(iter(nxt))
+
+    def resume(
+        self,
+        run_id: str,
+        *,
+        decision: str,
+        decided_by: str,
+        comment: str | None,
+    ) -> AgentRunResponse:
+        """Resume a parked approval run and drive it to completion.
+
+        R31-B (spec §3 / §4 "可恢复"): the decision is injected onto the
+        checkpoint state via ``graph.update_state`` and the graph engine
+        is then driven forward with ``graph.invoke(None, config)``.  The
+        ApprovalRequired node runs (preserving the injected decision),
+        the conditional edge routes to ApprovalApproved /
+        ApprovalRejected, and the run finalises — all through the graph
+        engine, not a ``model_copy`` stitch.
+
+        Raises :class:`KeyError` when no persisted thread exists for
+        ``run_id`` (e.g. an unknown id, or a read-only run that never
+        parked).
+        """
+        config = self._config(run_id)
+        if not self.has_checkpoint(run_id):
+            raise KeyError(run_id)
+        if not self._is_parked_at_approval(config):
+            # The run already completed (e.g. read-only) or was already
+            # resumed — nothing to drive forward.
+            raise KeyError(run_id)
+        # Inject the decision so the ApprovalRequired node's conditional
+        # edge routes to the right outcome node.
+        self.graph.update_state(
+            config,
+            {
+                "approval_status": decision,
+                "approval_decided_by": decided_by,
+                "approval_comment": comment,
+            },
+        )
+        final_state = self.graph.invoke(None, config=config)
+        run = self._to_response(run_id, final_state)
+        self._runs[run_id] = run
+        # Reflect the decision on the pending approval task, mirroring
+        # the legacy ``decide`` path so callers that read the task see
+        # the resolved status.
+        task = self.pending_approval_task(run_id)
+        if task is not None:
+            self._tasks[task.task_id] = task.model_copy(
+                update={
+                    "status": decision,
+                    "decided_by": decided_by,
+                    "comment": comment,
+                }
+            )
         return run
 
     def pending_approval_task(self, run_id: str) -> ApprovalTask | None:
