@@ -36,13 +36,22 @@ CREATE TABLE IF NOT EXISTS platform_tool_call_log (
     status TEXT NOT NULL,
     latency_ms INTEGER,
     error_code TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    model_name TEXT,
+    prompt_version TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ptcl_run
     ON platform_tool_call_log(run_id);
 CREATE INDEX IF NOT EXISTS idx_ptcl_tool
     ON platform_tool_call_log(tool_name);
 """
+
+# R30-B (spec §6.4): idempotent column adds for databases created
+# before the model_name / prompt_version columns existed.  SQLite has no
+# ``ADD COLUMN IF NOT EXISTS`` so we probe ``PRAGMA table_info`` and
+# only ALTER when the column is missing — keeps the migration safe and
+# re-runnable.
+_MIGRATION_COLUMNS = ("model_name", "prompt_version")
 
 
 @dataclass
@@ -56,6 +65,8 @@ class ToolCallRecord:
     latency_ms: int | None
     error_code: str | None
     created_at: str
+    model_name: str | None = None
+    prompt_version: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -68,6 +79,8 @@ class ToolCallRecord:
             "latency_ms": self.latency_ms,
             "error_code": self.error_code,
             "created_at": self.created_at,
+            "model_name": self.model_name,
+            "prompt_version": self.prompt_version,
         }
 
 
@@ -89,6 +102,14 @@ class PlatformToolCallLogStore:
     def init_schema(self) -> None:
         with self._lock, self._connect() as conn:
             conn.executescript(_SCHEMA)
+            # R30-B: backfill the model_name / prompt_version columns on
+            # pre-R30 databases so ``record()`` can always INSERT them.
+            existing = {
+                row["name"] for row in conn.execute("PRAGMA table_info(platform_tool_call_log)")
+            }
+            for col in _MIGRATION_COLUMNS:
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE platform_tool_call_log ADD COLUMN {col} TEXT")
             conn.commit()
 
     def record(
@@ -101,6 +122,8 @@ class PlatformToolCallLogStore:
         status: str,
         latency_ms: int,
         error_code: str | None,
+        model_name: str | None = None,
+        prompt_version: str | None = None,
     ) -> None:
         # Redact PII / secrets from tool input/output summaries before
         # persistence so the audit log never stores phone numbers, emails,
@@ -115,8 +138,9 @@ class PlatformToolCallLogStore:
             conn.execute(
                 """INSERT INTO platform_tool_call_log
                    (run_id, tool_name, input_summary, output_summary,
-                    status, latency_ms, error_code, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    status, latency_ms, error_code, created_at,
+                    model_name, prompt_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     tool_name,
@@ -126,6 +150,8 @@ class PlatformToolCallLogStore:
                     latency_ms,
                     error_code,
                     datetime.now(timezone.utc).isoformat(),
+                    model_name,
+                    prompt_version,
                 ),
             )
             conn.commit()

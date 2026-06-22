@@ -46,6 +46,7 @@ from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
     _approved_output,
     _output_for_template,
+    prompt_version_for,
 )
 from ai_employee.agent_platform_api.schemas import (
     AgentRunCreate,
@@ -72,6 +73,12 @@ class _RunState(TypedDict, total=False):
     tool_calls: list[dict[str, str]]
     requires_approval: bool
     final_node: str
+    # R30-B (spec §6.4): the model_name + prompt_version resolved by the
+    # RunStarted node, propagated onto NodeTrace / ToolCallSummary /
+    # tool_call_log rows / the AgentRunResponse so every artefact is
+    # attributable to a specific prompt+model pair.
+    model_name: str | None
+    prompt_version: str | None
 
 
 @runtime_checkable
@@ -294,10 +301,23 @@ class LangGraphRuntime:
         failures do not abort read-only runs — the trace records the
         failure mode and the run output carries an explicit
         ``[LLM error: ...]`` prefix so callers can surface it.
+
+        R30-B (spec §6.4): the resolved ``model_name`` (from
+        ``ChatResponse.model``) and ``prompt_version`` (from the
+        template's canonical label) are stashed on the run state so the
+        ToolPlan node and ``_to_response`` can propagate them onto the
+        tool_call_log rows and the AgentRunResponse.  The prompt_version
+        is resolved even when the LLM call fails so an unattributed run
+        is never emitted.
         """
         llm = self._get_llm()
         template_id = state["template_id"]
-        model_label = "unknown"
+        model_label: str | None = None
+        prompt_version = prompt_version_for(template_id)
+        # Stash the prompt_version up-front so every downstream artefact
+        # (node trace, tool calls, log rows) carries it even if the LLM
+        # call below fails.
+        state["prompt_version"] = prompt_version
         if llm is not None and hasattr(llm, "chat"):
             messages = _prompt_for_template(template_id, state["input"])
             try:
@@ -306,7 +326,7 @@ class LangGraphRuntime:
                     parent_trace_id=state.get("trace_id"),
                 )
                 content = getattr(response, "content", "") or ""
-                model_label = getattr(response, "model", model_label)
+                model_label = getattr(response, "model", None) or model_label
                 if content:
                     state["output"] = {**state["output"], "summary": content}
                 detail = f"LLM {model_label} drafted {len(content)} chars."
@@ -320,13 +340,17 @@ class LangGraphRuntime:
         else:
             # No LLM client available — preserve legacy string-only trace.
             detail = f"Run requested by {state['requested_by']}."
-        state["node_trace"].append(
-            {
-                "node_name": "RunStarted",
-                "status": "completed",
-                "detail": detail,
-            }
-        )
+        state["model_name"] = model_label
+        trace_entry: dict[str, str] = {
+            "node_name": "RunStarted",
+            "status": "completed",
+            "detail": detail,
+        }
+        if model_label is not None:
+            trace_entry["model_name"] = model_label
+        if prompt_version is not None:
+            trace_entry["prompt_version"] = prompt_version
+        state["node_trace"].append(trace_entry)
         return state
 
     def _node_tool_plan(self, state: _RunState) -> _RunState:
@@ -338,18 +362,29 @@ class LangGraphRuntime:
         templates we invoke each tool via the MCP gateway client,
         record a row in :class:`PlatformToolCallLogStore`, and mark
         the tool call ``completed`` (or ``failed`` with an error code).
+
+        R30-B (spec §6.4): every ``ToolCallSummary`` and tool_call_log
+        row inherits the run's ``model_name`` / ``prompt_version`` so
+        the downstream observability join can attribute tool latency /
+        success to the prompt+model pair that drove the run.
         """
         template = TEMPLATES[state["template_id"]]
         requires_approval = state["requires_approval"]
-        tool_calls: list[dict[str, str]] = []
+        run_model_name = state.get("model_name")
+        run_prompt_version = state.get("prompt_version")
+        tool_calls: list[dict[str, Any]] = []
         mcp = self._get_mcp()
         log = self._get_tool_call_log()
         for name in template.tool_names:
-            entry: dict[str, str] = {
+            entry: dict[str, Any] = {
                 "tool_name": name,
                 "risk_level": "approval_required" if requires_approval else "read_only",
                 "status": "planned" if requires_approval else "completed",
             }
+            if run_model_name is not None:
+                entry["model_name"] = run_model_name
+            if run_prompt_version is not None:
+                entry["prompt_version"] = run_prompt_version
             if not requires_approval and mcp is not None and hasattr(mcp, "invoke_tool"):
                 args = _args_for_template(template.template_id, state["input"])
                 started = time.perf_counter()
@@ -378,6 +413,8 @@ class LangGraphRuntime:
                         status="success",
                         latency_ms=latency_ms,
                         error_code=None,
+                        model_name=run_model_name,
+                        prompt_version=run_prompt_version,
                     )
                 except Exception:
                     latency_ms = int((time.perf_counter() - started) * 1000)
@@ -392,6 +429,8 @@ class LangGraphRuntime:
                             status="failure",
                             latency_ms=latency_ms,
                             error_code="tool_invocation_error",
+                            model_name=run_model_name,
+                            prompt_version=run_prompt_version,
                         )
                     except Exception:  # pragma: no cover - log must not break the run
                         pass
@@ -463,6 +502,8 @@ class LangGraphRuntime:
             "tool_calls": [],
             "requires_approval": template.requires_approval,
             "final_node": "",
+            "model_name": None,
+            "prompt_version": None,
         }
         final_state = self.graph.invoke(initial)
         run = self._to_response(run_id, final_state)
@@ -540,6 +581,9 @@ class LangGraphRuntime:
         # ``status`` (legacy field set); ``error_code`` is preserved as an
         # extra attribute on the response so callers can surface
         # failure modes without changing the schema contract.
+        # R30-B: model_name + prompt_version resolved by the RunStarted
+        # node are propagated onto the AgentRunResponse so every run is
+        # attributable to its prompt+model pair.
         return AgentRunResponse(
             run_id=run_id,
             template_id=state["template_id"],
@@ -552,6 +596,8 @@ class LangGraphRuntime:
             node_trace=[NodeTrace(**n) for n in state["node_trace"]],
             tool_calls=[ToolCallSummary(**t) for t in state["tool_calls"]],
             approval_status=state["approval_status"],  # type: ignore[arg-type]
+            model_name=state.get("model_name"),
+            prompt_version=state.get("prompt_version"),
         )
 
 

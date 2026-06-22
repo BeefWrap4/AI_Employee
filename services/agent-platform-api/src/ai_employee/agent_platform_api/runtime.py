@@ -159,6 +159,30 @@ def list_templates() -> list[AgentTemplate]:
     return list(TEMPLATES.values())
 
 
+# R30-B (spec §6.4): canonical prompt_version label per template.  Each
+# agent definition pins the prompt that drives its LLM calls so every
+# run / node trace / tool call / audit event can be attributed to a
+# specific prompt+model pair.  ``knowledge_qa`` mirrors the
+# knowledge-api convention (``rag-template-v1``) so cross-service joins
+# line up; the remaining four use the ``<template>-template-v1`` shape.
+PROMPT_VERSIONS: dict[str, str] = {
+    "knowledge_qa": "rag-template-v1",
+    "rca": "rca-template-v1",
+    "inspection": "inspection-template-v1",
+    "change_assessment": "change-assessment-template-v1",
+    "ticket_summary": "ticket-summary-template-v1",
+}
+
+
+def prompt_version_for(template_id: str) -> str | None:
+    """Return the canonical prompt_version label for a template.
+
+    Returns ``None`` for unknown templates so callers can leave the
+    field unset rather than inventing a label.
+    """
+    return PROMPT_VERSIONS.get(template_id)
+
+
 def create_run(
     store: AgentPlatformStore, payload: AgentRunCreate, *, runtime: object | None = None
 ) -> AgentRunResponse:
