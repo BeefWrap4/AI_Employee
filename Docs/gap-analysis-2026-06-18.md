@@ -181,3 +181,33 @@ R24 主题偏离了 R23 收尾建议的「PG 默认化 + 真中间件集成测�
 - **结论**：R20–R24 五轮已把差距分析中**架构补全（P3）+ 治理三件套（P2 审批治理）+ 对象存储（P3）+ HA/幂等（P3）+ SSO/OIDC + LLM Trace + 脱敏**全部清零；剩余差距集中在 **P0 的 PG 迁移 / Dockerfile / 收敛算法** 与 **P1/P2 的真实中间件集成（Kafka/LangGraph）+ 治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 / OCR）+ 模板/评测铺面（Reranker / 2 类 Agent 模板）**。建议 R25 主线接 **P0-2（PG 默认化）+ R24 §6 候选 3（OIDC 真 IdP 演练）**：PG 解决 R23/R24 反复标记的 HA 悬空，OIDC 真演练把 R24 a 域从「代码闭环」推到「staging 闭环」，互相不阻塞。
 
 > 收尾 spec：`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）、`docs/superpowers/specs/2026-06-19-r23-ha-idempotency.md`（R23）、`docs/superpowers/specs/2026-06-19-r22-minio-object-store.md`（R22）。R20/R21 的分项交付见上表提交链。
+
+### 7.3 R25–R29 追加记录（2026-06-22 更新）
+
+§7.2 的结论把 **P0-2 PG 迁移**列为 R25 最高优先级候选。R25–R29 五轮依次推进，至 R29 终于把 PG 默认化主线落地，并顺带闭合 LangGraph v1 执行层与 event-gateway 独立化两条历史遗留。
+
+| 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD） |
+| --- | --- | --- | --- |
+| **R25** | 可观测埋点 + 限流共享包 + 工具韧性 | §7.1 P1-8 可观测指标埋点（七指标 `metrics_bridge` 单例 + `record_*` 接线）；§7.1 P1-7 限流（`packages/rate-limit` 共享包 + 6 服务 `install_rate_limiter`）；R24 c-5 剩余工具韧性（timeout + retry + 熔断探活） | `e6cb46f`（R25-T4）/ `71e8ee0`（R25-L+O） |
+| **R26** | Reranker 二阶段重排 + RCA 收敛深度 | §7.1 P1-4 Reranker（recall window 二阶段重排）；RCA 收敛深度参数（`convergence_depth`） | `b9bc728` |
+| **R27** | Kafka 真接线 + Neo4j 拓扑收敛 + 6 因子排序 | §7.1 P2 Kafka 告警流（rca-agent 内嵌 consumer 真接线）；Neo4j 拓扑依赖收敛；RCA 6 因子假设排序（time_relevance/topology_distance/kpi_strength/history_similarity/sop_match/counter_evidence） | `95f1d57` |
+| **R28** | 真中间件全量回归冒烟 | 把一直被 skip 的 live-PG 测试真正跑起来，修 2 个被 skip 掩盖的缺陷（S3 元数据 ASCII 编码 / live-PG 测试隔离 + 断言 bug）；R27 基线 1522 → R28 真中间件 1530 passed / 6 skipped / 0 failed | `df5522c`/`0b1469c`/`9394f58` |
+| **R29** | **PG 默认化** + LangGraph 真节点执行 + event-gateway 独立化 | **§7.1 P0-2 PG 迁移 🔴 → ✅**（`DATABASE_URL` 默认 + 4 服务启动日志 + helm `DATABASE_URL` + `.env.example` 默认 PG + 回落 SQLite 一次性 deprecation 警告）；§7.1 P2 LangGraph v1 深度集成（执行层：`_node_run_started` 调 `LlmClient.chat`、`_node_tool_plan` 调 `mcp.invoke_tool` + 写 `PlatformToolCallLogStore`、失败带 `error_code`）；§三 §9 `event-gateway` 部署单元 ✅（rca-agent 摘除 Kafka lifespan 变纯 HTTP consumer，告警流扛重启、consumer 独立扩缩容）；细节 + 测试矩阵见 `Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md` | `3a676f3` `1388fd5` `68a0af7` `e06f4c9` `0a6ecff` `99a0ec0` `01f64cf` `de69b2e` `8929e02` `1df593a` `8461d64` `27ca04c` `ef49134` |
+
+**R29 对 §7.1 待办清单的更新**：
+
+- **P0-2 PostgreSQL 迁移 — ✅ 闭合（R29-A）**：fresh checkout `docker compose up` + `helm install` 默认跑 PG；operator `kubectl logs` 可见 backend 选择；回落 SQLite 有一次性 deprecation 警告。R23/R24 两轮收尾反复标记的 HA 悬空（PG 默认化是抬 `knowledge-api`/`approval-service` 副本的前置）至此解除。
+- **P0-1 Dockerfile — 仍未完成**：R29-C 给 event-gateway 补了 Dockerfile，但其余 7 个服务的 Dockerfile 仍缺（k8s manifest 引用镜像仍无构建文件，待 R30+）。
+- **P0-3 RCA 告警收敛算法 — 仍未完成**（`del time_window_minutes` TODO 仍在，待 R30+）。
+- **P2 LangGraph v1 深度集成 — 执行层 ✅ 闭合（R29-B）**：节点真调 LLM + MCP 工具；编排层（条件边 / 子图 / 断点续跑）仍待后续。
+- **P2 Kafka 告警流 — consumer 独立化 ✅ 闭合（R29-C）**：rca-agent 摘 Kafka，event-gateway 独立服务扛 consumer；真 Kafka live 集成测试待 R30。
+
+**R29 后总体差距清零状态**：
+
+- **P0**：3 项中 1 项闭合（PG 迁移 ✅），剩 Dockerfile / 收敛算法 2 项 → **P0 阻塞项减半**。
+- **P1**：R25–R26 推进了可观测埋点（✅ 七指标）、限流（部分：共享包就位、网关化待 R30）、Reranker（✅）、工具韧性（✅ timeout/retry/熔断）。剩模板补齐（3/5）、tool_call_log 主动健康检查细节。
+- **P2**：R27 闭合 Kafka 真接线，R29-B 闭合 LangGraph 执行层，R29-C 闭合 event-gateway 独立化。剩 OCR + 滑动窗口 + 表格结构化、Prompt 版本 A/B、备份 runbook、限流网关化。
+- **P3**：R29 前已基本清零（仅剩备份）。
+- **结论**：R29 是 PG 默认化主线的闭合轮——R24 以来反复标记的最高优先级 P0-2 终于落地，同时顺带把 LangGraph v1 执行层和 event-gateway 独立化两条 spec §9 / P3 §3-§4 历史遗留清零。剩余差距集中在 **P0 的 Dockerfile / 收敛算法** 与 **P1/P2 的治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 / OCR）+ LangGraph 编排层 + 模板铺面**。建议 R30 主线接 **P0-1（Dockerfile 全服务补齐）+ P0-3（RCA 告警收敛算法）**，并复核 R27 `_SyncAdapter` 两个 skip 在 R29-C 摘 Kafka 后是否仍相关。
+
+> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）。
