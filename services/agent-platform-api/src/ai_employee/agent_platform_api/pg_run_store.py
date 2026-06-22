@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import threading
+import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -95,11 +96,24 @@ class PgAgentRunStore:
             self._db.commit()
 
     # -- writes ---------------------------------------------------------------
-    def upsert_run(self, payload: dict[str, Any]) -> None:
+    def upsert_run(self, payload: dict[str, Any]) -> str:
+        """Persist or update a run.
+
+        R30-A: if ``payload`` omits ``run_id`` (caller wants the store to
+        mint one), generate a uuid4-suffixed id (``run_<hex8>``) so
+        concurrent writers on the same PG backend never collide on the
+        PK.  Pre-R30 the platform minted ids from an in-memory counter
+        (``runtime.create_run``), which races under multi-replica PG
+        deployments.  Returns the persisted ``run_id``.
+        """
+        run_id = payload.get("run_id")
+        if not run_id:
+            run_id = f"run_{uuid.uuid4().hex[:8]}"
+            payload = {**payload, "run_id": run_id}
         with self._lock:
             existing = self._db.execute(
                 "SELECT run_id FROM agent_runs WHERE run_id = ?",
-                (payload["run_id"],),
+                (run_id,),
             ).fetchone()
             if existing is None:
                 self._db.execute(
@@ -110,7 +124,7 @@ class PgAgentRunStore:
                         created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        payload["run_id"],
+                        run_id,
                         payload["template_id"],
                         payload["agent_name"],
                         payload["status"],
@@ -141,7 +155,7 @@ class PgAgentRunStore:
                         payload.get("approval_status", "not_required"),
                         payload.get("resume_from_node"),
                         _now_iso(),
-                        payload["run_id"],
+                        run_id,
                     ),
                 )
             for event in payload.get("new_events", []) or []:
@@ -150,7 +164,7 @@ class PgAgentRunStore:
                        (run_id, node_name, status, detail, created_at)
                        VALUES (?, ?, ?, ?, ?)""",
                     (
-                        payload["run_id"],
+                        run_id,
                         event["node_name"],
                         event["status"],
                         event.get("detail"),
@@ -158,6 +172,7 @@ class PgAgentRunStore:
                     ),
                 )
             self._db.commit()
+            return run_id
 
     # -- reads ----------------------------------------------------------------
     def get_run(self, run_id: str) -> dict[str, Any] | None:
