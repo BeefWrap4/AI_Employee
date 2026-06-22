@@ -59,39 +59,10 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
-        # R27: spawn a Kafka consumer background task when KAFKA_ENABLED.
-        # When Kafka is disabled (or build fails) this is a no-op and
-        # the HTTP ``POST /api/v1/alarms/events`` endpoint remains the
-        # only alarm path.
-        from ai_employee.rca_agent.kafka_ingest import build_alarm_consumer
-
-        consumer = build_alarm_consumer()
-        if consumer is not None:
-            import asyncio
-
-            async def _poll_loop():
-                while True:
-                    try:
-                        consumer.process_batch(state=state, max_messages=100)
-                    except Exception as exc:  # pragma: no cover - defensive
-                        import logging
-
-                        logging.getLogger(__name__).warning(
-                            "kafka alarm consumer loop error: %s", exc
-                        )
-                    await asyncio.sleep(0.5)
-
-            task = asyncio.create_task(_poll_loop())
-            try:
-                yield
-            finally:
-                task.cancel()
-                try:
-                    consumer.close()
-                except Exception:
-                    pass
-        else:
-            yield
+        # R29-C: Kafka alarm ingestion moved to the event-gateway
+        # service.  rca-agent is now a pure HTTP consumer of
+        # ``POST /api/v1/alarms/events``; no embedded consumer here.
+        yield
 
     app = FastAPI(
         title="AI Employee RCA Agent",
