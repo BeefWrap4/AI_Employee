@@ -36,6 +36,13 @@ class AuditEvent:
     target_type: str
     target_id: str
     payload: dict[str, Any] = field(default_factory=dict)
+    # R30-B: prompt/model version tracing (spec §6.4).  Optional so
+    # legacy ``record_event`` callers that don't supply them keep
+    # working; populated by the LangGraph runtime for run.created /
+    # approval.decided events so every audit row is attributable to a
+    # specific prompt+model pair.
+    prompt_version: str | None = None
+    model_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

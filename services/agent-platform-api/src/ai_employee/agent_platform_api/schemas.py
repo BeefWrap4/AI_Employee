@@ -76,12 +76,19 @@ class NodeTrace(BaseModel):
     node_name: str
     status: str
     detail: str
+    # R30-B: prompt/model version tracing (spec §6.4).  Optional so
+    # legacy callers that don't populate them keep validating.
+    prompt_version: str | None = None
+    model_name: str | None = None
 
 
 class ToolCallSummary(BaseModel):
     tool_name: str
     risk_level: Literal["read_only", "approval_required"]
     status: str
+    # R30-B: prompt/model version tracing (spec §6.4).
+    prompt_version: str | None = None
+    model_name: str | None = None
 
 
 class AgentRunResponse(BaseModel):
@@ -96,6 +103,12 @@ class AgentRunResponse(BaseModel):
     node_trace: list[NodeTrace]
     tool_calls: list[ToolCallSummary]
     approval_status: ApprovalStatus
+    # R30-B: prompt/model version tracing (spec §6.4).  Populated by the
+    # LangGraph RunStarted node from ``ChatResponse.model`` + the
+    # template's declared prompt version, so every run is attributable
+    # to a specific prompt+model pair.
+    prompt_version: str | None = None
+    model_name: str | None = None
 
 
 class AgentRunSummary(BaseModel):
