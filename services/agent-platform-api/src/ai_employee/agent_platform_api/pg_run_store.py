@@ -6,9 +6,11 @@ abstraction.  Same schema as :class:`AgentRunStore` (SQLite), with the
 (AUTOINCREMENT on SQLite, BIGINT IDENTITY on Postgres).  Selected by
 :func:`build_run_store` when ``DATABASE_URL`` points at Postgres.
 """
+
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from datetime import datetime, timezone
@@ -18,6 +20,9 @@ from ai_employee.common_schemas.db import DB, Backend, open_db
 
 if TYPE_CHECKING:
     from ai_employee.agent_platform_api.run_store import AgentRunStore
+
+_LOG = logging.getLogger(__name__)
+_WARNED_FALLBACK = False
 
 _SCHEMA_BASE = """
 CREATE TABLE IF NOT EXISTS agent_runs (
@@ -63,8 +68,7 @@ CREATE TABLE IF NOT EXISTS agent_run_events (
 """
 
 _INDEX = (
-    "CREATE INDEX IF NOT EXISTS idx_agent_run_events_run "
-    "ON agent_run_events(run_id, event_id);"
+    "CREATE INDEX IF NOT EXISTS idx_agent_run_events_run ON agent_run_events(run_id, event_id);"
 )
 
 
@@ -158,7 +162,8 @@ class PgAgentRunStore:
     # -- reads ----------------------------------------------------------------
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         row = self._db.execute(
-            "SELECT * FROM agent_runs WHERE run_id = ?", (run_id,),
+            "SELECT * FROM agent_runs WHERE run_id = ?",
+            (run_id,),
         ).fetchone()
         if row is None:
             return None
@@ -190,7 +195,8 @@ class PgAgentRunStore:
             params.append(status)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         count_row = self._db.execute(
-            f"SELECT COUNT(*) AS c FROM agent_runs {where}", params,
+            f"SELECT COUNT(*) AS c FROM agent_runs {where}",
+            params,
         ).fetchone()
         total = int(count_row["c"] if count_row else 0)
         offset = max(0, (page - 1) * page_size)
@@ -227,7 +233,12 @@ def build_run_store(
     db_path: str | None = None,
     database_url: str | None = None,
 ) -> AgentRunStore | PgAgentRunStore:
-    """Pick AgentRunStore (default, SQLite) or PgAgentRunStore (Postgres)."""
+    """Pick AgentRunStore (default, SQLite) or PgAgentRunStore (Postgres).
+
+    R29-A: when ``DATABASE_URL`` is unset and the SQLite fallback is
+    chosen, emit a one-shot deprecation warning so operators running
+    the production chart can see they're on the legacy default.
+    """
     from ai_employee.common_schemas.db import detect_backend
 
     url = database_url if database_url is not None else os.getenv("DATABASE_URL", "")
@@ -237,6 +248,13 @@ def build_run_store(
         store = PgAgentRunStore(db=db)
         store.init_schema()
         return store
+    global _WARNED_FALLBACK  # module-level throttle
+    if not _WARNED_FALLBACK:
+        _WARNED_FALLBACK = True
+        _LOG.warning(
+            "agent-platform-api: DATABASE_URL is unset; falling back to local "
+            "SQLite store. Set DATABASE_URL=postgresql://... for production.",
+        )
     from ai_employee.agent_platform_api.run_store import AgentRunStore
 
     return AgentRunStore(db_path=db_path)
