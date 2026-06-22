@@ -6,6 +6,7 @@ action / tenant / time range) and ``GET /api/v1/audit/export``
 :class:`InMemoryAuditLog` by default; the same endpoint contract
 works against OpenSearch via a backend swap (deferred to R14).
 """
+
 from __future__ import annotations
 
 import csv
@@ -31,10 +32,22 @@ def test_filter_by_actor() -> None:
     )
 
     events = [
-        AuditEvent(seq=1, ts="t1", actor="alice", action="run.created",
-                   target_type="agent_run", target_id="r1"),
-        AuditEvent(seq=2, ts="t2", actor="bob", action="run.created",
-                   target_type="agent_run", target_id="r2"),
+        AuditEvent(
+            seq=1,
+            ts="t1",
+            actor="alice",
+            action="run.created",
+            target_type="agent_run",
+            target_id="r1",
+        ),
+        AuditEvent(
+            seq=2,
+            ts="t2",
+            actor="bob",
+            action="run.created",
+            target_type="agent_run",
+            target_id="r2",
+        ),
     ]
     out = filter_events(events, actor="alice")
     assert [e.seq for e in out] == [1]
@@ -44,10 +57,10 @@ def test_filter_by_action() -> None:
     from ai_employee.agent_platform_api.audit_api import filter_events
 
     events = [
-        AuditEvent(seq=1, ts="t1", actor="x", action="run.created",
-                   target_type="t", target_id="1"),
-        AuditEvent(seq=2, ts="t2", actor="x", action="approval.decided",
-                   target_type="t", target_id="2"),
+        AuditEvent(seq=1, ts="t1", actor="x", action="run.created", target_type="t", target_id="1"),
+        AuditEvent(
+            seq=2, ts="t2", actor="x", action="approval.decided", target_type="t", target_id="2"
+        ),
     ]
     out = filter_events(events, action="approval.decided")
     assert [e.seq for e in out] == [2]
@@ -57,10 +70,10 @@ def test_filter_by_target() -> None:
     from ai_employee.agent_platform_api.audit_api import filter_events
 
     events = [
-        AuditEvent(seq=1, ts="t1", actor="x", action="a",
-                   target_type="agent_run", target_id="r1"),
-        AuditEvent(seq=2, ts="t2", actor="x", action="a",
-                   target_type="approval_task", target_id="t1"),
+        AuditEvent(seq=1, ts="t1", actor="x", action="a", target_type="agent_run", target_id="r1"),
+        AuditEvent(
+            seq=2, ts="t2", actor="x", action="a", target_type="approval_task", target_id="t1"
+        ),
     ]
     out = filter_events(events, target_type="agent_run", target_id="r1")
     assert [e.seq for e in out] == [1]
@@ -70,10 +83,12 @@ def test_filter_by_time_range() -> None:
     from ai_employee.agent_platform_api.audit_api import filter_events
 
     events = [
-        AuditEvent(seq=1, ts="2026-01-01T00:00:00Z", actor="x",
-                   action="a", target_type="t", target_id="1"),
-        AuditEvent(seq=2, ts="2026-06-18T00:00:00Z", actor="x",
-                   action="a", target_type="t", target_id="2"),
+        AuditEvent(
+            seq=1, ts="2026-01-01T00:00:00Z", actor="x", action="a", target_type="t", target_id="1"
+        ),
+        AuditEvent(
+            seq=2, ts="2026-06-18T00:00:00Z", actor="x", action="a", target_type="t", target_id="2"
+        ),
     ]
     out = filter_events(
         events,
@@ -87,10 +102,24 @@ def test_filter_by_tenant_in_payload() -> None:
     from ai_employee.agent_platform_api.audit_api import filter_events
 
     events = [
-        AuditEvent(seq=1, ts="t1", actor="x", action="a",
-                   target_type="t", target_id="1", payload={"tenant_id": "acme"}),
-        AuditEvent(seq=2, ts="t2", actor="x", action="a",
-                   target_type="t", target_id="2", payload={"tenant_id": "globex"}),
+        AuditEvent(
+            seq=1,
+            ts="t1",
+            actor="x",
+            action="a",
+            target_type="t",
+            target_id="1",
+            payload={"tenant_id": "acme"},
+        ),
+        AuditEvent(
+            seq=2,
+            ts="t2",
+            actor="x",
+            action="a",
+            target_type="t",
+            target_id="2",
+            payload={"tenant_id": "globex"},
+        ),
     ]
     out = filter_events(events, tenant_id="acme")
     assert [e.seq for e in out] == [1]
@@ -100,8 +129,7 @@ def test_filter_limit_caps_results() -> None:
     from ai_employee.agent_platform_api.audit_api import filter_events
 
     events = [
-        AuditEvent(seq=i, ts=f"t{i}", actor="x", action="a",
-                   target_type="t", target_id=str(i))
+        AuditEvent(seq=i, ts=f"t{i}", actor="x", action="a", target_type="t", target_id=str(i))
         for i in range(20)
     ]
     out = filter_events(events, limit=5)
@@ -112,8 +140,7 @@ def test_filter_pagination_offset() -> None:
     from ai_employee.agent_platform_api.audit_api import filter_events
 
     events = [
-        AuditEvent(seq=i, ts=f"t{i}", actor="x", action="a",
-                   target_type="t", target_id=str(i))
+        AuditEvent(seq=i, ts=f"t{i}", actor="x", action="a", target_type="t", target_id=str(i))
         for i in range(10)
     ]
     out = filter_events(events, limit=3, offset=4)
@@ -129,9 +156,15 @@ def test_to_csv_round_trip() -> None:
     from ai_employee.agent_platform_api.audit_api import events_to_csv
 
     events = [
-        AuditEvent(seq=1, ts="t1", actor="alice", action="run.created",
-                   target_type="agent_run", target_id="r1",
-                   payload={"tenant_id": "acme"}),
+        AuditEvent(
+            seq=1,
+            ts="t1",
+            actor="alice",
+            action="run.created",
+            target_type="agent_run",
+            target_id="r1",
+            payload={"tenant_id": "acme"},
+        ),
     ]
     text = events_to_csv(events)
     reader = csv.reader(io.StringIO(text))
@@ -148,10 +181,22 @@ def test_to_jsonl_round_trip() -> None:
     from ai_employee.agent_platform_api.audit_api import events_to_jsonl
 
     events = [
-        AuditEvent(seq=1, ts="t1", actor="alice", action="run.created",
-                   target_type="agent_run", target_id="r1"),
-        AuditEvent(seq=2, ts="t2", actor="bob", action="approval.decided",
-                   target_type="approval_task", target_id="t1"),
+        AuditEvent(
+            seq=1,
+            ts="t1",
+            actor="alice",
+            action="run.created",
+            target_type="agent_run",
+            target_id="r1",
+        ),
+        AuditEvent(
+            seq=2,
+            ts="t2",
+            actor="bob",
+            action="approval.decided",
+            target_type="approval_task",
+            target_id="t1",
+        ),
     ]
     text = events_to_jsonl(events)
     lines = text.strip().split("\n")
@@ -168,10 +213,10 @@ def test_to_jsonl_round_trip() -> None:
 
 def test_audit_events_endpoint_returns_filtered() -> None:
     reset_audit_log()
-    record_event(action="run.created", actor="alice",
-                target_type="agent_run", target_id="r1")
-    record_event(action="approval.decided", actor="bob",
-                target_type="approval_task", target_id="t1")
+    record_event(action="run.created", actor="alice", target_type="agent_run", target_id="r1")
+    record_event(
+        action="approval.decided", actor="bob", target_type="approval_task", target_id="t1"
+    )
     client = TestClient(create_app())
     resp = client.get("/api/v1/audit/events?action=run.created")
     assert resp.status_code == 200
@@ -184,10 +229,8 @@ def test_audit_events_endpoint_returns_filtered() -> None:
 
 def test_audit_events_endpoint_filter_by_actor() -> None:
     reset_audit_log()
-    record_event(action="run.created", actor="alice",
-                target_type="agent_run", target_id="r1")
-    record_event(action="run.created", actor="bob",
-                target_type="agent_run", target_id="r2")
+    record_event(action="run.created", actor="alice", target_type="agent_run", target_id="r1")
+    record_event(action="run.created", actor="bob", target_type="agent_run", target_id="r2")
     client = TestClient(create_app())
     resp = client.get("/api/v1/audit/events?actor=alice")
     assert resp.status_code == 200
@@ -198,12 +241,20 @@ def test_audit_events_endpoint_filter_by_actor() -> None:
 
 def test_audit_events_endpoint_filter_by_tenant() -> None:
     reset_audit_log()
-    record_event(action="run.created", actor="alice",
-                target_type="agent_run", target_id="r1",
-                payload={"tenant_id": "acme"})
-    record_event(action="run.created", actor="bob",
-                target_type="agent_run", target_id="r2",
-                payload={"tenant_id": "globex"})
+    record_event(
+        action="run.created",
+        actor="alice",
+        target_type="agent_run",
+        target_id="r1",
+        payload={"tenant_id": "acme"},
+    )
+    record_event(
+        action="run.created",
+        actor="bob",
+        target_type="agent_run",
+        target_id="r2",
+        payload={"tenant_id": "globex"},
+    )
     client = TestClient(create_app())
     resp = client.get(
         "/api/v1/audit/events?tenant_id=acme",
@@ -218,8 +269,7 @@ def test_audit_events_endpoint_filter_by_tenant() -> None:
 def test_audit_events_endpoint_pagination() -> None:
     reset_audit_log()
     for i in range(10):
-        record_event(action="run.created", actor=f"u{i}",
-                    target_type="agent_run", target_id=str(i))
+        record_event(action="run.created", actor=f"u{i}", target_type="agent_run", target_id=str(i))
     client = TestClient(create_app())
     resp = client.get("/api/v1/audit/events?limit=3&offset=2")
     assert resp.status_code == 200
@@ -230,8 +280,7 @@ def test_audit_events_endpoint_pagination() -> None:
 
 def test_audit_export_csv_endpoint() -> None:
     reset_audit_log()
-    record_event(action="run.created", actor="alice",
-                target_type="agent_run", target_id="r1")
+    record_event(action="run.created", actor="alice", target_type="agent_run", target_id="r1")
     client = TestClient(create_app())
     resp = client.get("/api/v1/audit/export?format=csv")
     assert resp.status_code == 200
@@ -243,8 +292,7 @@ def test_audit_export_csv_endpoint() -> None:
 
 def test_audit_export_jsonl_endpoint() -> None:
     reset_audit_log()
-    record_event(action="run.created", actor="alice",
-                target_type="agent_run", target_id="r1")
+    record_event(action="run.created", actor="alice", target_type="agent_run", target_id="r1")
     client = TestClient(create_app())
     resp = client.get("/api/v1/audit/export?format=jsonl")
     assert resp.status_code == 200
@@ -252,6 +300,7 @@ def test_audit_export_jsonl_endpoint() -> None:
     lines = resp.text.strip().split("\n")
     assert len(lines) == 1
     import json
+
     parsed = json.loads(lines[0])
     assert parsed["actor"] == "alice"
 

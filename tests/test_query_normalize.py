@@ -1,4 +1,5 @@
 """Query normalization + reranker tests."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -18,8 +19,13 @@ from ai_employee.knowledge_api.retrieval import RetrievalHit
 
 def _hit(content: str, conf: float = 0.5, cid: str = "c1") -> RetrievalHit:
     return RetrievalHit(
-        chunk_id=cid, doc_id="d1", doc_title="t", content=content,
-        section_path="root", page_no=1, confidence=conf,
+        chunk_id=cid,
+        doc_id="d1",
+        doc_title="t",
+        content=content,
+        section_path="root",
+        page_no=1,
+        confidence=conf,
     )
 
 

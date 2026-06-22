@@ -1,4 +1,5 @@
 """A/B testing harness tests."""
+
 from __future__ import annotations
 
 import pytest
@@ -82,7 +83,10 @@ def test_assign_variant_returns_variant_name() -> None:
 def test_assign_variant_rejects_invalid_split() -> None:
     with pytest.raises(ValueError):
         ABExperiment(
-            experiment_id="x", control="c", treatment="t", traffic_split=1.5,
+            experiment_id="x",
+            control="c",
+            treatment="t",
+            traffic_split=1.5,
         )
 
 
@@ -109,7 +113,10 @@ def test_two_sample_z_score_handles_zero_variance() -> None:
 
 def test_analyze_two_proportion_significant() -> None:
     result = analyze_two_proportion_z_test(
-        successes_a=50, n_a=100, successes_b=80, n_b=100,
+        successes_a=50,
+        n_a=100,
+        successes_b=80,
+        n_b=100,
     )
     assert result.z_score is not None
     # 50/100 vs 80/100 with n=100 each → z ≈ 4.45, well above the
@@ -122,14 +129,20 @@ def test_analyze_two_proportion_significant() -> None:
 
 def test_analyze_two_proportion_not_significant() -> None:
     result = analyze_two_proportion_z_test(
-        successes_a=49, n_a=100, successes_b=51, n_b=100,
+        successes_a=49,
+        n_a=100,
+        successes_b=51,
+        n_b=100,
     )
     assert result.is_significant(alpha=0.05) is False
 
 
 def test_analyze_two_proportion_serializable() -> None:
     result = analyze_two_proportion_z_test(
-        successes_a=10, n_a=100, successes_b=20, n_b=100,
+        successes_a=10,
+        n_a=100,
+        successes_b=20,
+        n_b=100,
     )
     d = result.to_dict()
     assert "z_score" in d
@@ -158,7 +171,9 @@ def test_store_record_outcome() -> None:
     store = ABExperimentStore()
     store.create(
         experiment_id="exp_1",
-        control="c", treatment="t", traffic_split=0.5,
+        control="c",
+        treatment="t",
+        traffic_split=0.5,
     )
     store.record_outcome("exp_1", "control", "ctr", 0.5)
     store.record_outcome("exp_1", "control", "ctr", 0.6)
@@ -176,7 +191,10 @@ def test_store_record_outcome_unknown_experiment_ignored() -> None:
 def test_store_summary_groups_by_variant() -> None:
     store = ABExperimentStore()
     store.create(
-        experiment_id="exp_1", control="c", treatment="t", traffic_split=0.5,
+        experiment_id="exp_1",
+        control="c",
+        treatment="t",
+        traffic_split=0.5,
     )
     for v in (0.1, 0.2, 0.3):
         store.record_outcome("exp_1", "c", "ctr", v)

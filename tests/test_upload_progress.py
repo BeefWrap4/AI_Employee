@@ -1,4 +1,5 @@
 """Document upload progress streaming tests."""
+
 from __future__ import annotations
 
 import json
@@ -87,9 +88,12 @@ def test_build_progress_tracker_returns_singleton() -> None:
 
 def test_upload_progress_to_dict_shape() -> None:
     p = UploadProgress(
-        doc_id="d1", stage="receiving",
-        bytes_received=100, total_bytes=200,
-        percent=50.0, error=None,
+        doc_id="d1",
+        stage="receiving",
+        bytes_received=100,
+        total_bytes=200,
+        percent=50.0,
+        error=None,
         ts="2026-06-18T00:00:00Z",
     )
     d = p.to_dict()
@@ -117,7 +121,7 @@ def test_upload_progress_endpoint_returns_sse_for_known_doc() -> None:
         frames = [line for line in body.split("\n") if line.startswith("data: ")]
         # The endpoint replays the latest snapshot then exits on completed.
         assert len(frames) == 1
-        first = json.loads(frames[0][len("data: "):])
+        first = json.loads(frames[0][len("data: ") :])
         assert first["doc_id"] == "doc_x"
         assert first["stage"] == "completed"
         assert first["percent"] == 100.0
@@ -132,5 +136,5 @@ def test_upload_progress_endpoint_for_unknown_doc_returns_empty_progress() -> No
         # Even unknown docs emit a single synthetic "unknown" progress frame.
         frames = [line for line in body.split("\n") if line.startswith("data: ")]
         assert len(frames) >= 1
-        first = json.loads(frames[0][len("data: "):])
+        first = json.loads(frames[0][len("data: ") :])
         assert first["stage"] == "unknown"

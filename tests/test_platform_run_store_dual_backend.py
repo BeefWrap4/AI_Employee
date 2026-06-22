@@ -1,4 +1,5 @@
 """agent-platform AgentRunStore dual-backend tests (R16-4)."""
+
 from __future__ import annotations
 
 import os
@@ -51,7 +52,8 @@ def _run(run_id: str = "run_001", **kw) -> dict:
 
 
 def test_build_run_store_defaults_to_sqlite(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from ai_employee.agent_platform_api.run_store import AgentRunStore
 
@@ -99,13 +101,15 @@ def test_append_events(tmp_path) -> None:
     for _label, db in _dbs(tmp_path):
         store = PgAgentRunStore(db=db)
         store.init_schema()
-        store.upsert_run({
-            **_run("run_001"),
-            "new_events": [
-                {"node_name": "N1", "status": "ok", "detail": "d1"},
-                {"node_name": "N2", "status": "ok", "detail": "d2"},
-            ],
-        })
+        store.upsert_run(
+            {
+                **_run("run_001"),
+                "new_events": [
+                    {"node_name": "N1", "status": "ok", "detail": "d1"},
+                    {"node_name": "N2", "status": "ok", "detail": "d2"},
+                ],
+            }
+        )
         got = store.get_run("run_001")
         assert len(got["events"]) == 2
         assert [e["node_name"] for e in got["events"]] == ["N1", "N2"]

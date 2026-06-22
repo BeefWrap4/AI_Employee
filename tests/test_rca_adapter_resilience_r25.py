@@ -14,9 +14,9 @@ extra guards:
 Backward compat: the default ``max_attempts=1`` means the adapter
 behaves identically to the pre-R25 single-shot path (regression-free).
 """
+
 from __future__ import annotations
 
-import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -26,7 +26,6 @@ from ai_employee.rca_agent.tool_adapters import (
     AdapterUnavailable,
     PrometheusKPIAdapter,
     TicketApiAdapter,
-    build_adapters,
 )
 
 
@@ -70,7 +69,6 @@ def _make_incident() -> IncidentResponse:
 def test_real_adapter_timeout_enforced(monkeypatch) -> None:
     """When the backing service hangs, the adapter aborts within its
     timeout_seconds budget (R25-T.4: timeout enforcement)."""
-    from ai_employee.rca_agent.tool_adapters import PrometheusKPIAdapter
 
     def slow_get(*args: Any, **kwargs: Any) -> MagicMock:
         import time
@@ -88,7 +86,6 @@ def test_real_adapter_timeout_enforced(monkeypatch) -> None:
 def test_real_adapter_default_timeout_is_backward_compatible(monkeypatch) -> None:
     """Without an explicit timeout override, the adapter uses its existing
     5.0s timeout — the behaviour is unchanged from pre-R25."""
-    from ai_employee.rca_agent.tool_adapters import PrometheusKPIAdapter
 
     fake_resp = MagicMock()
     fake_resp.status_code = 200
@@ -109,7 +106,6 @@ def test_real_adapter_default_timeout_is_backward_compatible(monkeypatch) -> Non
 def test_real_adapter_retries_on_transient_failure(monkeypatch) -> None:
     """A single transient failure (e.g. connection refused) is retried
     once; the second attempt succeeds."""
-    from ai_employee.rca_agent.tool_adapters import PrometheusKPIAdapter
 
     call_count = [0]
 
@@ -136,7 +132,6 @@ def test_real_adapter_retries_on_transient_failure(monkeypatch) -> None:
 
 def test_real_adapter_retries_exhausted_raises(monkeypatch) -> None:
     """When all retry attempts fail, the adapter raises AdapterUnavailable."""
-    from ai_employee.rca_agent.tool_adapters import PrometheusKPIAdapter
 
     call_count = [0]
 
@@ -159,7 +154,6 @@ def test_real_adapter_retries_exhausted_raises(monkeypatch) -> None:
 def test_real_adapter_default_retries_is_single_attempt(monkeypatch) -> None:
     """With no env override, the default retry_policy is max_attempts=1
     (one attempt = backward compatible with pre-R25 behaviour)."""
-    from ai_employee.rca_agent.tool_adapters import PrometheusKPIAdapter
 
     call_count = [0]
 
@@ -186,7 +180,6 @@ def test_real_adapter_default_retries_is_single_attempt(monkeypatch) -> None:
 
 def test_ticket_adapter_timeout_is_enforced(monkeypatch) -> None:
     """TicketApiAdapter should also respect the timeout."""
-    from ai_employee.rca_agent.tool_adapters import TicketApiAdapter
 
     def slow_get(*args: Any, **kwargs: Any) -> MagicMock:
         import time

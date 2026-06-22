@@ -1,4 +1,5 @@
 """RCA contradicting_evidence_ids population tests (spec §6.5)."""
+
 from __future__ import annotations
 
 from ai_employee.rca_agent.app import create_app

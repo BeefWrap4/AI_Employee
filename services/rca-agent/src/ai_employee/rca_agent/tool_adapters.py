@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
-from ai_employee.rca_agent.http_resilience import resilient_fetch  # noqa: F401  # R25-T.4
+from ai_employee.rca_agent.http_resilience import resilient_fetch  # R25-T.4
 from ai_employee.rca_agent.schemas import Evidence, IncidentResponse
 
 
@@ -186,13 +186,9 @@ class _HttpAdapter:
                     timeout=self._timeout,
                 )
             except httpx.HTTPError as exc:
-                raise AdapterUnavailable(
-                    f"{self.base_url} unreachable: {exc}"
-                ) from exc
+                raise AdapterUnavailable(f"{self.base_url} unreachable: {exc}") from exc
             if resp.status_code >= 500:
-                raise AdapterUnavailable(
-                    f"{self.base_url} returned {resp.status_code}"
-                )
+                raise AdapterUnavailable(f"{self.base_url} returned {resp.status_code}")
             if resp.status_code >= 400:
                 raise AdapterBadRequest(resp.status_code, resp.text)
             return resp.json()
@@ -238,8 +234,7 @@ class PrometheusKPIAdapter(_HttpAdapter):
                 source_type="metric",
                 source_ref=f"prometheus:{primary.site_id}",
                 content=(
-                    f"Prometheus reported {result_count} active series for "
-                    f"site {primary.site_id}."
+                    f"Prometheus reported {result_count} active series for site {primary.site_id}."
                 ),
                 confidence=0.6 if result_count else 0.3,
             )

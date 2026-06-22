@@ -17,6 +17,7 @@ Resolution order (:func:`resolve_locale`):
 2. ``header`` value (HTTP-layer override)
 3. Auto-detection from the question text
 """
+
 from __future__ import annotations
 
 import re
@@ -79,7 +80,7 @@ def parse_locale_header(header: str | None) -> str | None:
         # Check for an explicit q-weight in the surrounding slice.
         q = 1.0
         end = match.end()
-        q_match = re.search(r"q\s*=\s*([0-9.]+)", header[end:end + 16])
+        q_match = re.search(r"q\s*=\s*([0-9.]+)", header[end : end + 16])
         if q_match:
             try:
                 q = float(q_match.group(1))

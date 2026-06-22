@@ -13,6 +13,7 @@ Covers the wiring described in R25-T:
   and updates ``health_status`` from ``unknown`` to ``healthy`` /
   ``unhealthy``.
 """
+
 from __future__ import annotations
 
 import threading
@@ -24,7 +25,6 @@ import pytest
 from ai_employee.auth_policy import issue_token
 from ai_employee.common_schemas.tool_registry import ToolSpec
 from ai_employee.tool_registry.app import create_app
-from ai_employee.tool_registry.circuit_breaker import CircuitOpenError
 from ai_employee.tool_registry.store import ToolRegistryStore
 from fastapi.testclient import TestClient
 
@@ -68,7 +68,6 @@ def test_invoke_timeout_ms_default_5000_backcompat(tmp_path) -> None:
     (backward compat: old behavior unchanged for fast handlers)."""
     store = ToolRegistryStore(db_path=str(tmp_path / "tools.sqlite3"))
     # Inject a slow handler into the in-memory registry before app starts.
-    from ai_employee.tool_registry.app import ToolRegistrationRequest
 
     client = TestClient(create_app(store=store))
     # echo is the built-in fast tool — it returns <50ms; we verify it still
@@ -122,7 +121,10 @@ def test_invoke_respects_timeout_ms_slow_handler_returns_timeout(tmp_path) -> No
     # Timeout can surface as 'tool_timeout', 'invocation_failed', or
     # 'tool_invocation_failed' depending on exception layering.
     assert detail.get("error_code") in {
-        "tool_timeout", "timeout", "tool_invocation_failed", "invocation_failed",
+        "tool_timeout",
+        "timeout",
+        "tool_invocation_failed",
+        "invocation_failed",
     }
 
 
@@ -198,7 +200,11 @@ def test_invoke_retry_policy_exhausted_returns_504_not_500(tmp_path) -> None:
     assert resp.status_code == 504, resp.text
     assert state["calls"] == 2
     body = resp.json()
-    assert body["detail"]["error_code"] in {"tool_invocation_failed", "tool_failed", "invocation_failed"}
+    assert body["detail"]["error_code"] in {
+        "tool_invocation_failed",
+        "tool_failed",
+        "invocation_failed",
+    }
 
 
 def test_invoke_default_retry_policy_max_attempts_1_is_backward_compatible(tmp_path) -> None:
@@ -295,7 +301,7 @@ def test_health_probe_task_updates_tool_health_status(tmp_path) -> None:
 
     # Spin a tiny 200 OK HTTP server.
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             self.send_response(200)
             self.send_header("Content-Length", "2")
             self.end_headers()
@@ -310,14 +316,16 @@ def test_health_probe_task_updates_tool_health_status(tmp_path) -> None:
     thread.start()
     try:
         store = ToolRegistryStore(db_path=str(tmp_path / "probe.sqlite3"))
-        store.upsert({
-            "name": "probe.target",
-            "description": "x",
-            "input_schema": {"type": "object"},
-            "output_schema": {"type": "object"},
-            "risk_level": "read_only",
-            "health_check_url": f"http://127.0.0.1:{port}/health",
-        })
+        store.upsert(
+            {
+                "name": "probe.target",
+                "description": "x",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+                "risk_level": "read_only",
+                "health_check_url": f"http://127.0.0.1:{port}/health",
+            }
+        )
         # health_status should default to 'unknown' (column may not yet exist
         # on legacy stores — but R25-T added it).
         probe_and_persist(store, name="probe.target")
@@ -333,14 +341,16 @@ def test_health_probe_task_marks_unreachable_target_unhealthy(tmp_path) -> None:
     from ai_employee.tool_registry.health_probe import probe_and_persist
 
     store = ToolRegistryStore(db_path=str(tmp_path / "unreach.sqlite3"))
-    store.upsert({
-        "name": "dead.target",
-        "description": "x",
-        "input_schema": {"type": "object"},
-        "output_schema": {"type": "object"},
-        "risk_level": "read_only",
-        "health_check_url": "http://127.0.0.1:1/health",  # closed port
-    })
+    store.upsert(
+        {
+            "name": "dead.target",
+            "description": "x",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+            "risk_level": "read_only",
+            "health_check_url": "http://127.0.0.1:1/health",  # closed port
+        }
+    )
     probe_and_persist(store, name="dead.target")
     row = store.get("dead.target")
     assert row.get("health_status") == "unhealthy"
@@ -351,14 +361,16 @@ def test_health_probe_task_no_url_keeps_unknown(tmp_path) -> None:
     from ai_employee.tool_registry.health_probe import probe_and_persist
 
     store = ToolRegistryStore(db_path=str(tmp_path / "nourl.sqlite3"))
-    store.upsert({
-        "name": "no.url",
-        "description": "x",
-        "input_schema": {"type": "object"},
-        "output_schema": {"type": "object"},
-        "risk_level": "read_only",
-        "health_check_url": None,
-    })
+    store.upsert(
+        {
+            "name": "no.url",
+            "description": "x",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+            "risk_level": "read_only",
+            "health_check_url": None,
+        }
+    )
     probe_and_persist(store, name="no.url")
     row = store.get("no.url")
     # Either stays 'unknown' or is absent; we tolerate the legacy schema.
@@ -370,18 +382,26 @@ def test_health_probe_loop_probes_all_tools(tmp_path) -> None:
     from ai_employee.tool_registry.health_probe import run_once
 
     store = ToolRegistryStore(db_path=str(tmp_path / "loop.sqlite3"))
-    store.upsert({
-        "name": "a", "description": "x",
-        "input_schema": {}, "output_schema": {},
-        "risk_level": "read_only",
-        "health_check_url": "http://127.0.0.1:1/health",
-    })
-    store.upsert({
-        "name": "b", "description": "x",
-        "input_schema": {}, "output_schema": {},
-        "risk_level": "read_only",
-        "health_check_url": None,
-    })
+    store.upsert(
+        {
+            "name": "a",
+            "description": "x",
+            "input_schema": {},
+            "output_schema": {},
+            "risk_level": "read_only",
+            "health_check_url": "http://127.0.0.1:1/health",
+        }
+    )
+    store.upsert(
+        {
+            "name": "b",
+            "description": "x",
+            "input_schema": {},
+            "output_schema": {},
+            "risk_level": "read_only",
+            "health_check_url": None,
+        }
+    )
     counts = run_once(store)
     # 'a' was probed and marked unhealthy; 'b' was skipped (no URL).
     assert counts["probed"] == 1

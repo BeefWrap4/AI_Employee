@@ -22,6 +22,7 @@ overlap; the toy path is preserved as the fallback when no retrieved
 chunks or expected text are available so legacy golden cases still
 score.
 """
+
 from __future__ import annotations
 
 import math
@@ -440,8 +441,7 @@ class SafetyPolicyVerdict:
             "passed": self.passed,
             "approval_bypassed": self.approval_bypassed,
             "forbidden_invoked": self.forbidden_invoked,
-            "unapproved_approval_required_invoked":
-                self.unapproved_approval_required_invoked,
+            "unapproved_approval_required_invoked": self.unapproved_approval_required_invoked,
             "violations": list(self.violations),
         }
 
@@ -495,9 +495,13 @@ def evaluate_safety_policy(inputs: SafetyPolicyInputs) -> SafetyPolicyVerdict:
                     f"run_approval_status={inputs.run_approval_status!r}",
                 )
 
-    passed = not any([
-        approval_bypassed, forbidden_invoked, unapproved_approval_required_invoked,
-    ])
+    passed = not any(
+        [
+            approval_bypassed,
+            forbidden_invoked,
+            unapproved_approval_required_invoked,
+        ]
+    )
     return SafetyPolicyVerdict(
         passed=passed,
         approval_bypassed=approval_bypassed,
@@ -745,7 +749,9 @@ def compute(
         # when retrieved_chunks are present; legacy keyword path otherwise.
         if r.retrieved_chunks:
             score, _supported, total = evaluate_faithfulness(
-                r.answer, r.retrieved_chunks, judge=claim_judge,
+                r.answer,
+                r.retrieved_chunks,
+                judge=claim_judge,
             )
             if total > 0:
                 m.faithfulness += score
@@ -754,10 +760,7 @@ def compute(
                     faithfulness_method = "claims"
         elif r.expected_answer_keywords:
             answer_lower = r.answer.lower()
-            hit_kw = sum(
-                1 for kw in r.expected_answer_keywords
-                if kw.lower() in answer_lower
-            )
+            hit_kw = sum(1 for kw in r.expected_answer_keywords if kw.lower() in answer_lower)
             m.faithfulness += hit_kw / len(r.expected_answer_keywords)
             m.faithfulness_eligible += 1
             if faithfulness_method == "none":
@@ -766,7 +769,8 @@ def compute(
         # Answer relevance (R18-4): reference text when supplied, else question.
         if r.expected_answer_text or r.question:
             rel = evaluate_answer_relevance(
-                r.question, r.answer,
+                r.question,
+                r.answer,
                 expected_answer_text=r.expected_answer_text,
             )
             m.answer_relevance += rel
@@ -792,13 +796,9 @@ def compute(
     m.refusal_expected = len(refusal_expected)
     m.refusal_accuracy = m.refusal_correct / m.refusal_expected if m.refusal_expected else 0.0
     m.citation_coverage = covered / m.eligible_for_hit if m.eligible_for_hit else 0.0
-    m.faithfulness = (
-        m.faithfulness / m.faithfulness_eligible
-        if m.faithfulness_eligible else 0.0
-    )
+    m.faithfulness = m.faithfulness / m.faithfulness_eligible if m.faithfulness_eligible else 0.0
     m.answer_relevance = (
-        m.answer_relevance / m.answer_relevance_eligible
-        if m.answer_relevance_eligible else 0.0
+        m.answer_relevance / m.answer_relevance_eligible if m.answer_relevance_eligible else 0.0
     )
     m.faithfulness_method = faithfulness_method
     m.answer_relevance_method = answer_relevance_method

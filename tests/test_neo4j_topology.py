@@ -6,6 +6,7 @@ device dependencies.  Tests inject a :class:`FakeNeo4jDriver` so no
 live database is required; the production path wires the official
 ``neo4j`` Python driver.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,8 +26,11 @@ from ai_employee.rca_agent.topology import (
 
 def test_dependency_to_dict() -> None:
     dep = Dependency(
-        node_id="gNB-01", node_type="base_station", name="BJ-001",
-        relationship="UPSTREAM", hops=1,
+        node_id="gNB-01",
+        node_type="base_station",
+        name="BJ-001",
+        relationship="UPSTREAM",
+        hops=1,
     )
     d = dep.to_dict()
     assert d["node_id"] == "gNB-01"
@@ -44,10 +48,16 @@ def test_topology_result_to_dict() -> None:
     result = TopologyResult(
         site_id="BJ-001",
         dependencies=[
-            Dependency(node_id="SW-01", node_type="switch", name="Core-SW",
-                       relationship="UPSTREAM", hops=1),
-            Dependency(node_id="CELL-02", node_type="cell", name="BJ-001-C2",
-                       relationship="NEIGHBOR", hops=1),
+            Dependency(
+                node_id="SW-01", node_type="switch", name="Core-SW", relationship="UPSTREAM", hops=1
+            ),
+            Dependency(
+                node_id="CELL-02",
+                node_type="cell",
+                name="BJ-001-C2",
+                relationship="NEIGHBOR",
+                hops=1,
+            ),
         ],
     )
     d = result.to_dict()
@@ -62,9 +72,11 @@ def test_topology_result_to_dict() -> None:
 
 def test_fake_driver_seed_adds_nodes() -> None:
     driver = FakeNeo4jDriver()
-    driver.seed([
-        {"node_id": "gNB-01", "node_type": "base_station", "name": "BJ-001"},
-    ])
+    driver.seed(
+        [
+            {"node_id": "gNB-01", "node_type": "base_station", "name": "BJ-001"},
+        ]
+    )
     with driver.session() as s:
         rows = s.run("MATCH (n) RETURN n")
     assert len(rows) == 1
@@ -72,10 +84,17 @@ def test_fake_driver_seed_adds_nodes() -> None:
 
 def test_fake_driver_run_returns_seeded_rows() -> None:
     driver = FakeNeo4jDriver()
-    driver.seed([
-        {"node_id": "gNB-01", "node_type": "base_station", "name": "BJ-001",
-         "relationship": "UPSTREAM", "hops": 1},
-    ])
+    driver.seed(
+        [
+            {
+                "node_id": "gNB-01",
+                "node_type": "base_station",
+                "name": "BJ-001",
+                "relationship": "UPSTREAM",
+                "hops": 1,
+            },
+        ]
+    )
     with driver.session() as s:
         rows = s.run("MATCH (n {site_id: 'BJ-001'}) RETURN n")
     assert rows[0]["node_id"] == "gNB-01"
@@ -88,12 +107,24 @@ def test_fake_driver_run_returns_seeded_rows() -> None:
 
 def test_query_upstream_returns_dependencies() -> None:
     driver = FakeNeo4jDriver()
-    driver.seed([
-        {"node_id": "SW-01", "node_type": "switch", "name": "Core-SW",
-         "relationship": "UPSTREAM", "hops": 1},
-        {"node_id": "R-01", "node_type": "router", "name": "Core-RTR",
-         "relationship": "UPSTREAM", "hops": 2},
-    ])
+    driver.seed(
+        [
+            {
+                "node_id": "SW-01",
+                "node_type": "switch",
+                "name": "Core-SW",
+                "relationship": "UPSTREAM",
+                "hops": 1,
+            },
+            {
+                "node_id": "R-01",
+                "node_type": "router",
+                "name": "Core-RTR",
+                "relationship": "UPSTREAM",
+                "hops": 2,
+            },
+        ]
+    )
     client = Neo4jTopologyClient(driver=driver)  # type: ignore[arg-type]
     result = client.query_upstream_dependencies(site_id="BJ-001")
     assert isinstance(result, TopologyResult)
@@ -110,10 +141,17 @@ def test_query_upstream_empty_when_no_deps() -> None:
 
 def test_query_neighbors_returns_cells() -> None:
     driver = FakeNeo4jDriver()
-    driver.seed([
-        {"node_id": "CELL-02", "node_type": "cell", "name": "BJ-001-C2",
-         "relationship": "NEIGHBOR", "hops": 1},
-    ])
+    driver.seed(
+        [
+            {
+                "node_id": "CELL-02",
+                "node_type": "cell",
+                "name": "BJ-001-C2",
+                "relationship": "NEIGHBOR",
+                "hops": 1,
+            },
+        ]
+    )
     client = Neo4jTopologyClient(driver=driver)  # type: ignore[arg-type]
     neighbors = client.query_neighbors(site_id="BJ-001")
     assert len(neighbors) == 1
@@ -123,10 +161,17 @@ def test_query_neighbors_returns_cells() -> None:
 def test_client_to_evidence_payload() -> None:
     """The client can render its result as an RCA evidence payload."""
     driver = FakeNeo4jDriver()
-    driver.seed([
-        {"node_id": "SW-01", "node_type": "switch", "name": "Core-SW",
-         "relationship": "UPSTREAM", "hops": 1},
-    ])
+    driver.seed(
+        [
+            {
+                "node_id": "SW-01",
+                "node_type": "switch",
+                "name": "Core-SW",
+                "relationship": "UPSTREAM",
+                "hops": 1,
+            },
+        ]
+    )
     client = Neo4jTopologyClient(driver=driver)  # type: ignore[arg-type]
     result = client.query_upstream_dependencies(site_id="BJ-001")
     payload = client.to_evidence_payload(result)

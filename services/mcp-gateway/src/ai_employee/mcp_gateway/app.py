@@ -82,7 +82,10 @@ class CircuitBreaker:
 
     def _on_failure(self, tool_name: str) -> None:
         self._failures[tool_name] = self._failures.get(tool_name, 0) + 1
-        if self._failures[tool_name] >= self.failure_threshold or self._state.get(tool_name) == "half_open":
+        if (
+            self._failures[tool_name] >= self.failure_threshold
+            or self._state.get(tool_name) == "half_open"
+        ):
             self._state[tool_name] = "open"
             self._opened_at[tool_name] = time.time()
 
@@ -110,8 +113,12 @@ _HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
 
 def _risk_levels() -> set[str]:
     return {
-        "readonly", "suggest", "approval_required", "forbidden",
-        "read_only", "high_risk",
+        "readonly",
+        "suggest",
+        "approval_required",
+        "forbidden",
+        "read_only",
+        "high_risk",
     }
 
 

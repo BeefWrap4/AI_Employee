@@ -6,10 +6,10 @@ option dict containing ``xAxis``/``yAxis``/``series``.  The data is aggregated
 from existing alarm/KPI sources (rca-agent ``AlarmEvent`` store + KPI
 adapter), with pluggable aggregators so tests inject fakes.
 """
+
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from ai_employee.knowledge_api.echarts import (
@@ -33,9 +33,7 @@ class _FakeAlarmAgg(AlarmAggregator):
         window_minutes: int,
         now: datetime,
     ) -> list[dict[str, Any]]:
-        self.calls.append(
-            {"metric": metric, "window_minutes": window_minutes, "now": now}
-        )
+        self.calls.append({"metric": metric, "window_minutes": window_minutes, "now": now})
         # 3 buckets spanning the window
         buckets: list[dict[str, Any]] = []
         for i in range(3):
@@ -66,7 +64,9 @@ class _FakeKpiAgg(KpiAggregator):
         )
         return [
             KpiPoint(
-                ts=(now - timedelta(minutes=window_minutes - i * (window_minutes // 3))).isoformat(),
+                ts=(
+                    now - timedelta(minutes=window_minutes - i * (window_minutes // 3))
+                ).isoformat(),
                 value=float(10 + i),
                 field=metric,
             )
@@ -96,7 +96,8 @@ def _build_client_with_fakes() -> tuple[TestClient, _FakeAlarmAgg, _FakeKpiAgg]:
             return WorkerDispatchResult(False, "noop", "noop")
 
     store = SQLiteStore
-    import tempfile, os
+    import os
+    import tempfile
 
     td = tempfile.mkdtemp(prefix="r19_echarts_")
     s = store(db_path=os.path.join(td, "k.sqlite3"), data_dir=td)
@@ -108,7 +109,7 @@ def _build_client_with_fakes() -> tuple[TestClient, _FakeAlarmAgg, _FakeKpiAgg]:
 
 
 def test_echarts_returns_xaxis_yaxis_series() -> None:
-    client, alarm_agg, kpi_agg = _build_client_with_fakes()
+    client, alarm_agg, _kpi_agg = _build_client_with_fakes()
     resp = client.post(
         "/api/v1/chat/echarts",
         json={
@@ -172,9 +173,7 @@ def test_echarts_404_when_no_data() -> None:
         def bucket_kpi(self, **kwargs):  # type: ignore[no-untyped-def]
             return []
 
-    app.state.echarts_aggregator = EChartsAggregator(
-        alarm=_EmptyAlarm(), kpi=_EmptyKpi()
-    )
+    app.state.echarts_aggregator = EChartsAggregator(alarm=_EmptyAlarm(), kpi=_EmptyKpi())
     resp = client.post(
         "/api/v1/chat/echarts",
         json={

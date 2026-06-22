@@ -6,6 +6,7 @@ leader key; the holder refreshes it before TTL expires.  When Redis is
 unavailable, the loop degrades to "always leader" (single-instance
 mode) so dev/test without Redis still works.
 """
+
 from __future__ import annotations
 
 import threading
@@ -75,7 +76,10 @@ class _FakeRedis:
 def test_redis_leader_acquire_succeeds_when_free() -> None:
     fake = _FakeRedis()
     lease = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="replica-A", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="replica-A",
+        ttl_s=10,
     )
     assert lease.try_acquire() is True
     assert lease.is_leader() is True
@@ -84,10 +88,16 @@ def test_redis_leader_acquire_succeeds_when_free() -> None:
 def test_redis_leader_acquire_fails_when_held_by_other() -> None:
     fake = _FakeRedis()
     lease_a = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="A", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="A",
+        ttl_s=10,
     )
     lease_b = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="B", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="B",
+        ttl_s=10,
     )
     assert lease_a.try_acquire() is True
     assert lease_b.try_acquire() is False
@@ -98,10 +108,16 @@ def test_redis_leader_acquire_fails_when_held_by_other() -> None:
 def test_redis_leader_release_lets_other_acquire() -> None:
     fake = _FakeRedis()
     lease_a = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="A", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="A",
+        ttl_s=10,
     )
     lease_b = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="B", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="B",
+        ttl_s=10,
     )
     lease_a.try_acquire()
     lease_a.release()
@@ -111,7 +127,10 @@ def test_redis_leader_release_lets_other_acquire() -> None:
 def test_redis_leader_renew_extends_when_holder() -> None:
     fake = _FakeRedis()
     lease = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="A", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="A",
+        ttl_s=10,
     )
     lease.try_acquire()
     assert lease.renew() is True
@@ -122,10 +141,16 @@ def test_redis_leader_renew_extends_when_holder() -> None:
 def test_redis_leader_renew_fails_when_not_holder() -> None:
     fake = _FakeRedis()
     lease_a = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="A", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="A",
+        ttl_s=10,
     )
     lease_b = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="B", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="B",
+        ttl_s=10,
     )
     lease_a.try_acquire()
     # B never acquired; renew should fail.
@@ -136,7 +161,10 @@ def test_redis_leader_is_leader_checks_holder_id() -> None:
     """is_leader returns True only when the stored value matches our holder_id."""
     fake = _FakeRedis()
     lease_a = RedisLeaderElection(
-        client=fake, key="leader:scheduler", holder_id="A", ttl_s=10,
+        client=fake,
+        key="leader:scheduler",
+        holder_id="A",
+        ttl_s=10,
     )
     lease_a.try_acquire()
     # Another holder sneaks in by overwriting (simulating TTL expiry + steal).
@@ -146,6 +174,7 @@ def test_redis_leader_is_leader_checks_holder_id() -> None:
 
 def test_redis_leader_unreachable_redis_returns_false() -> None:
     """When Redis itself errors, acquire returns False (fail-closed)."""
+
     class BrokenRedis:
         def set(self, *a, **k):
             raise ConnectionError("redis down")
@@ -157,7 +186,10 @@ def test_redis_leader_unreachable_redis_returns_false() -> None:
             raise ConnectionError("redis down")
 
     lease = RedisLeaderElection(
-        client=BrokenRedis(), key="leader:scheduler", holder_id="A", ttl_s=10,
+        client=BrokenRedis(),
+        key="leader:scheduler",
+        holder_id="A",
+        ttl_s=10,
     )
     assert lease.try_acquire() is False
     assert lease.is_leader() is False

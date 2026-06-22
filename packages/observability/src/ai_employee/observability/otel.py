@@ -13,6 +13,7 @@ Env:
   ``OTEL_SERVICE_NAME``            — service.name resource attribute
   ``OTEL_EXPORTER_OTLP_HEADERS``   — comma-separated k=v headers
 """
+
 from __future__ import annotations
 
 import os
@@ -85,15 +86,19 @@ def build_tracer_provider(config: OTelConfig) -> Any:
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
                     OTLPSpanExporter,
                 )
+
                 exporter = OTLPSpanExporter(
-                    endpoint=config.endpoint, headers=config.headers,
+                    endpoint=config.endpoint,
+                    headers=config.headers,
                 )
             else:
                 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
                     OTLPSpanExporter,
                 )
+
                 exporter = OTLPSpanExporter(
-                    endpoint=config.endpoint, headers=config.headers,
+                    endpoint=config.endpoint,
+                    headers=config.headers,
                 )
             provider.add_span_processor(SimpleSpanProcessor(exporter))
         except Exception:
@@ -165,7 +170,8 @@ class OTelSpan:
             if self._span is not None:
                 self._span.set_status(
                     __import__(
-                        "opentelemetry.trace.status", fromlist=["Status", "StatusCode"],
+                        "opentelemetry.trace.status",
+                        fromlist=["Status", "StatusCode"],
                     ).Status(
                         __import__(
                             "opentelemetry.trace.status",

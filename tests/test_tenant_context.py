@@ -1,4 +1,5 @@
 """Tenant context resolution tests."""
+
 from __future__ import annotations
 
 import pytest
@@ -130,6 +131,8 @@ def test_tenant_context_user_id_optional() -> None:
 
 def test_resolve_attaches_user_id_from_subject() -> None:
     ctx = resolve_tenant_context(
-        explicit=None, header_tenant=None, claims_sub="acme:alice",
+        explicit=None,
+        header_tenant=None,
+        claims_sub="acme:alice",
     )
     assert ctx.user_id == "alice"

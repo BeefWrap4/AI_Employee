@@ -1,4 +1,5 @@
 """Rate limiter tests."""
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.rate_limit import (

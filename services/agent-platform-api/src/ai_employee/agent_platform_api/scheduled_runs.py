@@ -12,6 +12,7 @@ should run from one leader with a distributed lock (e.g. Redis SETNX).
 A lock is intentionally not implemented here — the platform today runs
 as a single FastAPI process for the M0/M1 tier.
 """
+
 from __future__ import annotations
 
 import threading

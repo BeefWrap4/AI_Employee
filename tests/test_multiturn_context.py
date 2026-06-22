@@ -4,6 +4,7 @@ Verifies that ``/api/v1/chat/query`` injects prior session chunks + answers
 into the LLM prompt as ``context_str`` so follow-up questions can resolve
 pronouns / references against earlier turns.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,8 +39,8 @@ def _enable_llm_gateway(monkeypatch, capturing: _CapturingClient) -> None:
     because the app reads it at import-time.
     """
     monkeypatch.setenv("LLM_GATEWAY_ENABLED", "true")
-    import ai_employee.llm_gateway.client as client_module
     import ai_employee.knowledge_api.app as app_module
+    import ai_employee.llm_gateway.client as client_module
 
     def _factory(*args: Any, **kwargs: Any) -> _CapturingClient:
         return capturing
@@ -61,7 +62,7 @@ def _upload_and_publish(client: TestClient) -> str:
         files={
             "file": (
                 "sop.md",
-                "RRC 建立失败先检查告警 KPI 与传输链路。".encode("utf-8"),
+                "RRC 建立失败先检查告警 KPI 与传输链路。".encode(),
                 "text/markdown",
             )
         },
@@ -73,9 +74,7 @@ def _upload_and_publish(client: TestClient) -> str:
     return doc_id
 
 
-def test_followup_includes_prior_chunks_and_answer_in_context_str(
-    api_factory, monkeypatch
-) -> None:
+def test_followup_includes_prior_chunks_and_answer_in_context_str(api_factory, monkeypatch) -> None:
     client = api_factory()
     _upload_and_publish(client)
     capturing = _CapturingClient()

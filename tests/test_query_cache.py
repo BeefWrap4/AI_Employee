@@ -1,4 +1,5 @@
 """Query cache + embedding cache tests (Redis-backed with no-op fallback)."""
+
 from __future__ import annotations
 
 import time
@@ -38,36 +39,48 @@ def test_query_cache_key_includes_all_dimensions() -> None:
 
 def test_query_cache_key_changes_with_question() -> None:
     a = query_cache_key(
-        question="什么是 RRC 建立失败？", acl_tags=["public"],
-        template_id="knowledge_qa", top_k=5,
+        question="什么是 RRC 建立失败？",
+        acl_tags=["public"],
+        template_id="knowledge_qa",
+        top_k=5,
     )
     b = query_cache_key(
-        question="什么是 PRB 利用率？", acl_tags=["public"],
-        template_id="knowledge_qa", top_k=5,
+        question="什么是 PRB 利用率？",
+        acl_tags=["public"],
+        template_id="knowledge_qa",
+        top_k=5,
     )
     assert a != b
 
 
 def test_query_cache_key_changes_with_acl_tags() -> None:
     a = query_cache_key(
-        question="x", acl_tags=["public"],
-        template_id="knowledge_qa", top_k=5,
+        question="x",
+        acl_tags=["public"],
+        template_id="knowledge_qa",
+        top_k=5,
     )
     b = query_cache_key(
-        question="x", acl_tags=["internal"],
-        template_id="knowledge_qa", top_k=5,
+        question="x",
+        acl_tags=["internal"],
+        template_id="knowledge_qa",
+        top_k=5,
     )
     assert a != b
 
 
 def test_query_cache_key_changes_with_top_k() -> None:
     a = query_cache_key(
-        question="x", acl_tags=["public"],
-        template_id="knowledge_qa", top_k=5,
+        question="x",
+        acl_tags=["public"],
+        template_id="knowledge_qa",
+        top_k=5,
     )
     b = query_cache_key(
-        question="x", acl_tags=["public"],
-        template_id="knowledge_qa", top_k=10,
+        question="x",
+        acl_tags=["public"],
+        template_id="knowledge_qa",
+        top_k=10,
     )
     assert a != b
 

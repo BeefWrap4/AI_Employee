@@ -5,6 +5,7 @@ burst capacity.  In-memory, thread-safe.  Use :func:`build_limiter` to
 obtain an instance and :func:`check` (or :meth:`TokenBucketLimiter.allow`)
 on every request.
 """
+
 from __future__ import annotations
 
 import os
@@ -112,7 +113,6 @@ def rate_limit_dependency(
     return _dep
 
 
-
 def parse_template_rate_limit_env(raw: str) -> dict[str, tuple[int, int]]:
     """Parse RATE_LIMIT_PER_TEMPLATE env value.
 
@@ -196,7 +196,9 @@ class PerTemplateLimiter:
         remote_addr: str | None = None,
     ) -> RateLimitDecision:
         key = template_key_for_request(
-            template_id=template_id, claims_sub=claims_sub, remote_addr=remote_addr,
+            template_id=template_id,
+            claims_sub=claims_sub,
+            remote_addr=remote_addr,
         )
         return self._limiter_for(template_id).allow(key)
 

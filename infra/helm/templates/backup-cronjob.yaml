@@ -1,0 +1,72 @@
+# R30-C: Daily backup CronJob (see docs/backup-runbook.md §6).
+#
+# Runs scripts/backup.sh at 02:00 UTC every day. Writes the timestamped
+# archive (Postgres dump + MinIO mirror + Redis BGSAVE) onto the
+# ``ai-employee-backups`` PVC so it survives pod restarts. Offsite
+# shipping is the SRE's responsibility.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-employee-backup
+  labels:
+    app.kubernetes.io/name: ai-employee-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: ai-employee
+spec:
+  # 02:00 UTC daily — outside the 09:00 peak incident window, while
+  # the on-call in APAC is still on shift to react to a failed run.
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ai-employee-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: ai-employee-backup
+          containers:
+            - name: backup
+              image: ai-employee/backup:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /usr/local/bin/backup.sh
+              envFrom:
+                - secretRef:
+                    name: ai-employee-backup-env
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 1
+                  memory: 1Gi
+              volumeMounts:
+                - name: backup-pvc
+                  mountPath: /var/backups/ai-employee
+                - name: backup-script
+                  mountPath: /usr/local/bin/backup.sh
+                  subPath: backup.sh
+                  readOnly: true
+          volumes:
+            - name: backup-pvc
+              persistentVolumeClaim:
+                claimName: ai-employee-backups
+            - name: backup-script
+              configMap:
+                name: ai-employee-backup-script
+                defaultMode: 0o755
+---
+# Service account dedicated to the backup CronJob.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-employee-backup
+  labels:
+    app.kubernetes.io/name: ai-employee-backup

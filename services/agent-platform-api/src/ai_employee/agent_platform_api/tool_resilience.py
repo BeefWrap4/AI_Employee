@@ -16,6 +16,7 @@ Composition is done via :func:`apply_resilience`, which threads an
 operation through retry + breaker and surfaces the final result plus
 latency.
 """
+
 from __future__ import annotations
 
 import time
@@ -183,9 +184,7 @@ class CircuitBreaker:
         ``CLOSED`` → always allow.
         """
         cur = self.state
-        if cur == CircuitState.OPEN:
-            return False
-        return True
+        return cur != CircuitState.OPEN
 
     def record_failure(self) -> None:
         self._failures += 1

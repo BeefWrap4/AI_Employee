@@ -24,6 +24,7 @@ All implement :func:`Reranker.rerank` returning a new sorted list of
 the stub on transport errors so retrieval never breaks because the
 reranker is unavailable.
 """
+
 from __future__ import annotations
 
 import os
@@ -57,8 +58,13 @@ class StubReranker:
         entity_terms = {
             t.lower()
             for ent_list in (
-                ents.alarm_codes, ents.ne_ids, ents.cell_ids,
-                ents.site_ids, ents.vendors, ents.network_types, ents.metrics,
+                ents.alarm_codes,
+                ents.ne_ids,
+                ents.cell_ids,
+                ents.site_ids,
+                ents.vendors,
+                ents.network_types,
+                ents.metrics,
             )
             for t in ent_list
         }
@@ -153,13 +159,10 @@ class SiliconFlowReranker:
 
         self.api_key = api_key or os.getenv("SILICONFLOW_API_KEY", "")
         self.base_url = (
-            base_url
-            or os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+            base_url or os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
         ).rstrip("/")
         self.model = (
-            model
-            or os.getenv("SILICONFLOW_RERANK_MODEL")
-            or get_model_for_task("rerank").model_id
+            model or os.getenv("SILICONFLOW_RERANK_MODEL") or get_model_for_task("rerank").model_id
         )
         self._timeout = timeout_seconds
         self._fallback = StubReranker()

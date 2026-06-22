@@ -5,6 +5,7 @@ to a run and receive streamed events without polling.  An in-process
 :class:`EventBus` carries events from publishers (run lifecycle) to
 subscribers; the WebSocket endpoint bridges the bus to the wire.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,10 +29,13 @@ def test_event_bus_publish_delivers_to_subscriber() -> None:
     async def scenario() -> None:
         b = EventBus()
         qid, queue = b.subscribe("run_1")
-        b.publish(RunEvent(
-            run_id="run_1", event_type="run.step_changed",
-            payload={"node": "ToolPlan"},
-        ))
+        b.publish(
+            RunEvent(
+                run_id="run_1",
+                event_type="run.step_changed",
+                payload={"node": "ToolPlan"},
+            )
+        )
         ev = await asyncio.wait_for(queue.get(), timeout=1.0)
         assert ev.event_type == "run.step_changed"
         b.unsubscribe(run_id="run_1", queue_id=qid)
@@ -43,14 +47,20 @@ def test_event_bus_filters_by_run_id() -> None:
     async def scenario() -> None:
         b = EventBus()
         qid, queue = b.subscribe("run_1")
-        b.publish(RunEvent(
-            run_id="run_2", event_type="run.step_changed",
-            payload={"node": "ToolPlan"},
-        ))
-        b.publish(RunEvent(
-            run_id="run_1", event_type="run.step_changed",
-            payload={"node": "ToolPlan"},
-        ))
+        b.publish(
+            RunEvent(
+                run_id="run_2",
+                event_type="run.step_changed",
+                payload={"node": "ToolPlan"},
+            )
+        )
+        b.publish(
+            RunEvent(
+                run_id="run_1",
+                event_type="run.step_changed",
+                payload={"node": "ToolPlan"},
+            )
+        )
         ev = await asyncio.wait_for(queue.get(), timeout=1.0)
         assert ev.run_id == "run_1"
         b.unsubscribe(run_id="run_1", queue_id=qid)
@@ -60,10 +70,13 @@ def test_event_bus_filters_by_run_id() -> None:
 
 def test_event_bus_replays_history_on_subscribe() -> None:
     b = EventBus()
-    b.publish(RunEvent(
-        run_id="run_1", event_type="run.started",
-        payload={"requested_by": "alice"},
-    ))
+    b.publish(
+        RunEvent(
+            run_id="run_1",
+            event_type="run.started",
+            payload={"requested_by": "alice"},
+        )
+    )
     qid, queue = b.subscribe("run_1")
     # The historical event should already be in the queue.
     ev = queue.get_nowait()
@@ -107,10 +120,14 @@ def test_run_event_serializes_to_dict() -> None:
 
 def test_websocket_replays_history_then_streams_new_events() -> None:
     bus.reset_for_test()
-    bus.publish(RunEvent(
-        run_id="run_x", event_type="run.step_changed",
-        payload={"node": "TemplateLoaded"}, ts="2026-06-18T00:00:00Z",
-    ))
+    bus.publish(
+        RunEvent(
+            run_id="run_x",
+            event_type="run.step_changed",
+            payload={"node": "TemplateLoaded"},
+            ts="2026-06-18T00:00:00Z",
+        )
+    )
 
     client = TestClient(create_app())
     with client.websocket_connect("/api/v1/ws/runs/run_x") as ws:
@@ -118,10 +135,13 @@ def test_websocket_replays_history_then_streams_new_events() -> None:
         assert first["event_type"] == "run.step_changed"
         assert first["payload"]["node"] == "TemplateLoaded"
 
-        bus.publish(RunEvent(
-            run_id="run_x", event_type="tool_call.completed",
-            payload={"tool": "knowledge-api.chat.query"},
-        ))
+        bus.publish(
+            RunEvent(
+                run_id="run_x",
+                event_type="tool_call.completed",
+                payload={"tool": "knowledge-api.chat.query"},
+            )
+        )
         second = json.loads(ws.receive_text())
         assert second["event_type"] == "tool_call.completed"
         assert second["payload"]["tool"] == "knowledge-api.chat.query"

@@ -4,6 +4,7 @@ Stores every tool invocation: run_id, tool_name, input, output_summary,
 status (success/failed/timeout), latency_ms, error_code.  Drives the
 ``tool_call_success_rate`` metric and audit queries.
 """
+
 from __future__ import annotations
 
 import json

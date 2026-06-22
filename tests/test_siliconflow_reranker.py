@@ -4,9 +4,9 @@ Spec §5.4 — stage 6 (Rerank) wired through SiliconFlow's hosted
 bge-reranker-v2-m3 endpoint so the knowledge base can ship real
 cross-encoder reranking without self-hosting a GPU.
 """
+
 from __future__ import annotations
 
-import os
 from unittest.mock import patch
 
 import pytest
@@ -21,8 +21,13 @@ from ai_employee.knowledge_api.retrieval import RetrievalHit
 
 def _hit(content: str, confidence: float = 0.5) -> RetrievalHit:
     return RetrievalHit(
-        chunk_id="c", doc_id="d", doc_title="t", content=content,
-        section_path="root", page_no=1, confidence=confidence,
+        chunk_id="c",
+        doc_id="d",
+        doc_title="t",
+        content=content,
+        section_path="root",
+        page_no=1,
+        confidence=confidence,
     )
 
 
@@ -182,7 +187,9 @@ def test_rerank_falls_back_on_length_mismatch(
     ):
         r = SiliconFlowReranker(api_key="sk-x")
         out = r.rerank(
-            "query", [_hit("alpha"), _hit("beta")], top_k=2,
+            "query",
+            [_hit("alpha"), _hit("beta")],
+            top_k=2,
         )
     assert len(out) == 2
 

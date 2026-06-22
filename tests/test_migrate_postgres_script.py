@@ -1,4 +1,5 @@
 """Smoke test for the Postgres migration runner script (R16-5)."""
+
 from __future__ import annotations
 
 import sys
@@ -25,7 +26,8 @@ def test_script_help_returns_zero(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_script_main_upgrade_against_sqlite(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The script's main() applies the baseline migration to a fresh SQLite DB."""
     db_url = f"sqlite:///{tmp_path}/mig.sqlite3"
@@ -58,7 +60,8 @@ def test_script_main_upgrade_against_sqlite(
 
 
 def test_script_main_current_reports_revision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_url = f"sqlite:///{tmp_path}/mig.sqlite3"
     monkeypatch.setenv("DATABASE_URL", db_url)
@@ -76,7 +79,8 @@ def test_script_main_current_reports_revision(
 
 
 def test_script_unknown_action_returns_2(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/mig.sqlite3")
     import importlib.util

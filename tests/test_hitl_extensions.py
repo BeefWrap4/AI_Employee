@@ -1,4 +1,5 @@
 """HITL extension tests: supplement, routing, timeout."""
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app

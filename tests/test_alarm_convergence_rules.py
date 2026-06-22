@@ -16,6 +16,7 @@ Extends :mod:`test_alarm_correlation` with two more passes beyond
 These let the incident reflect the real root-cause cluster (a link outage
 on an upstream switch pulling alarms on dependent cells).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -71,11 +72,15 @@ def test_parent_child_alarms_merge_into_parent_group() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "parent_001", code="LINK_DEGRADE", severity="critical",
+            "parent_001",
+            code="LINK_DEGRADE",
+            severity="critical",
             start="2026-06-17T10:00:00+08:00",
         ),
         _alarm(
-            "child_001", code="RRC_SETUP_FAIL", severity="major",
+            "child_001",
+            code="RRC_SETUP_FAIL",
+            severity="major",
             start="2026-06-17T10:25:00+08:00",
             parent="parent_001",
         ),
@@ -83,7 +88,9 @@ def test_parent_child_alarms_merge_into_parent_group() -> None:
     # 25-min gap → outside a 5-min window but parent-child rule merges
     # because the lag is set wide enough (1800s = 30 min) to absorb the gap.
     incident = build_incident(
-        store, alarms, time_window_minutes=5,
+        store,
+        alarms,
+        time_window_minutes=5,
         topology_window_minutes=120,
         parent_child_lag_seconds=1800,
     )
@@ -99,16 +106,24 @@ def test_parent_child_does_not_merge_across_sites() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "parent_001", site="SITE-001", code="LINK_DEGRADE",
-            severity="critical", start="2026-06-17T10:00:00+08:00",
+            "parent_001",
+            site="SITE-001",
+            code="LINK_DEGRADE",
+            severity="critical",
+            start="2026-06-17T10:00:00+08:00",
         ),
         _alarm(
-            "child_001", site="SITE-002", code="RRC_SETUP_FAIL",
-            start="2026-06-17T10:05:00+08:00", parent="parent_001",
+            "child_001",
+            site="SITE-002",
+            code="RRC_SETUP_FAIL",
+            start="2026-06-17T10:05:00+08:00",
+            parent="parent_001",
         ),
     ]
     incident = build_incident(
-        store, alarms, time_window_minutes=5,
+        store,
+        alarms,
+        time_window_minutes=5,
         topology_window_minutes=120,
     )
     # Different site → two separate incidents.
@@ -120,16 +135,23 @@ def test_parent_child_rule_disabled_when_set_to_zero() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "parent_001", code="LINK_DEGRADE", severity="critical",
+            "parent_001",
+            code="LINK_DEGRADE",
+            severity="critical",
             start="2026-06-17T10:00:00+08:00",
         ),
         _alarm(
-            "child_001", code="RRC_SETUP_FAIL", severity="major",
-            start="2026-06-17T10:25:00+08:00", parent="parent_001",
+            "child_001",
+            code="RRC_SETUP_FAIL",
+            severity="major",
+            start="2026-06-17T10:25:00+08:00",
+            parent="parent_001",
         ),
     ]
     build_incident(
-        store, alarms, time_window_minutes=5,
+        store,
+        alarms,
+        time_window_minutes=5,
         parent_child_lag_seconds=0,
         topology_window_minutes=120,
     )
@@ -147,17 +169,25 @@ def test_topology_rule_merges_upstream_site_alarms() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "down_001", code="RRC_SETUP_FAIL", site="SITE-CELL",
-            severity="major", start="2026-06-17T10:00:00+08:00",
+            "down_001",
+            code="RRC_SETUP_FAIL",
+            site="SITE-CELL",
+            severity="major",
+            start="2026-06-17T10:00:00+08:00",
             upstream_site_ids=["SITE-AGG"],
         ),
         _alarm(
-            "up_001", code="LINK_DEGRADE", site="SITE-AGG",
-            severity="critical", start="2026-06-17T10:02:00+08:00",
+            "up_001",
+            code="LINK_DEGRADE",
+            site="SITE-AGG",
+            severity="critical",
+            start="2026-06-17T10:02:00+08:00",
         ),
     ]
     incident = build_incident(
-        store, alarms, time_window_minutes=5,
+        store,
+        alarms,
+        time_window_minutes=5,
         topology_window_minutes=30,
     )
     # Topology rule binds the upstream alarm into the downstream's incident.
@@ -172,15 +202,21 @@ def test_topology_rule_does_not_merge_outside_window() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "down_001", site="SITE-CELL", start="2026-06-17T10:00:00+08:00",
+            "down_001",
+            site="SITE-CELL",
+            start="2026-06-17T10:00:00+08:00",
             upstream_site_ids=["SITE-AGG"],
         ),
         _alarm(
-            "up_001", site="SITE-AGG", start="2026-06-17T10:45:00+08:00",
+            "up_001",
+            site="SITE-AGG",
+            start="2026-06-17T10:45:00+08:00",
         ),
     ]
     build_incident(
-        store, alarms, time_window_minutes=5,
+        store,
+        alarms,
+        time_window_minutes=5,
         topology_window_minutes=30,
     )
     assert store.incident_count == 2
@@ -190,15 +226,21 @@ def test_topology_rule_disabled_when_window_zero() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "down_001", site="SITE-CELL", upstream_site_ids=["SITE-AGG"],
+            "down_001",
+            site="SITE-CELL",
+            upstream_site_ids=["SITE-AGG"],
             start="2026-06-17T10:00:00+08:00",
         ),
         _alarm(
-            "up_001", site="SITE-AGG", start="2026-06-17T10:02:00+08:00",
+            "up_001",
+            site="SITE-AGG",
+            start="2026-06-17T10:02:00+08:00",
         ),
     ]
     build_incident(
-        store, alarms, time_window_minutes=5,
+        store,
+        alarms,
+        time_window_minutes=5,
         topology_window_minutes=0,
     )
     assert store.incident_count == 2
@@ -215,21 +257,31 @@ def test_combined_passes_compose_cleanly() -> None:
     store = RcaStore()
     alarms = [
         _alarm(
-            "a_root", code="LINK_DEGRADE", severity="critical",
+            "a_root",
+            code="LINK_DEGRADE",
+            severity="critical",
             start="2026-06-17T10:00:00+08:00",
             upstream_site_ids=["SITE-AGG"],
         ),
         _alarm(
-            "a_child", code="RRC_SETUP_FAIL", severity="major",
-            start="2026-06-17T10:03:00+08:00", parent="a_root",
+            "a_child",
+            code="RRC_SETUP_FAIL",
+            severity="major",
+            start="2026-06-17T10:03:00+08:00",
+            parent="a_root",
         ),
         _alarm(
-            "a_up", code="LINK_LOS", site="SITE-AGG",
-            severity="critical", start="2026-06-17T10:01:00+08:00",
+            "a_up",
+            code="LINK_LOS",
+            site="SITE-AGG",
+            severity="critical",
+            start="2026-06-17T10:01:00+08:00",
         ),
     ]
     incident = build_incident(
-        store, alarms, time_window_minutes=30,
+        store,
+        alarms,
+        time_window_minutes=30,
         topology_window_minutes=30,
         parent_child_lag_seconds=600,
     )

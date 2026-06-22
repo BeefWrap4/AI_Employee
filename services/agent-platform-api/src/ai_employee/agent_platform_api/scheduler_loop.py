@@ -9,6 +9,7 @@ The default behaviour is fail-soft: an exception inside the callback
 is logged but does not stop the loop.  A misbehaving schedule cannot
 take down the whole scheduler.
 """
+
 from __future__ import annotations
 
 import logging
@@ -90,7 +91,9 @@ class SchedulerLoop:
         self._stop_event.clear()
         self._started.clear()
         self._thread = threading.Thread(
-            target=self._run, name="scheduler-loop", daemon=True,
+            target=self._run,
+            name="scheduler-loop",
+            daemon=True,
         )
         self._thread.start()
         self._started.wait(timeout=1.0)
@@ -125,7 +128,9 @@ class SchedulerLoop:
                 result = self.fire_callback(sched)
             except Exception as exc:
                 logger.exception(
-                    "scheduler callback failed for %s: %s", sched.schedule_id, exc,
+                    "scheduler callback failed for %s: %s",
+                    sched.schedule_id,
+                    exc,
                 )
                 continue
             if self.auto_record_runs and isinstance(result, str) and result:
@@ -155,6 +160,7 @@ def build_scheduler_loop() -> SchedulerLoop:
         from ai_employee.agent_platform_api.scheduled_runs import (
             build_scheduled_run_store,
         )
+
         _loop = SchedulerLoop(
             store=build_scheduled_run_store(),
             fire_callback=lambda s: None,

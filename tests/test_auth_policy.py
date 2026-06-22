@@ -188,7 +188,6 @@ def test_risk_level_permissions() -> None:
     assert permission_for_risk_level("high_risk") == PERM_AGENT_APPROVE
 
 
-
 def test_unknown_risk_level_raises() -> None:
     with pytest.raises(ValueError):
         permission_for_risk_level("unknown")

@@ -16,6 +16,7 @@ without us needing to re-upload the bytes.  Reviewers using the
 LocalFs backend get the same-origin ``/api/v1/objects/{key}/download``
 URL; S3 / MinIO callers get a presigned S3 URL.
 """
+
 from __future__ import annotations
 
 from typing import Any

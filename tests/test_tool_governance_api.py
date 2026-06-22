@@ -1,4 +1,5 @@
 """tool-registry API: call-log recording, circuit breaker, health endpoint."""
+
 from __future__ import annotations
 
 import pytest

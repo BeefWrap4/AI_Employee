@@ -1,4 +1,5 @@
 """Retry policy + idempotent resume tests."""
+
 from __future__ import annotations
 
 import pytest
@@ -22,11 +23,13 @@ def test_retry_policy_defaults() -> None:
 
 
 def test_retry_policy_from_dict_overrides() -> None:
-    p = RetryPolicy.from_dict({
-        "max_attempts": 5,
-        "backoff_s": 0.5,
-        "retryable_errors": ["timeout"],
-    })
+    p = RetryPolicy.from_dict(
+        {
+            "max_attempts": 5,
+            "backoff_s": 0.5,
+            "retryable_errors": ["timeout"],
+        }
+    )
     assert p.max_attempts == 5
     assert p.backoff_s == 0.5
     assert p.retryable_errors == ("timeout",)
@@ -103,11 +106,15 @@ def test_decide_retry_exponential_backoff() -> None:
 def test_decide_retry_idempotency_key_is_deterministic() -> None:
     policy = RetryPolicy()
     a = decide_retry(
-        attempt_index=1, error_code="timeout", policy=policy,
+        attempt_index=1,
+        error_code="timeout",
+        policy=policy,
         idempotency_key="run-1:attempt-1",
     )
     b = decide_retry(
-        attempt_index=1, error_code="timeout", policy=policy,
+        attempt_index=1,
+        error_code="timeout",
+        policy=policy,
         idempotency_key="run-1:attempt-1",
     )
     assert a.idempotency_key == b.idempotency_key == "run-1:attempt-1"

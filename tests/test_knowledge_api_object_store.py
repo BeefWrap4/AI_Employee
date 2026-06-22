@@ -5,6 +5,7 @@ ingestion worker can read it (the parser is path-based).  In addition,
 the same bytes are stored under ``documents/{uuid}.{ext}`` in the
 configured :class:`ObjectStore` (LocalFs by default in dev/test).
 """
+
 from __future__ import annotations
 
 import os
@@ -33,8 +34,6 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_upload_writes_to_object_store(workspace) -> None:
-    from fastapi.testclient import TestClient
-
     from ai_employee.common_schemas.knowledge import ParseResponse
     from ai_employee.ingestion_worker.app import create_app as create_worker_app
     from ai_employee.knowledge_api.app import create_app as create_api_app
@@ -43,6 +42,7 @@ def test_upload_writes_to_object_store(workspace) -> None:
         WorkerClient,
         WorkerDispatchResult,
     )
+    from fastapi.testclient import TestClient
 
     data_dir, obj_root = workspace
     store = SQLiteStore(

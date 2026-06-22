@@ -11,6 +11,7 @@ Auth: ``DASHSCOPE_API_KEY`` (Bailian default).  The backend can also be
 pointed at SiliconFlow's hosted Qwen-VL by setting ``SILICONFLOW_API_KEY``
 + ``SILICONFLOW_BASE_URL`` explicitly.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -222,8 +223,7 @@ def test_ocr_general_vlm_adds_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     parts = captured["json"]["messages"][0]["content"]
     text_part = next(p for p in parts if p.get("type") == "text")
     assert any(
-        kw in text_part["text"].lower()
-        for kw in ("extract", "ocr", "recognize", "识别", "提取")
+        kw in text_part["text"].lower() for kw in ("extract", "ocr", "recognize", "识别", "提取")
     )
 
 

@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -167,12 +168,14 @@ class PgKnowledgeStore:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error_code": "unsafe_source_uri", "message": str(exc)},
             ) from exc
+        # R30-A: derive doc_id from a uuid4 suffix (8 hex chars) so concurrent
+        # writers on the same PG backend never collide on the PK.  Pre-R30
+        # the scheme was ``doc_{COUNT(*)+1:03d}`` — under multiple FastAPI
+        # workers / replicas that race and produce a UniqueViolation / 500.
+        # The uuid4 collision probability for 32 bits is ~1e-9 per pair,
+        # which is negligible at the rates the knowledge-api actually serves.
+        doc_id = f"doc_{uuid.uuid4().hex[:8]}"
         with self._lock:
-            count_row = self._db.execute(
-                "SELECT COUNT(*) AS c FROM documents",
-            ).fetchone()
-            count = int(count_row["c"] if count_row else 0)
-            doc_id = f"doc_{count + 1:03d}"
             now = _now()
             self._db.execute(
                 """INSERT INTO documents
@@ -226,12 +229,6 @@ class PgKnowledgeStore:
         )
         self._db.commit()
 
-    def list_documents(self) -> list[dict[str, Any]]:
-        rows = self._db.execute(
-            "SELECT * FROM documents ORDER BY created_at",
-        ).fetchall()
-        return [_document_row_to_dict(r) for r in rows]
-
     def update_parse_status(
         self,
         doc_id: str,
@@ -261,6 +258,276 @@ class PgKnowledgeStore:
             )
         self._db.commit()
         return self.get_document(doc_id)
+
+    def transition_status(self, doc_id: str, target: str) -> dict[str, Any]:
+        """Validate + apply a parse-status transition (PG mirror of SQLiteStore).
+
+        R30-A: previously only ``update_parse_status`` was exposed, which
+        hard-coded chunk_count semantics.  The ingestion worker / app
+        routes call ``transition_status`` on PG when DATASETS_URL is
+        set — fill the gap.
+        """
+        return self.update_parse_status(doc_id, target)
+
+    def mark_parse_failed(self, doc_id: str, parse_error: str, stage: str) -> None:
+        """Mark a document ``parse_failed`` with the offending stage (PG).
+
+        Mirrors :meth:`SQLiteStore.mark_parse_failed`.  Skips transition
+        validation when the document is already in ``parse_failed``.
+        """
+        row = self._db.execute(
+            "SELECT parse_status FROM documents WHERE doc_id = ?",
+            (doc_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "document_not_found", "doc_id": doc_id},
+            )
+        current = row["parse_status"]
+        if current != "parse_failed":
+            transition_parse_status(current, "parse_failed")
+        self._db.execute(
+            "UPDATE documents SET parse_status = 'parse_failed', "
+            "parse_error = ?, updated_at = ? WHERE doc_id = ?",
+            (f"[{stage}] {parse_error}", _now(), doc_id),
+        )
+        self._db.commit()
+
+    def write_chunks(
+        self,
+        doc_id: str,
+        chunks: list[dict[str, Any]],
+        embeddings: list[list[float]],
+        embedding_model: str,
+        acl_tags_override: list[str] | None = None,
+    ) -> None:
+        """Bulk-insert chunks + flip the document to ``ready`` (PG).
+
+        Mirrors :meth:`SQLiteStore.write_chunks`.  ``acl_tags_override``
+        follows the same empty-list-means-inherit convention as the
+        SQLite path so the chunk-level ACL filter behaves identically.
+        """
+        row = self._db.execute(
+            "SELECT parse_status FROM documents WHERE doc_id = ?",
+            (doc_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "document_not_found", "doc_id": doc_id},
+            )
+        if acl_tags_override is None:
+            acl_tags: list[str] = []
+        else:
+            acl_tags = list(acl_tags_override)
+        acl_json = json.dumps(acl_tags, ensure_ascii=False)
+        now = _now()
+        for chunk, vec in zip(chunks, embeddings, strict=False):
+            self._db.execute(
+                """INSERT INTO chunks
+                   (chunk_id, doc_id, chunk_no, content, section_path, page_no,
+                    embedding_json, embedding_model, acl_tags_json,
+                    table_id, row_id, created_at)
+                   VALUES (?,?,?,?,?, 1, ?, ?, ?, ?, ?, ?)""",
+                (
+                    chunk["chunk_id"],
+                    doc_id,
+                    chunk["chunk_no"],
+                    chunk["content"],
+                    chunk["section_path"],
+                    json.dumps(vec, ensure_ascii=False),
+                    embedding_model,
+                    acl_json,
+                    chunk.get("table_id"),
+                    chunk.get("row_id"),
+                    now,
+                ),
+            )
+        current = row["parse_status"]
+        if current != "ready":
+            transition_parse_status(current, "ready")
+        self._db.execute(
+            "UPDATE documents SET chunk_count = ?, parse_status = 'ready', "
+            "parse_error = NULL, updated_at = ? WHERE doc_id = ?",
+            (len(chunks), now, doc_id),
+        )
+        self._db.commit()
+
+    def write_qa_log(self, **fields: Any) -> None:
+        """Insert a qa_logs row (PG mirror of SQLiteStore.write_qa_log)."""
+        self._db.execute(
+            """INSERT INTO qa_logs
+               (qa_log_id, session_id, user_id, question, rewritten_query,
+                knowledge_scopes_json, retrieved_chunks_json, answer, model_name, prompt_version,
+                confidence, latency_ms, trace_id, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, ?)""",
+            (
+                fields["qa_log_id"],
+                fields["session_id"],
+                fields.get("user_id"),
+                fields["question"],
+                fields.get("rewritten_query"),
+                json.dumps(fields.get("knowledge_scopes", []), ensure_ascii=False),
+                json.dumps(fields["retrieved_chunks"], ensure_ascii=False),
+                fields["answer"],
+                fields["model_name"],
+                fields["prompt_version"],
+                fields["confidence"],
+                fields["latency_ms"],
+                fields["trace_id"],
+                _now(),
+            ),
+        )
+        self._db.commit()
+
+    def write_feedback(
+        self, trace_id: str, feedback_type: str, comment: str | None,
+    ) -> str:
+        """Insert a feedbacks row + return its id (PG mirror of SQLiteStore)."""
+        feedback_id = f"fb_{uuid.uuid4().hex[:8]}"
+        self._db.execute(
+            """INSERT INTO feedbacks
+               (feedback_id, qa_log_id, trace_id, feedback_type, comment, user_id, created_at)
+               VALUES (?, NULL, ?, ?, ?, NULL, ?)""",
+            (feedback_id, trace_id, feedback_type, comment, _now()),
+        )
+        self._db.commit()
+        return feedback_id
+
+    def list_qa_logs(
+        self,
+        *,
+        session_id: str | None = None,
+        user_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Paginated qa_logs query (PG mirror of SQLiteStore.list_qa_logs)."""
+        where: list[str] = []
+        params: list[Any] = []
+        if session_id is not None:
+            where.append("session_id = ?")
+            params.append(session_id)
+        if user_id is not None:
+            where.append("user_id = ?")
+            params.append(user_id)
+        if since is not None:
+            where.append("created_at >= ?")
+            params.append(since)
+        if until is not None:
+            where.append("created_at < ?")
+            params.append(until)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+        total_row = self._db.execute(
+            f"SELECT COUNT(*) AS c FROM qa_logs{where_sql}", params,
+        ).fetchone()
+        total = int(total_row["c"] if total_row else 0)
+        rows = self._db.execute(
+            f"""SELECT qa_log_id, trace_id, session_id, user_id, question, answer,
+                knowledge_scopes_json, confidence, latency_ms, model_name,
+                prompt_version, created_at
+                FROM qa_logs{where_sql} ORDER BY created_at DESC, qa_log_id DESC
+                LIMIT ? OFFSET ?""",
+            [*params, page_size, offset],
+        ).fetchall()
+        return [_qa_log_summary_row(r) for r in rows], total
+
+    def list_feedbacks(
+        self,
+        *,
+        trace_id: str | None = None,
+        feedback_type: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Paginated feedbacks query (PG mirror of SQLiteStore.list_feedbacks)."""
+        where: list[str] = []
+        params: list[Any] = []
+        if trace_id is not None:
+            where.append("trace_id = ?")
+            params.append(trace_id)
+        if feedback_type is not None:
+            where.append("feedback_type = ?")
+            params.append(feedback_type)
+        if since is not None:
+            where.append("created_at >= ?")
+            params.append(since)
+        if until is not None:
+            where.append("created_at < ?")
+            params.append(until)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+        total_row = self._db.execute(
+            f"SELECT COUNT(*) AS c FROM feedbacks{where_sql}", params,
+        ).fetchone()
+        total = int(total_row["c"] if total_row else 0)
+        rows = self._db.execute(
+            f"""SELECT feedback_id, qa_log_id, trace_id, feedback_type, comment,
+                user_id, created_at FROM feedbacks{where_sql}
+                ORDER BY created_at DESC, feedback_id DESC LIMIT ? OFFSET ?""",
+            [*params, page_size, offset],
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+    def list_documents(
+        self,
+        *,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Paginated documents query (PG mirror of SQLiteStore.list_documents).
+
+        Always returns ``(items, total)`` — matches the SQLite signature so
+        the existing admin endpoint works on both backends.  The legacy
+        PG code path that returned just the list is exposed as
+        :meth:`list_documents_unpaginated` for callers that still want it.
+        """
+        where: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            where.append("parse_status = ?")
+            params.append(status)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+        total_row = self._db.execute(
+            f"SELECT COUNT(*) AS c FROM documents{where_sql}", params,
+        ).fetchone()
+        total = int(total_row["c"] if total_row else 0)
+        rows = self._db.execute(
+            f"SELECT * FROM documents{where_sql} "
+            f"ORDER BY created_at DESC, doc_id DESC LIMIT ? OFFSET ?",
+            [*params, page_size, offset],
+        ).fetchall()
+        return [_document_row_to_dict(r) for r in rows], total
+
+    def list_documents_unpaginated(
+        self, *, status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Full (unpaginated) list of documents — legacy admin contract."""
+        where: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            where.append("parse_status = ?")
+            params.append(status)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        rows = self._db.execute(
+            f"SELECT * FROM documents{where_sql} ORDER BY created_at",
+            params,
+        ).fetchall()
+        return [_document_row_to_dict(r) for r in rows] if rows else []  # type: ignore[return-value]  # always returns list when sqlite fallback
 
     # -- chunks ---------------------------------------------------------------
     def create_chunk(
@@ -359,6 +626,23 @@ def _document_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "version": row["version"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+    }
+
+
+def _qa_log_summary_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "qa_log_id": row["qa_log_id"],
+        "trace_id": row["trace_id"],
+        "session_id": row["session_id"],
+        "user_id": row.get("user_id"),
+        "question": row["question"],
+        "knowledge_scopes": json.loads(row["knowledge_scopes_json"] or "[]"),
+        "answer": row["answer"],
+        "confidence": row["confidence"],
+        "latency_ms": row["latency_ms"],
+        "model_name": row["model_name"],
+        "prompt_version": row["prompt_version"],
+        "created_at": row["created_at"],
     }
 
 

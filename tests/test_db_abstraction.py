@@ -9,6 +9,7 @@ Env:
   DATABASE_URL — ``postgres://...`` or ``postgresql://...`` selects PG;
                   ``sqlite:///path`` or unset selects SQLite.
 """
+
 from __future__ import annotations
 
 import os
@@ -74,7 +75,9 @@ def test_build_database_config_postgres_from_env(
 
 def test_database_config_has_pool_size() -> None:
     cfg = DatabaseConfig(
-        url="sqlite:///./x.db", backend=Backend.SQLITE, pool_size=5,
+        url="sqlite:///./x.db",
+        backend=Backend.SQLITE,
+        pool_size=5,
     )
     assert cfg.pool_size == 5
 
@@ -149,13 +152,21 @@ def test_db_placeholder_translates_for_postgres_shape() -> None:
     """
     from ai_employee.common_schemas.db import translate_placeholders
 
-    assert translate_placeholders(
-        "INSERT INTO t (a, b) VALUES (?, ?)", Backend.POSTGRES,
-    ) == "INSERT INTO t (a, b) VALUES (%s, %s)"
+    assert (
+        translate_placeholders(
+            "INSERT INTO t (a, b) VALUES (?, ?)",
+            Backend.POSTGRES,
+        )
+        == "INSERT INTO t (a, b) VALUES (%s, %s)"
+    )
     # SQLite keeps ``?``.
-    assert translate_placeholders(
-        "INSERT INTO t (a) VALUES (?)", Backend.SQLITE,
-    ) == "INSERT INTO t (a) VALUES (?)"
+    assert (
+        translate_placeholders(
+            "INSERT INTO t (a) VALUES (?)",
+            Backend.SQLITE,
+        )
+        == "INSERT INTO t (a) VALUES (?)"
+    )
 
 
 def test_db_translate_does_not_touch_escaped_question_marks() -> None:

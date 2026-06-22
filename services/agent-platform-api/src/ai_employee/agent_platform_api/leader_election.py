@@ -12,6 +12,7 @@ When Redis is unavailable (no ``REDIS_URL`` or unreachable),
 leader — correct for single-replica dev/test deployments where there
 is no contention.
 """
+
 from __future__ import annotations
 
 import logging
@@ -153,7 +154,10 @@ def build_leader_election(
         logger.warning("Redis unavailable for leader election: %s", exc)
         return LocalLeaderElection()
     return RedisLeaderElection(
-        client=client, key=key, holder_id=holder_id, ttl_s=ttl_s,
+        client=client,
+        key=key,
+        holder_id=holder_id,
+        ttl_s=ttl_s,
     )
 
 

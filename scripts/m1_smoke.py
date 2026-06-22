@@ -9,18 +9,20 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+# ruff: noqa: E402 — the warning filter must be installed before importing
+# starlette.testclient, and the testclient-import itself comes last so the
+# deprecation warning from httpx is suppressed.
 warnings.filterwarnings(
     "ignore",
     message="Using `httpx` with `starlette.testclient` is deprecated.*",
 )
-
-from fastapi.testclient import TestClient
 
 from ai_employee.common_schemas.knowledge import ParseResponse
 from ai_employee.ingestion_worker.app import create_app as create_worker_app
 from ai_employee.knowledge_api.app import create_app as create_api_app
 from ai_employee.knowledge_api.store import SQLiteStore
 from ai_employee.knowledge_api.worker_client import WorkerClient, WorkerDispatchResult
+from fastapi.testclient import TestClient
 
 
 class InProcessWorkerClient(WorkerClient):

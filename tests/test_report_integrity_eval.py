@@ -18,6 +18,7 @@ Spec §6.6 also requires:
 The runner is decoupled from the platform's RcaStore; the eval accepts
 a :class:`ReportIntegrityInputs` so it stays unit-testable.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,15 +50,20 @@ def _inputs(
                 "description": "PRB capacity exhausted",
                 "supporting_evidence_ids": ["ev-001"],
             },
-        ] if root_causes == "default" else root_causes,
+        ]
+        if root_causes == "default"
+        else root_causes,
         evidence_chain=[
             {"chunk_id": "ev-001", "content": "KPI spike 12:00-13:00", "source": "kpi"},
-        ] if evidence_chain == "default" else evidence_chain,
+        ]
+        if evidence_chain == "default"
+        else evidence_chain,
         top_n=top_n,
         review_status=review_status,
         affected_scope=affected_scope,
         timeline=[{"ts": "2026-06-17T10:00", "event": "alarm"}]
-        if timeline == "default" else (timeline or []),
+        if timeline == "default"
+        else (timeline or []),
         source=source,
     )
 
@@ -174,8 +180,14 @@ def test_completeness_drops_with_missing_fields() -> None:
 def test_completeness_zero_when_all_missing() -> None:
     v = evaluate_report_integrity(
         _inputs(
-            title="", summary="", root_causes=[], evidence_chain=[],
-            top_n=0, review_status="", affected_scope="", timeline=[],
+            title="",
+            summary="",
+            root_causes=[],
+            evidence_chain=[],
+            top_n=0,
+            review_status="",
+            affected_scope="",
+            timeline=[],
             source="",
         ),
     )

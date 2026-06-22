@@ -19,6 +19,7 @@ Metrics
   can show them.
 * ``missing`` — golden tools the run did not call (recall violations).
 """
+
 from __future__ import annotations
 
 import pytest
