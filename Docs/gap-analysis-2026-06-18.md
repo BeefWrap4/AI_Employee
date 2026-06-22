@@ -256,4 +256,45 @@ R29 收尾建议的 R30 候选有三条：**P0-1 Dockerfile 全服务补齐**、
 
 **R31 建议主线**：**P0-1 Dockerfile 全服务补齐（7 服务 + web-portal）+ P0-3 RCA 告警收敛算法（`del time_window_minutes` 替换为真时间窗 + 拓扑距离 + 父子规则）**，与 R30 改动面正交（一个 infra 维度 + 一个业务算法维度）。次要：模板铺面 5/5 真实三方接入（变更评估 / 工单总结的真实 RCA 工具 + CMDB + 工单系统 + 知识库端到端测试）、限流网关化（ingress-level）、LangGraph 编排层（条件边 + 子图 + 断点续跑）。
 
-> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
+### 7.5 R31 收尾（2026-06-22 末段，治理深度二项闭合）
+
+R30 §7.4 建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 告警收敛算法）因改动面过大、与治理深度项正交，本轮**不在范围**，继续留待 R32+。本轮落地 R30 建议的 R31 **次要**候选中可一次性闭合的两条治理深度项：**限流 `key_func` 维度**（R31-A）+ **LangGraph MemorySaver 断点续跑**（R31-B）。
+
+| 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD = 待推送） |
+| --- | --- | --- | --- |
+| **R31-A** | **限流 `key_func` 维度** | §7.1 P1-7 限流 + §三 §5.1「治理 / 限流」多维度：`install_rate_limiter(app, key_func=...)` 一行 API（callable 或 registry 名），内置 4 factory（`key_by_user` 默认 / `key_by_tenant` / `key_by_endpoint` / `key_by_tool`），默认走 `RATE_LIMIT_KEY_FUNC` env（`user`，6 服务既有接线零改动向后兼容），未知值 fail-fast `ValueError`；agent-platform-api demo `RATE_LIMIT_KEY_FUNC=tenant` 路径 pin | `0e6efbd` `a312249` `33942e6` |
+| **R31-B** | **LangGraph MemorySaver 断点续跑** | §三 §3/§4「可恢复」+ R24 审计 G6：LangGraph runtime compile 挂 `MemorySaver` checkpointer + `interrupt_before=["ApprovalRequired"]`，审批 required 的 run 在 HITL gate 处**暂停**（不 finalize），thread 持久化 `thread_id=run_id`；新增 `resume(run_id, decision, decided_by, comment)` 经 `graph.update_state` 注入决策 + `graph.invoke(None, config)` 驱动图到 `ApprovalApproved`/`ApprovalRejected` → END；图新增 `ApprovalApproved` + `ApprovalRejected` 节点 + 条件边；**替换** R24 之前 `decide()` 的 `model_copy` 缝合路径（G6），`decide()` 保留为 checkpointer-failure fallback；细节 + 测试矩阵见 `Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md` | `48397c9` `9d67743` `8e5433b` |
+
+**R31 对 §7.1 待办清单的更新**：
+
+- **P1-7 限流维度参数化 — ✅ 闭合（R31-A）**：限流从「user 单维」推到「user/tenant/endpoint/tool 4 维 + 自定义 callable」；`RATE_LIMIT_KEY_FUNC` env 路径让 6 服务既有接线零改动。**注意**：单一 API gateway（ingress-level）仍未做——R31-A 闭合的是「维度参数化」，「网关化」仍待 R32+。
+- **P2 LangGraph「可恢复」— ✅ 闭合（R31-B）**：HITL 审批走真 `MemorySaver` checkpoint + `interrupt_before` + `resume()`，替换 R24 审计 G6 的 `decide()` model_copy 缝合；6 条契约（暂停 / approve 完成 / reject 终止 / 跨 runtime 持久化 / 只读不 interrupt / 未知 run 抛 KeyError）pin 死。**注意**：LangGraph 编排层更深层（条件边 / 真子图 / 多 gate / 长运行 resume）仍是 R31-B 的单 interrupt gate，待后续。
+- **P0-1 Dockerfile 全服务补齐 — 仍未完成**：继续留待 R32+。
+- **P0-3 RCA 告警收敛算法 — 仍未完成**（`del time_window_minutes` TODO 仍在）：继续留待 R32+。
+- **P1-5 模板铺面 3/5 → 5/5** — 真实三方端到端测试待后续。
+- **P1 限流网关化** — R31-A 闭合维度参数化，ingress-level 网关化待后续。
+
+**R31 后最终 9 项差距清零状态**：
+
+| # | 差距条目 | 状态 | 闭合轮次 |
+| --- | --- | --- | --- |
+| 1 | §7.1 P0-2 PostgreSQL 迁移 | ✅ | R29-A |
+| 2 | §7.1 P3-19 备份 runbook | ✅ | R30-C |
+| 3 | §7.1 P3-17 mcp-gateway / approval-service 独立化 | ✅ | R21 |
+| 4 | §7.1 P3-18 对象存储 MinIO 接入 | ✅ | R22 |
+| 5 | §7.1 P3-19 高可用：多副本 + 幂等 | ✅ | R23 |
+| 6 | §三 §9 event-gateway 部署单元 | ✅ | R29-C |
+| 7 | §三 §9 SSO/OIDC 接入 | ✅ | R24 |
+| 8 | §三 §9 LLM Trace（Langfuse） | ✅ | R24 |
+| 9 | §四 P2 敏感字段脱敏 + Prompt 版本 A/B | ✅ | R24 (脱敏) + R30-B (Prompt 版本) |
+
+**总评（R31 后）**：R17 → R31 共 15 轮迭代把差距分析原始 P0–P3 全部 9 项 🔴 未实现条目**保持清零**，并进一步把 P1/P2 治理深度项向纵深推进：
+
+- **P0**（3 项）→ **1/3 闭合**（PG 迁移 ✅），剩 Dockerfile / 收敛算法 2 项留待 R32+（改动面过大，本轮未接）。
+- **P1**（5 项）→ **3/5 完全闭合 + 2 项纵深推进**（可观测埋点 ✅ R25、限流共享包 ✅ R25、Reranker ✅ R26、工具韧性 ✅ R25、模板铺面部分 R30-B）；限流维度参数化 ✅ R31-A（网关化仍待）、模板铺面 5/5 真实三方接入待后续。
+- **P2**（8 项）→ **7/8 闭合**（Kafka 告警流 ✅ R27+R29-C、event-gateway ✅ R29-C、LangGraph v1 执行层 ✅ R29-B、Langfuse Trace ✅ R24、Prompt 版本 ✅ R30-B、SSO/OIDC ✅ R24、审批补充/转派/超时升级 ✅ R20、Faithfulness/安全策略评测 ✅ R18、**LangGraph「可恢复」✅ R31-B**），剩限流网关化（ingress-level）+ LangGraph 编排层深层（真子图 / 多 gate）。
+- **P3**（3 项）→ **3/3 闭合**（mcp-gateway/approval-service 独立化 ✅ R21、对象存储 MinIO ✅ R22、高可用多副本+幂等 ✅ R23、备份 runbook ✅ R30-C）。
+
+**R32 建议主线**：**P0-1 Dockerfile 全服务补齐（7 服务 + web-portal）+ P0-3 RCA 告警收敛算法**（仍是改动面最大的两条 P0 遗留，与 R31 改动面正交）。次要：限流网关化（ingress-level）、模板铺面 5/5 真实三方接入、LangGraph 编排层深层（真子图 + 多 gate + 长运行 resume）。
+
+> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
