@@ -41,7 +41,7 @@ from ai_employee.knowledge_api.schemas import (
     QueryRequest,
     QueryResponse,
 )
-from ai_employee.knowledge_api.store import SQLiteStore
+from ai_employee.knowledge_api.store import SQLiteStore, build_knowledge_store
 from ai_employee.knowledge_api.worker_client import WorkerClient
 from fastapi import (
     Depends,
@@ -114,8 +114,15 @@ def create_app(
     install_rate_limiter(app)
     cfg = _config()
     if store is None:
-        store = SQLiteStore(db_path=cfg["db_path"], data_dir=cfg["data_dir"])
-        store.init_schema()
+        # R28-PG: delegate to build_knowledge_store() so DATABASE_URL is
+        # honoured (PgKnowledgeStore when set, SQLiteStore otherwise).
+        # Pre-R28 this hardcoded SQLiteStore and silently ignored PG.
+        store = build_knowledge_store(
+            db_path=cfg["db_path"],
+            data_dir=cfg["data_dir"],
+        )
+        if not os.getenv("DATABASE_URL"):
+            store.init_schema()
     if worker_client is None:
         worker_client = WorkerClient(
             base_url=cfg["worker_url"],
@@ -641,7 +648,9 @@ def create_app(
                 # the query-rewriter chat (when used upstream) share
                 # the same trace.
                 client = LlmClient(
-                    on_success=lambda latency_ms: platform_metrics().record_model_latency(latency_ms),
+                    on_success=lambda latency_ms: platform_metrics().record_model_latency(
+                        latency_ms
+                    ),
                 )
                 response = client.chat(prompts, parent_trace_id=trace_id)
                 answer = response.content

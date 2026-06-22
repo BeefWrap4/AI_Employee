@@ -169,7 +169,15 @@ def create_app(
     app = FastAPI(title="AI Employee Agent Platform API", version=SERVICE_VERSION)
     state = store or AgentPlatformStore()
     eval_state = eval_store or EvalStore()
-    run_state = run_store or AgentRunStore()
+    # R28-PG: honour DATABASE_URL via build_run_store() (PgAgentRunStore
+    # when set).  Pre-R28 this hardcoded AgentRunStore() (SQLite) and
+    # silently ignored PG.
+    if run_store is None:
+        from ai_employee.agent_platform_api.pg_run_store import build_run_store
+
+        run_state = build_run_store()
+    else:
+        run_state = run_store
     idem_store = _resolve_idempotency_store(idempotency_store)
 
     # R24-A.4: production write endpoints (agent-run creation, approval

@@ -606,11 +606,20 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
 
 
 def _default_store() -> RcaStore:
-    sqlite_path = os.getenv("RCA_SQLITE_PATH")
-    if sqlite_path:
-        store = SQLiteRcaStore(sqlite_path)
+    # R28-PG: honour DATABASE_URL via build_rca_store() (PgRcaStore when
+    # set).  Pre-R28 this only checked RCA_SQLITE_PATH and silently
+    # ignored PG, leaving all RCA data in-memory or SQLite.
+    database_url = os.getenv("DATABASE_URL", "")
+    if database_url:
+        from ai_employee.rca_agent.pg_store import build_rca_store
+
+        store = build_rca_store(database_url=database_url)
     else:
-        store = RcaStore()
+        sqlite_path = os.getenv("RCA_SQLITE_PATH")
+        if sqlite_path:
+            store = SQLiteRcaStore(sqlite_path)
+        else:
+            store = RcaStore()
     # R27: attach a Neo4j topology client when NEO4J_URL is set.  The
     # ``build_topology_client`` factory is fail-closed (returns None on
     # any connectivity failure), so this attachment is always safe.
