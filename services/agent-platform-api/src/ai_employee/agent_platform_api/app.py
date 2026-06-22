@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
@@ -94,6 +95,8 @@ from ai_employee.observability import render_prometheus_text
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
+_LOG = logging.getLogger(__name__)
+
 SERVICE_VERSION = "0.1.0"
 EVAL_TOP_KS = [1, 3, 5]
 
@@ -178,6 +181,19 @@ def create_app(
         run_state = build_run_store()
     else:
         run_state = run_store
+    # R29-A: log which backend we actually wired so operators can
+    # confirm the runtime choice from ``kubectl logs``.
+    from ai_employee.common_schemas.db import detect_backend
+
+    backend_label = (
+        "postgresql"
+        if detect_backend(os.getenv("DATABASE_URL", "")).name.lower() == "postgres"
+        else "sqlite"
+    )
+    _LOG.info(
+        "agent-platform-api create_app: using %s:// run_store backend",
+        backend_label,
+    )
     idem_store = _resolve_idempotency_store(idempotency_store)
 
     # R24-A.4: production write endpoints (agent-run creation, approval

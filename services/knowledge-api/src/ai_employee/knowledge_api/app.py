@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 import uuid
@@ -53,6 +54,8 @@ from fastapi import (
     UploadFile,
     status,
 )
+
+_LOG = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -123,6 +126,19 @@ def create_app(
         )
         if not os.getenv("DATABASE_URL"):
             store.init_schema()
+        # R29-A: log which backend we actually wired so operators can
+        # confirm the runtime choice from ``kubectl logs``.
+        from ai_employee.common_schemas.db import detect_backend
+
+        backend_label = (
+            "postgresql"
+            if detect_backend(os.getenv("DATABASE_URL", "")).name.lower() == "postgres"
+            else "sqlite"
+        )
+        _LOG.info(
+            "knowledge-api create_app: using %s:// storage backend",
+            backend_label,
+        )
     if worker_client is None:
         worker_client = WorkerClient(
             base_url=cfg["worker_url"],

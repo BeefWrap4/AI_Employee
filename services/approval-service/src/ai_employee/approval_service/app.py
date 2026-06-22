@@ -19,6 +19,9 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
+import os
+
 from ai_employee.approval_service import state_machine as sm
 from ai_employee.approval_service.schemas import (
     ApprovalDecisionRequest,
@@ -33,6 +36,8 @@ from ai_employee.approval_service.schemas import (
 from ai_employee.approval_service.store import ApprovalTaskStore, build_approval_store
 from fastapi import FastAPI, HTTPException, status
 
+_LOG = logging.getLogger(__name__)
+
 SERVICE_VERSION = "0.1.0"
 
 
@@ -46,6 +51,19 @@ def create_app(store: ApprovalTaskStore | None = None) -> FastAPI:
     # when set, SQLite otherwise).  Pre-R28 this hardcoded ApprovalTaskStore()
     # and silently ignored PG.
     state = store or build_approval_store()
+    # R29-A: log which backend we actually wired so operators can
+    # confirm the runtime choice from ``kubectl logs``.
+    from ai_employee.common_schemas.db import detect_backend
+
+    backend_label = (
+        "postgresql"
+        if detect_backend(os.getenv("DATABASE_URL", "")).name.lower() == "postgres"
+        else "sqlite"
+    )
+    _LOG.info(
+        "approval-service create_app: using %s:// storage backend",
+        backend_label,
+    )
 
     def _get_or_404(task_id: str) -> dict:
         task = state.get(task_id)
