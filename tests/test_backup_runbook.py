@@ -7,9 +7,7 @@ rather than only at 02:00 UTC on the production cluster.
 
 from __future__ import annotations
 
-import os
 import re
-import stat
 from pathlib import Path
 
 import yaml
@@ -124,9 +122,10 @@ def test_backup_cronjob_runs_daily() -> None:
     data = _load_cronjob()
     assert data["kind"] == "CronJob"
     schedule = data["spec"]["schedule"]
-    # Five-field cron: minute hour dom month dow.
+    # Five-field cron: minute hour dom month dow. We only care about
+    # the first two (rejected step expressions); the others are free.
     fields = schedule.split()
-    minute, hour, dom, month, dow = fields
+    minute, hour = fields[0], fields[1]
     assert minute.isdigit() and hour.isdigit(), (
         f"CronJob schedule {schedule!r} must pin a specific minute+hour"
     )

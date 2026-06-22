@@ -24,7 +24,6 @@ import pytest
 from ai_employee.auth_policy import issue_token
 from ai_employee.common_schemas.tool_registry import ToolSpec
 from ai_employee.tool_registry.app import create_app
-from ai_employee.tool_registry.circuit_breaker import CircuitOpenError
 from ai_employee.tool_registry.store import ToolRegistryStore
 from fastapi.testclient import TestClient
 
@@ -68,7 +67,6 @@ def test_invoke_timeout_ms_default_5000_backcompat(tmp_path) -> None:
     (backward compat: old behavior unchanged for fast handlers)."""
     store = ToolRegistryStore(db_path=str(tmp_path / "tools.sqlite3"))
     # Inject a slow handler into the in-memory registry before app starts.
-    from ai_employee.tool_registry.app import ToolRegistrationRequest
 
     client = TestClient(create_app(store=store))
     # echo is the built-in fast tool — it returns <50ms; we verify it still
@@ -295,7 +293,7 @@ def test_health_probe_task_updates_tool_health_status(tmp_path) -> None:
 
     # Spin a tiny 200 OK HTTP server.
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             self.send_response(200)
             self.send_header("Content-Length", "2")
             self.end_headers()

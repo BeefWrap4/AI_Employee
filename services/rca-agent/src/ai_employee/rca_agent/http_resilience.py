@@ -65,11 +65,14 @@ def resilient_fetch(op: Callable[[], T], *, timeout_ms: int = 5000) -> T:
     for attempt in range(1, max_attempts + 1):
         holder: dict[str, Any] = {}
 
-        def _runner() -> None:
+        def _runner(
+            _holder: dict[str, Any] = holder,
+            _op: Callable[[], Any] = op,
+        ) -> None:
             try:
-                holder["result"] = op()
-            except BaseException as exc:  # noqa: BLE001
-                holder["error"] = exc
+                _holder["result"] = _op()
+            except BaseException as exc:
+                _holder["error"] = exc  # noqa: B023 — `exc` is the except-binding
 
         worker = threading.Thread(target=_runner, daemon=True)
         worker.start()

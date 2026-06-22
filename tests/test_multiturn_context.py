@@ -38,8 +38,8 @@ def _enable_llm_gateway(monkeypatch, capturing: _CapturingClient) -> None:
     because the app reads it at import-time.
     """
     monkeypatch.setenv("LLM_GATEWAY_ENABLED", "true")
-    import ai_employee.llm_gateway.client as client_module
     import ai_employee.knowledge_api.app as app_module
+    import ai_employee.llm_gateway.client as client_module
 
     def _factory(*args: Any, **kwargs: Any) -> _CapturingClient:
         return capturing
@@ -61,7 +61,7 @@ def _upload_and_publish(client: TestClient) -> str:
         files={
             "file": (
                 "sop.md",
-                "RRC 建立失败先检查告警 KPI 与传输链路。".encode("utf-8"),
+                "RRC 建立失败先检查告警 KPI 与传输链路。".encode(),
                 "text/markdown",
             )
         },

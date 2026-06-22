@@ -123,7 +123,7 @@ class RcaAgentAlarmAggregator(AlarmAggregator):
             return []
         # Bin into 3 equal sub-windows across the window.
         step = max(1, window_minutes // 3)
-        bins: dict[int, int] = {i: 0 for i in range(3)}
+        bins: dict[int, int] = dict.fromkeys(range(3), 0)
         for alarm in alarms:
             start_str = getattr(alarm, "start_time", None)
             if not start_str:

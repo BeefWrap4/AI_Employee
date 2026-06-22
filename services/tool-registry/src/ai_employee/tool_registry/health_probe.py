@@ -110,10 +110,10 @@ def run_once(
 
 
 __all__ = [
-    "ProbeResult",
     "STATUS_HEALTHY",
-    "STATUS_UNKNOWN",
     "STATUS_UNHEALTHY",
+    "STATUS_UNKNOWN",
+    "ProbeResult",
     "probe_and_persist",
     "run_once",
 ]

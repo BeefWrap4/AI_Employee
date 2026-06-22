@@ -21,9 +21,13 @@ from typing import Any
 
 from ai_employee.agent_platform_api.tool_resilience import (
     CircuitBreaker as PlatformCircuitBreaker,
+)
+from ai_employee.agent_platform_api.tool_resilience import (
     RetryPolicy,
-    ToolInvocationError as ResilienceToolInvocationError,
     apply_resilience,
+)
+from ai_employee.agent_platform_api.tool_resilience import (
+    ToolInvocationError as ResilienceToolInvocationError,
 )
 from ai_employee.auth_policy import (
     PERM_AGENT_APPROVE,
@@ -33,7 +37,6 @@ from ai_employee.auth_policy import (
     require_internal_or_jwt,
 )
 from ai_employee.common_schemas.tool_registry import (
-    ToolInvocationError as CommonToolInvocationError,
     ToolNotFound,
     ToolRegistry,
     ToolSpec,
@@ -351,7 +354,7 @@ def create_app(
                 def _runner() -> None:
                     try:
                         holder["result"] = _do_invoke()
-                    except BaseException as exc:  # noqa: BLE001
+                    except BaseException as exc:
                         holder["error"] = exc
 
                 worker = _thr.Thread(target=_runner, daemon=True)

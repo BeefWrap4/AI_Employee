@@ -86,16 +86,16 @@ def test_counter_evidence_lowers_confidence() -> None:
     primary_dummy = type(
         "PA",
         (),
-        dict(
-            alarm_code="LINK_LOS",
-            alarm_name="Link Loss",
-            vendor="huawei",
-            site_id="SITE-001",
-            ne_id="NE-1",
-            severity="critical",
-            start_time="2026-06-19T10:00:00Z",
-            raw_payload={},
-        ),
+        {
+            "alarm_code": "LINK_LOS",
+            "alarm_name": "Link Loss",
+            "vendor": "huawei",
+            "site_id": "SITE-001",
+            "ne_id": "NE-1",
+            "severity": "critical",
+            "start_time": "2026-06-19T10:00:00Z",
+            "raw_payload": {},
+        },
     )()
     sop_evidence = [
         Evidence(
@@ -106,7 +106,8 @@ def test_counter_evidence_lowers_confidence() -> None:
             confidence=0.85,
         ),
     ]
-    contradict_evidence = sop_evidence + [
+    contradict_evidence = [
+        *sop_evidence,
         Evidence(
             evidence_id="ev_counter",
             source_type="log",
@@ -172,17 +173,17 @@ def test_merge_by_topology_uses_neo4j_client() -> None:
         type(
             "R",
             (),
-            dict(
-                alarm_id="a-A",
-                alarm_code="LINK_LOS",
-                alarm_name="Link Loss",
-                vendor="huawei",
-                site_id="SITE-A",
-                ne_id="NE-1",
-                severity="critical",
-                start_time="2026-06-19T10:00:00Z",
-                raw_payload={},
-            ),
+            {
+                "alarm_id": "a-A",
+                "alarm_code": "LINK_LOS",
+                "alarm_name": "Link Loss",
+                "vendor": "huawei",
+                "site_id": "SITE-A",
+                "ne_id": "NE-1",
+                "severity": "critical",
+                "start_time": "2026-06-19T10:00:00Z",
+                "raw_payload": {},
+            },
         )(),
     )
     b = normalize_alarm(
@@ -190,17 +191,17 @@ def test_merge_by_topology_uses_neo4j_client() -> None:
         type(
             "R",
             (),
-            dict(
-                alarm_id="a-B",
-                alarm_code="LINK_LOS",
-                alarm_name="Link Loss",
-                vendor="huawei",
-                site_id="SITE-B",
-                ne_id="NE-2",
-                severity="critical",
-                start_time="2026-06-19T10:01:00Z",
-                raw_payload={},
-            ),
+            {
+                "alarm_id": "a-B",
+                "alarm_code": "LINK_LOS",
+                "alarm_name": "Link Loss",
+                "vendor": "huawei",
+                "site_id": "SITE-B",
+                "ne_id": "NE-2",
+                "severity": "critical",
+                "start_time": "2026-06-19T10:01:00Z",
+                "raw_payload": {},
+            },
         )(),
     )
     # No raw_payload['upstream_site_ids'] — only Neo4j can link these.
@@ -228,17 +229,17 @@ def test_merge_by_topology_no_neo4j_no_op_when_no_upstream_field() -> None:
             type(
                 "R",
                 (),
-                dict(
-                    alarm_id=f"a-{site}",
-                    alarm_code="LINK_LOS",
-                    alarm_name="Link Loss",
-                    vendor="huawei",
-                    site_id=site,
-                    ne_id="NE-1",
-                    severity="critical",
-                    start_time="2026-06-19T10:00:00Z",
-                    raw_payload={},
-                ),
+                {
+                    "alarm_id": f"a-{site}",
+                    "alarm_code": "LINK_LOS",
+                    "alarm_name": "Link Loss",
+                    "vendor": "huawei",
+                    "site_id": site,
+                    "ne_id": "NE-1",
+                    "severity": "critical",
+                    "start_time": "2026-06-19T10:00:00Z",
+                    "raw_payload": {},
+                },
             )(),
         )
 

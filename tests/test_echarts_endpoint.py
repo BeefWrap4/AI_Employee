@@ -8,8 +8,7 @@ adapter), with pluggable aggregators so tests inject fakes.
 """
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from ai_employee.knowledge_api.echarts import (
@@ -96,7 +95,8 @@ def _build_client_with_fakes() -> tuple[TestClient, _FakeAlarmAgg, _FakeKpiAgg]:
             return WorkerDispatchResult(False, "noop", "noop")
 
     store = SQLiteStore
-    import tempfile, os
+    import os
+    import tempfile
 
     td = tempfile.mkdtemp(prefix="r19_echarts_")
     s = store(db_path=os.path.join(td, "k.sqlite3"), data_dir=td)
@@ -108,7 +108,7 @@ def _build_client_with_fakes() -> tuple[TestClient, _FakeAlarmAgg, _FakeKpiAgg]:
 
 
 def test_echarts_returns_xaxis_yaxis_series() -> None:
-    client, alarm_agg, kpi_agg = _build_client_with_fakes()
+    client, alarm_agg, _kpi_agg = _build_client_with_fakes()
     resp = client.post(
         "/api/v1/chat/echarts",
         json={

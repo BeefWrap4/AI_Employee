@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
-from ai_employee.rca_agent.http_resilience import resilient_fetch  # noqa: F401  # R25-T.4
+from ai_employee.rca_agent.http_resilience import resilient_fetch  # R25-T.4
 from ai_employee.rca_agent.schemas import Evidence, IncidentResponse
 
 

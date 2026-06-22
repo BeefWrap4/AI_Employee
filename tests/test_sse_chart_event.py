@@ -24,7 +24,7 @@ def _upload_and_publish(client: TestClient) -> None:
         files={
             "file": (
                 "sop.md",
-                "RRC 建立失败先检查告警 KPI。".encode("utf-8"),
+                "RRC 建立失败先检查告警 KPI。".encode(),
                 "text/markdown",
             )
         },

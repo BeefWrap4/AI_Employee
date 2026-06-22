@@ -183,9 +183,7 @@ class CircuitBreaker:
         ``CLOSED`` → always allow.
         """
         cur = self.state
-        if cur == CircuitState.OPEN:
-            return False
-        return True
+        return cur != CircuitState.OPEN
 
     def record_failure(self) -> None:
         self._failures += 1
