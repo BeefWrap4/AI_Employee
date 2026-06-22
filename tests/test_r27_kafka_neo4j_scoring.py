@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import pytest
-
 # --------------------------------------------------------------------------- #
 # R27-A: Hypothesis ranking — 6-factor scoring (spec §6.5)
 # --------------------------------------------------------------------------- #
