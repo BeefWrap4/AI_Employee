@@ -8,10 +8,11 @@ The factory test asserts that ``build_object_store`` picks the right
 backend purely from env vars, which is what services rely on at
 import time.
 """
+
 from __future__ import annotations
 
-import io
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -20,7 +21,6 @@ from ai_employee.object_store import (
     ObjectStore,
     build_object_store,
 )
-
 
 # --------------------------------------------------------------------------- #
 # LocalFsObjectStore (default backend; always available).
@@ -175,9 +175,8 @@ def test_minio_subclass_works(monkeypatch: pytest.MonkeyPatch) -> None:
     (it spins up a real local HTTP server that imitates S3 / MinIO).
     """
     pytest.importorskip("moto")
-    from moto.server import ThreadedMotoServer
-
     from ai_employee.object_store.s3 import MinioObjectStore
+    from moto.server import ThreadedMotoServer
 
     server = ThreadedMotoServer(ip_address="127.0.0.1", port=0, verbose=False)
     server.start()
@@ -205,3 +204,81 @@ def test_minio_subclass_works(monkeypatch: pytest.MonkeyPatch) -> None:
         assert "127.0.0.1" in url or "X-Amz" in url
     finally:
         server.stop()
+
+
+# --------------------------------------------------------------------------- #
+# MinIO / path-style addressing (R28 fix).
+# --------------------------------------------------------------------------- #
+
+
+def test_s3_store_forces_path_style_for_minio_endpoint() -> None:
+    """An http endpoint_url (MinIO) must use path-style addressing.
+
+    Real MinIO (single host, no wildcard DNS) only answers path-style
+    requests (``http://minio:9000/bucket/key``); with the default
+    virtual-hosted style boto3 resolves ``http://bucket.minio:9000/...``
+    which fails DNS in any real deployment.  moto's ``ThreadedMotoServer``
+    accepts both styles, so the existing round-trip test passes while
+    production MinIO breaks.  Pin the addressing style explicitly.
+    """
+    boto3 = pytest.importorskip("boto3")
+    from ai_employee.object_store.s3 import S3ObjectStore
+    from botocore.client import Config
+
+    captured: dict[str, Any] = {}
+
+    def spy_client(service, **kwargs):
+        captured["kwargs"] = kwargs
+        # Return a dummy so the factory call returns without a live server.
+        return mock.MagicMock()
+
+    with mock.patch.object(boto3, "client", side_effect=spy_client):
+        store = S3ObjectStore(
+            bucket="ai-employee",
+            access_key="minioadmin",
+            secret_key="minioadmin",
+            endpoint_url="http://minio:9000",
+        )
+        # Trigger the lazy client construction.
+        store._client()
+
+    cfg: Config = captured["kwargs"].get("config")
+    assert cfg is not None, "boto3.client must be given a Config"
+    # botocore Config exposes s3 addressing config via .s3 dict-like.
+    s3_cfg = getattr(cfg, "s3", None)
+    assert s3_cfg is not None, "Config must define an s3 addressing block"
+    style = (
+        s3_cfg.get("addressing_style")
+        if hasattr(s3_cfg, "get")
+        else getattr(s3_cfg, "addressing_style", None)
+    )
+    assert style == "path", f"MinIO endpoint must force path-style addressing, got {style!r}"
+
+
+def test_s3_store_keeps_virtual_hosted_for_aws() -> None:
+    """No endpoint_url (AWS S3) keeps the default addressing style.
+
+    The path-style forcing must only trigger for explicit non-AWS
+    endpoints (MinIO); vanilla AWS S3 uses virtual-hosted style.
+    """
+    boto3 = pytest.importorskip("boto3")
+
+    from ai_employee.object_store.s3 import S3ObjectStore
+
+    captured: dict[str, Any] = {}
+
+    def spy_client(service, **kwargs):
+        captured["kwargs"] = kwargs
+        return mock.MagicMock()
+
+    with mock.patch.object(boto3, "client", side_effect=spy_client):
+        store = S3ObjectStore(
+            bucket="my-bucket",
+            access_key="AKIA...",
+            secret_key="secret",
+            # no endpoint_url -> AWS path
+        )
+        store._client()
+
+    # No endpoint_url passed to boto3.client for the AWS path.
+    assert not captured["kwargs"].get("endpoint_url")
