@@ -30,7 +30,7 @@ from ai_employee.approval_service.schemas import (
     ApprovalTaskListResponse,
     ApprovalTransferRequest,
 )
-from ai_employee.approval_service.store import ApprovalTaskStore
+from ai_employee.approval_service.store import ApprovalTaskStore, build_approval_store
 from fastapi import FastAPI, HTTPException, status
 
 SERVICE_VERSION = "0.1.0"
@@ -42,7 +42,10 @@ def create_app(store: ApprovalTaskStore | None = None) -> FastAPI:
     from ai_employee.rate_limit import install_rate_limiter
 
     install_rate_limiter(app)
-    state = store or ApprovalTaskStore()
+    # R28-PG: honour DATABASE_URL via build_approval_store() (PG backend
+    # when set, SQLite otherwise).  Pre-R28 this hardcoded ApprovalTaskStore()
+    # and silently ignored PG.
+    state = store or build_approval_store()
 
     def _get_or_404(task_id: str) -> dict:
         task = state.get(task_id)

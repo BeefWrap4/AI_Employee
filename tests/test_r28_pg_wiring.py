@@ -41,3 +41,24 @@ def test_agent_platform_create_app_uses_build_run_store() -> None:
     assert "build_run_store" in src, (
         "create_app must call build_run_store() so DATABASE_URL is honoured"
     )
+
+
+def test_approval_service_has_build_approval_store_factory() -> None:
+    """approval-service must expose build_approval_store() that picks PG
+    when DATABASE_URL is set. Pre-R28 it had no PG backend at all."""
+    from ai_employee.approval_service import store as store_mod
+
+    assert hasattr(store_mod, "build_approval_store"), (
+        "approval_service.store must expose build_approval_store()"
+    )
+
+
+def test_approval_service_create_app_uses_build_approval_store() -> None:
+    """create_app must delegate store construction to build_approval_store()
+    so DATABASE_URL is honoured."""
+    from ai_employee.approval_service.app import create_app
+
+    src = inspect.getsource(create_app)
+    assert "build_approval_store" in src, (
+        "approval_service create_app must call build_approval_store()"
+    )

@@ -81,11 +81,20 @@ class ApprovalTaskStore:
         db_path: str | None = None,
         *,
         connection: sqlite3.Connection | None = None,
+        db: Any | None = None,
     ) -> None:
+        # R28-PG: when ``db`` (a common-schemas ``DB`` wrapper) is supplied
+        # the store talks to Postgres (or any backend ``open_db`` supports)
+        # via the unified ``db.execute(sql, params)`` surface with ``?``
+        # placeholders + dict rows.  Otherwise the legacy sqlite3 path is
+        # used unchanged.
+        self._db = db
         # An externally-supplied connection wins (used by tests for
         # isolation and by callers that already own a DB handle).
         self._external_conn = connection
-        if connection is not None:
+        if db is not None:
+            self.db_path = "<pg-backend>"
+        elif connection is not None:
             self.db_path = "<external-connection>"
         else:
             self.db_path = db_path or default_db_path()
@@ -93,23 +102,27 @@ class ApprovalTaskStore:
         self._lock = threading.Lock()
         self.init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self) -> Any:
+        if self._db is not None:
+            return self._db
         if self._external_conn is not None:
             return self._external_conn
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _release(self, conn: sqlite3.Connection) -> None:
-        if self._external_conn is not conn:
-            conn.close()
+    def _release(self, conn: Any) -> None:
+        # The shared DB wrapper + external connections are not closed here.
+        if self._db is not None or self._external_conn is not None:
+            return
+        conn.close()
 
     def init_schema(self) -> None:
         with self._lock:
             conn = self._connect()
             try:
-                conn.executescript(_SCHEMA)
-                if self._external_conn is None:
+                conn.execute(_SCHEMA)
+                if self._db is None and self._external_conn is None:
                     conn.commit()
             finally:
                 self._release(conn)
@@ -243,18 +256,18 @@ class ApprovalTaskStore:
             try:
                 if status:
                     total = conn.execute(
-                        "SELECT COUNT(*) FROM approval_tasks WHERE status = ?",
+                        "SELECT COUNT(*) AS count FROM approval_tasks WHERE status = ?",
                         (status,),
-                    ).fetchone()[0]
+                    ).fetchone()["count"]
                     rows = conn.execute(
                         "SELECT * FROM approval_tasks WHERE status = ? "
                         "ORDER BY created_at, task_id LIMIT ? OFFSET ?",
                         (status, page_size, offset),
                     ).fetchall()
                 else:
-                    total = conn.execute(
-                        "SELECT COUNT(*) FROM approval_tasks"
-                    ).fetchone()[0]
+                    total = conn.execute("SELECT COUNT(*) AS count FROM approval_tasks").fetchone()[
+                        "count"
+                    ]
                     rows = conn.execute(
                         "SELECT * FROM approval_tasks "
                         "ORDER BY created_at, task_id LIMIT ? OFFSET ?",
@@ -265,7 +278,7 @@ class ApprovalTaskStore:
         return [_row_to_dict(row) for row in rows], int(total)
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_dict(row: Any) -> dict[str, Any]:
     data = dict(row)
     for py_name, db_name in _JSON_COLUMNS.items():
         raw = data.pop(db_name, None)
@@ -279,4 +292,40 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
-__all__ = ["DB_FILENAME", "DEFAULT_DATA_DIR", "ApprovalTaskStore", "default_db_path"]
+def build_approval_store(
+    *,
+    db_path: str | None = None,
+    database_url: str | None = None,
+) -> ApprovalTaskStore:
+    """Pick ApprovalTaskStore backend based on DATABASE_URL.
+
+    Defaults to the SQLite path (``ApprovalTaskStore`` with a local
+    ``approval.sqlite3`` file) so dev/test behaviour is unchanged when
+    ``DATABASE_URL`` is unset.  When set to a Postgres URL, opens a PG
+    connection via the shared :func:`open_db` wrapper and the store
+    uses the unified ``db.execute(sql, params)`` surface (``?``
+    placeholders translated to ``%s`` automatically).
+
+    The ``approval_tasks`` table is created idempotently by
+    :meth:`ApprovalTaskStore.init_schema` (and by Alembic migration
+    ``0002_approval_tasks``).
+    """
+    url = database_url if database_url is not None else os.getenv("DATABASE_URL", "")
+    if url:
+        from ai_employee.common_schemas.db import detect_backend
+
+        if detect_backend(url).name == "POSTGRES":
+            from ai_employee.common_schemas.db import open_db
+
+            db = open_db(url, row_factory="dict")
+            return ApprovalTaskStore(db=db)
+    return ApprovalTaskStore(db_path=db_path or default_db_path())
+
+
+__all__ = [
+    "DB_FILENAME",
+    "DEFAULT_DATA_DIR",
+    "ApprovalTaskStore",
+    "build_approval_store",
+    "default_db_path",
+]
