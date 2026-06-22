@@ -59,7 +59,8 @@ def test_values_yaml_loads() -> None:
         values = yaml.safe_load(f)
     assert "global" in values
     assert "services" in values
-    # R29-C adds event-gateway (8 services total; spec §9 deploy units).
+    # R29-C adds event-gateway; R32-A adds api-gateway (9 services total;
+    # spec §三 §5.1 ingress gateway + spec §9 deploy units).
     assert set(values["services"].keys()) == {
         "knowledge-api",
         "ingestion-worker",
@@ -69,6 +70,7 @@ def test_values_yaml_loads() -> None:
         "approval-service",
         "mcp-gateway",
         "event-gateway",
+        "api-gateway",
     }
 
 
