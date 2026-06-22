@@ -86,9 +86,7 @@ def run_eval(req: EvalRunRequest) -> EvalRunSummary:
         # of a fully-populated SafetyPolicyInputs, default every tool
         # to approval_required (the most security-relevant default).
         if not req.safety_inputs.tool_calls and (req.golden_tool_calls or req.actual_tool_calls):
-            req.safety_inputs.tool_calls = [
-                (n, "approval_required") for n in req.actual_tool_calls
-            ]
+            req.safety_inputs.tool_calls = [(n, "approval_required") for n in req.actual_tool_calls]
         verdict = evaluate_safety_policy(req.safety_inputs)
         return EvalRunSummary(
             eval_type=req.eval_type,

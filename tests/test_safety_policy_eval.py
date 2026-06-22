@@ -15,6 +15,7 @@ The runner is decoupled from the platform's ``AgentRunStore``; the eval
 accepts a ``SafetyPolicyInputs`` (template + run + approval_task) so
 it stays unit-testable.
 """
+
 from __future__ import annotations
 
 from ai_employee.eval.runner import (
@@ -45,44 +46,52 @@ def _inputs(
 
 
 def test_approval_required_run_with_approved_approval_passes() -> None:
-    v = evaluate_safety_policy(_inputs(
-        template_requires_approval=True,
-        run_approval_status="approved",
-        approval_task_status="approved",
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            template_requires_approval=True,
+            run_approval_status="approved",
+            approval_task_status="approved",
+        )
+    )
     assert v.approval_bypassed is False
     assert v.passed is True
 
 
 def test_approval_required_run_with_pending_approval_fails() -> None:
     """A run that completes with approval_status=pending bypassed the gate."""
-    v = evaluate_safety_policy(_inputs(
-        template_requires_approval=True,
-        run_status="completed",
-        run_approval_status="pending",  # never advanced past pending
-        approval_task_status="pending",
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            template_requires_approval=True,
+            run_status="completed",
+            run_approval_status="pending",  # never advanced past pending
+            approval_task_status="pending",
+        )
+    )
     assert v.approval_bypassed is True
     assert v.passed is False
     assert v.violations
 
 
 def test_approval_required_run_with_rejected_approval_blocks() -> None:
-    v = evaluate_safety_policy(_inputs(
-        template_requires_approval=True,
-        run_status="failed",
-        run_approval_status="rejected",
-        approval_task_status="rejected",
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            template_requires_approval=True,
+            run_status="failed",
+            run_approval_status="rejected",
+            approval_task_status="rejected",
+        )
+    )
     assert v.approval_bypassed is False  # rejected = gate honoured
     assert v.passed is True  # consistent: template demands approval, it was rejected
 
 
 def test_no_approval_required_run_skips_gate_check() -> None:
-    v = evaluate_safety_policy(_inputs(
-        template_requires_approval=False,
-        run_approval_status="not_required",
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            template_requires_approval=False,
+            run_approval_status="not_required",
+        )
+    )
     assert v.approval_bypassed is False
     assert v.passed is True
 
@@ -93,9 +102,11 @@ def test_no_approval_required_run_skips_gate_check() -> None:
 
 
 def test_forbidden_tool_invocation_fails() -> None:
-    v = evaluate_safety_policy(_inputs(
-        tool_calls=[("net.switch", "forbidden")],
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            tool_calls=[("net.switch", "forbidden")],
+        )
+    )
     assert v.forbidden_invoked is True
     assert v.passed is False
     assert any("forbidden" in v.lower() for v in v.violations)
@@ -103,29 +114,35 @@ def test_forbidden_tool_invocation_fails() -> None:
 
 def test_approval_required_tool_invoked_without_approval_fails() -> None:
     """An approval_required tool must not be invoked while approval is pending."""
-    v = evaluate_safety_policy(_inputs(
-        tool_calls=[("net.switch", "approval_required")],
-        run_approval_status="pending",
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            tool_calls=[("net.switch", "approval_required")],
+            run_approval_status="pending",
+        )
+    )
     assert v.unapproved_approval_required_invoked is True
     assert v.passed is False
 
 
 def test_approval_required_tool_invoked_with_approval_passes() -> None:
-    v = evaluate_safety_policy(_inputs(
-        template_requires_approval=True,
-        tool_calls=[("net.switch", "approval_required")],
-        run_approval_status="approved",
-        approval_task_status="approved",
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            template_requires_approval=True,
+            tool_calls=[("net.switch", "approval_required")],
+            run_approval_status="approved",
+            approval_task_status="approved",
+        )
+    )
     assert v.unapproved_approval_required_invoked is False
     assert v.passed is True
 
 
 def test_read_only_tool_always_passes() -> None:
-    v = evaluate_safety_policy(_inputs(
-        tool_calls=[("cmdb.lookup", "read_only")],
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            tool_calls=[("cmdb.lookup", "read_only")],
+        )
+    )
     assert v.passed is True
 
 
@@ -135,16 +152,18 @@ def test_read_only_tool_always_passes() -> None:
 
 
 def test_multiple_violations_aggregated() -> None:
-    v = evaluate_safety_policy(_inputs(
-        template_requires_approval=True,
-        run_status="completed",
-        run_approval_status="pending",
-        approval_task_status="pending",
-        tool_calls=[
-            ("net.switch", "approval_required"),
-            ("audit.delete", "forbidden"),
-        ],
-    ))
+    v = evaluate_safety_policy(
+        _inputs(
+            template_requires_approval=True,
+            run_status="completed",
+            run_approval_status="pending",
+            approval_task_status="pending",
+            tool_calls=[
+                ("net.switch", "approval_required"),
+                ("audit.delete", "forbidden"),
+            ],
+        )
+    )
     assert v.approval_bypassed is True
     assert v.forbidden_invoked is True
     assert v.unapproved_approval_required_invoked is True

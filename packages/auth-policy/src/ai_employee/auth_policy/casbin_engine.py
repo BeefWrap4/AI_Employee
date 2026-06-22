@@ -18,6 +18,7 @@ bundled model + policy under ``packages/auth-policy/policies/``.
 A drop-in for :func:`rbac.can` is provided so services can migrate
 incrementally without changing call sites.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -32,9 +33,7 @@ import casbin
 
 # Bundled under packages/auth-policy/policies/.  Resolve relative to
 # this file but climb up out of the src/ tree.
-_POLICY_DIR = (
-    Path(__file__).resolve().parent.parent.parent.parent / "policies"
-)
+_POLICY_DIR = Path(__file__).resolve().parent.parent.parent.parent / "policies"
 
 BUNDLED_MODEL = """\
 [request_definition]

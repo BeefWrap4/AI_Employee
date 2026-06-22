@@ -6,6 +6,7 @@ every chunk lost its table provenance.  This propagates the fields to
 ``ParsedChunk`` (and through to ``ChunkRecord``) so retrieval can filter
 and cite by table + row.
 """
+
 from __future__ import annotations
 
 from ai_employee.common_schemas.knowledge import ChunkRecord, ParsedChunk
@@ -39,8 +40,11 @@ def test_parsed_chunk_has_optional_table_fields() -> None:
 
 def test_parsed_chunk_accepts_table_fields() -> None:
     c = ParsedChunk(
-        chunk_id="c1", chunk_no=1, content="x",
-        table_id="Sheet1", row_id="row_003",
+        chunk_id="c1",
+        chunk_no=1,
+        content="x",
+        table_id="Sheet1",
+        row_id="row_003",
     )
     assert c.table_id == "Sheet1"
     assert c.row_id == "row_003"
@@ -48,8 +52,12 @@ def test_parsed_chunk_accepts_table_fields() -> None:
 
 def test_chunk_record_has_table_fields() -> None:
     r = ChunkRecord(
-        chunk_id="c1", doc_id="d1", chunk_no=1, content="x",
-        table_id="Sheet1", row_id="row_003",
+        chunk_id="c1",
+        doc_id="d1",
+        chunk_no=1,
+        content="x",
+        table_id="Sheet1",
+        row_id="row_003",
     )
     assert r.table_id == "Sheet1"
     assert r.row_id == "row_003"
@@ -75,10 +83,13 @@ def test_table_section_propagates_table_id_to_chunks() -> None:
 
 def test_table_section_propagates_row_id_per_block() -> None:
     """Each block (row) becomes a chunk carrying its own row_id."""
-    section = _table_section("Inventory", [
-        ("row_001", "col1: a | col2: b"),
-        ("row_002", "col1: c | col2: d"),
-    ])
+    section = _table_section(
+        "Inventory",
+        [
+            ("row_001", "col1: a | col2: b"),
+            ("row_002", "col1: c | col2: d"),
+        ],
+    )
     chunks = chunk_sections("d1", [section])
     row_ids = {c.row_id for c in chunks}
     assert "row_001" in row_ids
@@ -87,10 +98,13 @@ def test_table_section_propagates_row_id_per_block() -> None:
 
 def test_table_section_row_ids_align_with_blocks() -> None:
     """The i-th chunk's row_id matches the i-th block's row_id."""
-    section = _table_section("Inventory", [
-        ("row_001", "alpha"),
-        ("row_002", "beta"),
-    ])
+    section = _table_section(
+        "Inventory",
+        [
+            ("row_001", "alpha"),
+            ("row_002", "beta"),
+        ],
+    )
     chunks = chunk_sections("d1", [section])
     # Each block is short → one chunk per row, in order.
     assert [c.row_id for c in chunks] == ["row_001", "row_002"]
@@ -121,7 +135,9 @@ def test_mixed_table_and_prose_sections() -> None:
 def test_table_section_without_row_ids_propagates_table_id_only() -> None:
     """A table section with table_id but no row_ids still sets table_id."""
     section = ParsedSection(
-        section_path="Sheet1", blocks=["merged header"], table_id="Sheet1",
+        section_path="Sheet1",
+        blocks=["merged header"],
+        table_id="Sheet1",
     )
     chunks = chunk_sections("d1", [section])
     assert all(c.table_id == "Sheet1" for c in chunks)
@@ -143,8 +159,11 @@ def test_table_id_round_trips_through_json() -> None:
     import json
 
     c = ParsedChunk(
-        chunk_id="c1", chunk_no=1, content="x",
-        table_id="Sheet1", row_id="row_005",
+        chunk_id="c1",
+        chunk_no=1,
+        content="x",
+        table_id="Sheet1",
+        row_id="row_005",
     )
     dumped = json.loads(c.model_dump_json())
     assert dumped["table_id"] == "Sheet1"

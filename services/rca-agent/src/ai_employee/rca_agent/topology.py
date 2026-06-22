@@ -10,6 +10,7 @@ inject :class:`FakeNeo4jDriver` so no live database is required.
 :func:`build_topology_client` returns ``None`` when ``NEO4J_URL`` is
 unset or unreachable, so services without Neo4j keep working.
 """
+
 from __future__ import annotations
 
 import logging
@@ -197,7 +198,11 @@ class Neo4jTopologyClient:
 
 
 def _connect_neo4j(
-    *, url: str, user: str, password: str, timeout_s: float,
+    *,
+    url: str,
+    user: str,
+    password: str,
+    timeout_s: float,
 ) -> Neo4jDriverProtocol:
     from neo4j import GraphDatabase  # type: ignore[import-not-found]
 

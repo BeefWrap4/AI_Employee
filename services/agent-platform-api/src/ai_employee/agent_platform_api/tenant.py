@@ -17,6 +17,7 @@ Tenant IDs are validated to be short, alphanumeric, and contain only
 strings from URL paths.  This prevents log-injection style attacks and
 keeps database column widths predictable.
 """
+
 from __future__ import annotations
 
 import re
@@ -29,7 +30,8 @@ _TENANT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # ContextVar so runtime / audit calls deep in the call stack can pick
 # up the tenant without threading it through every function signature.
 _current_tenant: ContextVar[str] = ContextVar(
-    "ai_employee_current_tenant", default=_DEFAULT_TENANT,
+    "ai_employee_current_tenant",
+    default=_DEFAULT_TENANT,
 )
 
 

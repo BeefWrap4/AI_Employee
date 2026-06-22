@@ -21,9 +21,13 @@ from typing import Any
 
 from ai_employee.agent_platform_api.tool_resilience import (
     CircuitBreaker as PlatformCircuitBreaker,
+)
+from ai_employee.agent_platform_api.tool_resilience import (
     RetryPolicy,
-    ToolInvocationError as ResilienceToolInvocationError,
     apply_resilience,
+)
+from ai_employee.agent_platform_api.tool_resilience import (
+    ToolInvocationError as ResilienceToolInvocationError,
 )
 from ai_employee.auth_policy import (
     PERM_AGENT_APPROVE,
@@ -33,7 +37,6 @@ from ai_employee.auth_policy import (
     require_internal_or_jwt,
 )
 from ai_employee.common_schemas.tool_registry import (
-    ToolInvocationError as CommonToolInvocationError,
     ToolNotFound,
     ToolRegistry,
     ToolSpec,
@@ -67,8 +70,12 @@ class ToolInvokeRequest(BaseModel):
 def _risk_levels() -> set[str]:
     # 4-tier spec §5.3 risk levels + legacy aliases for backward compat.
     return {
-        "readonly", "suggest", "approval_required", "forbidden",
-        "read_only", "high_risk",
+        "readonly",
+        "suggest",
+        "approval_required",
+        "forbidden",
+        "read_only",
+        "high_risk",
     }
 
 
@@ -253,9 +260,7 @@ def create_app(
                 detail={
                     "error_code": "tool_forbidden",
                     "tool_name": name,
-                    "message": (
-                        "tool is marked forbidden; invocation is disabled"
-                    ),
+                    "message": ("tool is marked forbidden; invocation is disabled"),
                 },
             )
 
@@ -318,9 +323,18 @@ def create_app(
         # *additional* attempts after the first).  Translate here so the
         # platform layer keeps a single canonical shape.
         spec_timeout_ms = int(
-            (row.get("timeout_ms") if isinstance(row, dict) else (row["timeout_ms"] if isinstance(row, dict) else None)) or 5000
+            (
+                row.get("timeout_ms")
+                if isinstance(row, dict)
+                else (row["timeout_ms"] if isinstance(row, dict) else None)
+            )
+            or 5000
         )
-        raw_retry = (row.get("retry_policy") if isinstance(row, dict) else (row["retry_policy"] if row is not None else None)) or {}
+        raw_retry = (
+            row.get("retry_policy")
+            if isinstance(row, dict)
+            else (row["retry_policy"] if row is not None else None)
+        ) or {}
         if not isinstance(raw_retry, dict):
             raw_retry = {}
         if "max_attempts" in raw_retry:
@@ -335,6 +349,7 @@ def create_app(
         error_code: str | None = None
         result: dict[str, Any] | None = None
         try:
+
             def _do_invoke() -> dict[str, Any]:
                 return registry_state.invoke(name, payload.arguments)
 
@@ -351,7 +366,7 @@ def create_app(
                 def _runner() -> None:
                     try:
                         holder["result"] = _do_invoke()
-                    except BaseException as exc:  # noqa: BLE001
+                    except BaseException as exc:
                         holder["error"] = exc
 
                 worker = _thr.Thread(target=_runner, daemon=True)
@@ -371,10 +386,12 @@ def create_app(
                 return holder.get("result")
 
             platform_breaker = PlatformCircuitBreaker(
-                failure_threshold=5, cooldown_seconds=60.0,
+                failure_threshold=5,
+                cooldown_seconds=60.0,
             )
             retry = RetryPolicy(
-                max_attempts=max_attempts, backoff_seconds=backoff_seconds,
+                max_attempts=max_attempts,
+                backoff_seconds=backoff_seconds,
             )
 
             # The platform's CircuitBreaker short-circuits before invoking
@@ -482,23 +499,37 @@ def create_app(
         url = row.get("health_check_url")
         state = breaker_state.state(name)
         if not url:
-            return {"tool_name": name, "healthy": state == "closed", "circuit_state": state,
-                    "detail": "no health_check_url configured"}
+            return {
+                "tool_name": name,
+                "healthy": state == "closed",
+                "circuit_state": state,
+                "detail": "no health_check_url configured",
+            }
         import httpx
 
         try:
             resp = httpx.get(url, timeout=3.0)
             healthy = 200 <= resp.status_code < 300
         except Exception as exc:
-            return {"tool_name": name, "healthy": False, "circuit_state": state,
-                    "detail": f"health probe failed: {exc}"}
-        return {"tool_name": name, "healthy": healthy, "circuit_state": state,
-                "status_code": resp.status_code}
+            return {
+                "tool_name": name,
+                "healthy": False,
+                "circuit_state": state,
+                "detail": f"health probe failed: {exc}",
+            }
+        return {
+            "tool_name": name,
+            "healthy": healthy,
+            "circuit_state": state,
+            "status_code": resp.status_code,
+        }
 
     @app.get("/api/v1/tool-call-log")
     def list_call_log(
-        run_id: str | None = None, tool_name: str | None = None,
-        page: int = 1, page_size: int = 50,
+        run_id: str | None = None,
+        tool_name: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
     ) -> dict[str, Any]:
         if run_id:
             rows = call_log_state.list_for_run(run_id)

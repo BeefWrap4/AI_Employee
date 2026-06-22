@@ -9,6 +9,7 @@ tests inject :class:`FakeInfluxClient` so no live database is required.
 :func:`build_influx_kpi_adapter` returns ``None`` when InfluxDB is
 unset/unreachable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -110,12 +111,13 @@ class InfluxKpiAdapter:
         return KpiQueryResult(metric=metric, site_id=site_id, points=points)
 
     def query_metrics(
-        self, *, metrics: list[str], site_id: str, window: str = "1h",
+        self,
+        *,
+        metrics: list[str],
+        site_id: str,
+        window: str = "1h",
     ) -> list[KpiQueryResult]:
-        return [
-            self.query_kpi(metric=m, site_id=site_id, window=window)
-            for m in metrics
-        ]
+        return [self.query_kpi(metric=m, site_id=site_id, window=window) for m in metrics]
 
     def to_evidence_payload(self, result: KpiQueryResult) -> dict[str, Any]:
         avg = result.avg
@@ -142,7 +144,11 @@ class InfluxKpiAdapter:
 
 
 def _connect_influx(
-    *, url: str, token: str, org: str, timeout_s: float,
+    *,
+    url: str,
+    token: str,
+    org: str,
+    timeout_s: float,
 ) -> InfluxClientProtocol:
     from influxdb_client import InfluxDBClient  # type: ignore[import-not-found]
 
@@ -163,11 +169,13 @@ def _connect_influx(
             points: list[KpiPoint] = []
             for table in tables or []:
                 for record in table.records:
-                    points.append(KpiPoint(
-                        ts=str(record.get_time()),
-                        value=float(record.get_value()),
-                        field=str(record.get_field()),
-                    ))
+                    points.append(
+                        KpiPoint(
+                            ts=str(record.get_time()),
+                            value=float(record.get_value()),
+                            field=str(record.get_field()),
+                        )
+                    )
             return points
 
         def close(self) -> None:

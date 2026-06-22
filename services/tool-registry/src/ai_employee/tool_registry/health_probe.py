@@ -9,6 +9,7 @@ The probe is *not* async — it is called from FastAPI's
 ``on_event("startup")`` background thread.  Each probe uses urllib with
 a short timeout so a slow endpoint never blocks the loop.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,7 +54,8 @@ def _probe_url(url: str | None, timeout_ms: int = 1500) -> ProbeResult:
     except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as exc:
         latency = (time.monotonic() - started) * 1000.0
         return ProbeResult(
-            status=STATUS_UNHEALTHY, latency_ms=latency,
+            status=STATUS_UNHEALTHY,
+            latency_ms=latency,
             error=str(exc) or exc.__class__.__name__,
         )
 
@@ -100,7 +102,10 @@ def run_once(
             continue
         try:
             probe_and_persist(
-                store, name=row["name"], timeout_ms=timeout_ms, prober=prober,
+                store,
+                name=row["name"],
+                timeout_ms=timeout_ms,
+                prober=prober,
             )
             counts["probed"] += 1
         except Exception as exc:  # pragma: no cover - defensive
@@ -110,10 +115,10 @@ def run_once(
 
 
 __all__ = [
-    "ProbeResult",
     "STATUS_HEALTHY",
-    "STATUS_UNKNOWN",
     "STATUS_UNHEALTHY",
+    "STATUS_UNKNOWN",
+    "ProbeResult",
     "probe_and_persist",
     "run_once",
 ]

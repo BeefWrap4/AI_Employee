@@ -17,6 +17,7 @@ When no LLM judge is available, the module falls back to a deterministic
 token-overlap implementation (the original metric) so the eval pipeline
 never breaks.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -395,6 +396,7 @@ def test_llm_judge_off_uses_token_overlap_even_when_judge_passed(
 
 def test_llm_judge_unavailable_judge_skipped() -> None:
     """A judge that returns None (degraded) is treated as not-supplied."""
+
     class _Judge:
         def score_claim(self, claim: str, context: list[str]):
             return None  # judge unavailable

@@ -5,6 +5,7 @@ and falls back to env vars (dev) when Vault is unavailable.  This keeps
 local dev zero-config while production pulls all credentials from
 Vault — no plaintext secrets in env or images.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -48,7 +49,9 @@ def test_env_resolver_returns_default_when_provided(monkeypatch: pytest.MonkeyPa
 class _FakeVaultClient:
     """Minimal fake of hvac.Client — only implements read+is_authenticated."""
 
-    def __init__(self, secrets: dict[str, dict[str, str]] | None = None, *, authed: bool = True) -> None:
+    def __init__(
+        self, secrets: dict[str, dict[str, str]] | None = None, *, authed: bool = True
+    ) -> None:
         self._secrets = secrets or {}
         self._authed = authed
         self.read_calls: list[str] = []
@@ -168,9 +171,11 @@ def test_build_resolver_vault_unreachable_falls_back_to_env(
 
 def test_resolvers_share_protocol() -> None:
     a: SecretResolver = EnvFallbackResolver()
-    b: SecretResolver = VaultSecretResolver(client=_FakeVaultClient().secrets(  # type: ignore[arg-type]
-        ("secret/data/ai_employee/x", "k", "v"),
-    ))
+    b: SecretResolver = VaultSecretResolver(
+        client=_FakeVaultClient().secrets(  # type: ignore[arg-type]
+            ("secret/data/ai_employee/x", "k", "v"),
+        )
+    )
     assert hasattr(a, "get") and hasattr(b, "get")
 
 

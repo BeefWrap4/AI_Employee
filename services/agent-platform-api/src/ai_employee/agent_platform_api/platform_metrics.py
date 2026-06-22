@@ -20,6 +20,7 @@ A rolling timeseries of headline indicators is kept for the dashboard
 trend charts (ECharts line).  Samples are captured once per
 ``record_*`` call and capped at ``_TIMESERIES_MAXLEN``.
 """
+
 from __future__ import annotations
 
 import math
@@ -116,6 +117,7 @@ def _tool_call_success_rate() -> float:
         from ai_employee.agent_platform_api.tool_call_log import (
             PlatformToolCallLogStore,
         )
+
         store = PlatformToolCallLogStore()
         return round(store.success_rate(), 6)
     except Exception:
@@ -132,9 +134,7 @@ def _record_timeseries_sample() -> None:
         sample = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "agent_run_success_rate": (
-                round(_GLOBAL.runs_succeeded / _GLOBAL.runs_total, 6)
-                if _GLOBAL.runs_total
-                else 1.0
+                round(_GLOBAL.runs_succeeded / _GLOBAL.runs_total, 6) if _GLOBAL.runs_total else 1.0
             ),
             "model_latency_p95_ms": round(_percentile(_GLOBAL.model_latencies_ms, 95), 6),
             "tool_latency_p95_ms": round(_percentile(_GLOBAL.tool_latencies_ms, 95), 6),
@@ -178,13 +178,9 @@ def snapshot_dict() -> dict[str, Any]:
         "approval_wait_time_p95_s": round(_percentile(m.approval_waits_s, 95), 6),
         "model_latency_p95_ms": round(_percentile(m.model_latencies_ms, 95), 6),
         "tool_latency_p95_ms": round(_percentile(m.tool_latencies_ms, 95), 6),
-        "fallback_rate": (
-            round(m.fallback_events / m.total_events, 6) if m.total_events else 0.0
-        ),
+        "fallback_rate": (round(m.fallback_events / m.total_events, 6) if m.total_events else 0.0),
         "report_acceptance_rate": (
-            round(m.reports_accepted / m.reports_reviewed, 6)
-            if m.reports_reviewed
-            else 0.0
+            round(m.reports_accepted / m.reports_reviewed, 6) if m.reports_reviewed else 0.0
         ),
         "raw": {
             "runs_total": m.runs_total,

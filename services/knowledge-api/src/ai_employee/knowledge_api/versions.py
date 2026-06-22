@@ -16,6 +16,7 @@ version (with a fresh ``vN`` tag).
 In-process storage; swap in a SQL backend for production by
 implementing the same public surface.
 """
+
 from __future__ import annotations
 
 import threading

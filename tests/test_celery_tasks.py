@@ -7,6 +7,7 @@ The Celery app is constructed with ``broker_url`` /
 returns an in-process eager backend so existing FastAPI BackgroundTasks
 tests keep passing without a broker.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -122,7 +123,10 @@ def test_parse_document_task_returns_chunks(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(tasks_mod, "_worker_parse", fake_parse)
     result = backend.submit(
         parse_document_task,
-        doc_id="d1", file_path="/tmp/x.md", mime_type="text/markdown", metadata={},
+        doc_id="d1",
+        file_path="/tmp/x.md",
+        mime_type="text/markdown",
+        metadata={},
     )
     assert result.ready is True
     assert result.value["chunks"][0]["chunk_id"] == "c1"
@@ -141,7 +145,9 @@ def test_run_agent_task_creates_run(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tasks_mod, "_create_agent_run", fake_run)
     result = backend.submit(
         run_agent_task,
-        template_id="knowledge_qa", requested_by="alice", input={"question": "q"},
+        template_id="knowledge_qa",
+        requested_by="alice",
+        input={"question": "q"},
     )
     assert result.ready is True
     assert result.value["run_id"] == "agent_run_999"
@@ -154,7 +160,8 @@ def test_run_agent_task_creates_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_celery_backend_app_is_lazy_and_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
     backend = CeleryBackend(
-        broker_url="memory://", result_backend="cache+memory://",
+        broker_url="memory://",
+        result_backend="cache+memory://",
     )
     app = backend.app
     assert app.conf.broker_url == "memory://"

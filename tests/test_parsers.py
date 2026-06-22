@@ -25,7 +25,7 @@ def test_text_parser_empty_input_returns_empty() -> None:
 
 
 def test_markdown_parser_builds_section_path() -> None:
-    md = "# 接入排障\n" "## RRC 建立失败\n" "先检查告警和 KPI。\n\n" "再检查传输链路。\n"
+    md = "# 接入排障\n## RRC 建立失败\n先检查告警和 KPI。\n\n再检查传输链路。\n"
     sections = MarkdownParser().parse(md)
     paths = {s.section_path for s in sections}
     assert "接入排障 > RRC 建立失败" in paths

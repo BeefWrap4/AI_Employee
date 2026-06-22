@@ -8,6 +8,7 @@ via ``limit`` / ``offset``.  Export formats: ``csv``, ``jsonl``.
 Backend is the in-process :class:`InMemoryAuditLog`; swapping in an
 OpenSearch backend is a future R14+ concern.
 """
+
 from __future__ import annotations
 
 import csv
@@ -76,20 +77,23 @@ def events_to_csv(events: Iterable[AuditEvent]) -> str:
     writer = csv.writer(buf)
     writer.writerow(["seq", "ts", "actor", "action", "target_type", "target_id", "payload"])
     for ev in events:
-        writer.writerow([
-            ev.seq, ev.ts, ev.actor, ev.action,
-            ev.target_type, ev.target_id,
-            json.dumps(ev.payload, ensure_ascii=False, default=str),
-        ])
+        writer.writerow(
+            [
+                ev.seq,
+                ev.ts,
+                ev.actor,
+                ev.action,
+                ev.target_type,
+                ev.target_id,
+                json.dumps(ev.payload, ensure_ascii=False, default=str),
+            ]
+        )
     return buf.getvalue()
 
 
 def events_to_jsonl(events: Iterable[AuditEvent]) -> str:
     """Render events as JSON Lines."""
-    return "\n".join(
-        json.dumps(asdict(ev), ensure_ascii=False, default=str)
-        for ev in events
-    )
+    return "\n".join(json.dumps(asdict(ev), ensure_ascii=False, default=str) for ev in events)
 
 
 # --------------------------------------------------------------------------- #
@@ -123,21 +127,29 @@ def mount_audit_endpoints(app: Any) -> None:
         events = audit_log().list_all()
         filtered = filter_events(
             events,
-            actor=actor, action=action,
-            target_type=target_type, target_id=target_id,
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
             tenant_id=tenant_id,
-            start_ts=start_ts, end_ts=end_ts,
-            limit=limit, offset=offset,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            limit=limit,
+            offset=offset,
         )
         # Total after filtering, before pagination — so the client can
         # render "showing X of Y".
         after_filter = filter_events(
             events,
-            actor=actor, action=action,
-            target_type=target_type, target_id=target_id,
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
             tenant_id=tenant_id,
-            start_ts=start_ts, end_ts=end_ts,
-            limit=10_000_000, offset=0,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            limit=10_000_000,
+            offset=0,
         )
         return {
             "items": [ev.to_dict() for ev in filtered],
@@ -158,10 +170,13 @@ def mount_audit_endpoints(app: Any) -> None:
         events = audit_log().list_all()
         filtered = filter_events(
             events,
-            actor=actor, action=action,
-            target_type=target_type, target_id=target_id,
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
             tenant_id=tenant_id,
-            limit=10_000_000, offset=0,
+            limit=10_000_000,
+            offset=0,
         )
         if format == "csv":
             return PlainTextResponse(

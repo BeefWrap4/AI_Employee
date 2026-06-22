@@ -15,6 +15,7 @@ flag, measured latency, and optional error string.  A
 :class:`ReadinessResult` aggregates them and exposes a
 :meth:`to_dict` for the JSON body.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -88,7 +89,10 @@ def check_sqlite(db_path: str) -> DependencyCheck:
         _, latency_ms = _timed(probe)
     except Exception as exc:
         return DependencyCheck(
-            name="sqlite", healthy=False, latency_ms=0.0, error=str(exc),
+            name="sqlite",
+            healthy=False,
+            latency_ms=0.0,
+            error=str(exc),
         )
     return DependencyCheck(name="sqlite", healthy=True, latency_ms=round(latency_ms, 3))
 
@@ -103,7 +107,9 @@ def check_redis(url: str, *, timeout_s: float = 0.5) -> DependencyCheck:
         import redis  # type: ignore[import-not-found]
     except ImportError as exc:
         return DependencyCheck(
-            name="redis", healthy=False, latency_ms=0.0,
+            name="redis",
+            healthy=False,
+            latency_ms=0.0,
             error=f"redis not installed: {exc}",
         )
 
@@ -118,7 +124,10 @@ def check_redis(url: str, *, timeout_s: float = 0.5) -> DependencyCheck:
         _, latency_ms = _timed(probe)
     except Exception as exc:
         return DependencyCheck(
-            name="redis", healthy=False, latency_ms=0.0, error=str(exc),
+            name="redis",
+            healthy=False,
+            latency_ms=0.0,
+            error=str(exc),
         )
     return DependencyCheck(name="redis", healthy=True, latency_ms=round(latency_ms, 3))
 
@@ -137,7 +146,10 @@ def check_http(url: str, *, timeout_s: float = 1.0) -> DependencyCheck:
         _, latency_ms = _timed(probe)
     except Exception as exc:
         return DependencyCheck(
-            name="http", healthy=False, latency_ms=0.0, error=str(exc),
+            name="http",
+            healthy=False,
+            latency_ms=0.0,
+            error=str(exc),
         )
     return DependencyCheck(name="http", healthy=True, latency_ms=round(latency_ms, 3))
 

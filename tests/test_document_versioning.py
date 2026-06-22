@@ -1,4 +1,5 @@
 """Document versioning + chunk-level diff tests (spec §4.6)."""
+
 from __future__ import annotations
 
 import pytest
@@ -32,7 +33,9 @@ def test_document_version_to_dict() -> None:
 
 def test_document_version_chunk_count() -> None:
     v = DocumentVersion(
-        doc_id="d1", version="v1", chunks=[
+        doc_id="d1",
+        version="v1",
+        chunks=[
             {"chunk_id": "c1", "content": "a", "section_path": "root"},
             {"chunk_id": "c2", "content": "b", "section_path": "root"},
             {"chunk_id": "c3", "content": "c", "section_path": "root"},
@@ -49,11 +52,13 @@ def test_document_version_chunk_count() -> None:
 def test_store_create_and_list_versions() -> None:
     store = VersionStore()
     store.create(
-        doc_id="d1", version="v1",
+        doc_id="d1",
+        version="v1",
         chunks=[{"chunk_id": "c1", "content": "alpha", "section_path": "root"}],
     )
     store.create(
-        doc_id="d1", version="v2",
+        doc_id="d1",
+        version="v2",
         chunks=[
             {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
             {"chunk_id": "c2", "content": "beta", "section_path": "root"},
@@ -66,9 +71,13 @@ def test_store_create_and_list_versions() -> None:
 def test_store_get_specific_version() -> None:
     store = VersionStore()
     store.create(doc_id="d1", version="v1", chunks=[])
-    store.create(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "x", "section_path": "root"},
-    ])
+    store.create(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "x", "section_path": "root"},
+        ],
+    )
     v2 = store.get("d1", "v2")
     assert v2 is not None
     assert v2.chunk_count == 1
@@ -100,13 +109,21 @@ def test_store_versions_isolated_per_doc() -> None:
 
 
 def test_diff_versions_detects_added() -> None:
-    a = DocumentVersion(doc_id="d1", version="v1", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-    ])
-    b = DocumentVersion(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-        {"chunk_id": "c2", "content": "beta", "section_path": "root"},
-    ])
+    a = DocumentVersion(
+        doc_id="d1",
+        version="v1",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+        ],
+    )
+    b = DocumentVersion(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+            {"chunk_id": "c2", "content": "beta", "section_path": "root"},
+        ],
+    )
     diff = diff_versions(a, b)
     assert diff.added == ["c2"]
     assert diff.removed == []
@@ -114,13 +131,21 @@ def test_diff_versions_detects_added() -> None:
 
 
 def test_diff_versions_detects_removed() -> None:
-    a = DocumentVersion(doc_id="d1", version="v1", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-        {"chunk_id": "c2", "content": "beta", "section_path": "root"},
-    ])
-    b = DocumentVersion(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-    ])
+    a = DocumentVersion(
+        doc_id="d1",
+        version="v1",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+            {"chunk_id": "c2", "content": "beta", "section_path": "root"},
+        ],
+    )
+    b = DocumentVersion(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+        ],
+    )
     diff = diff_versions(a, b)
     assert diff.removed == ["c2"]
     assert diff.added == []
@@ -128,12 +153,20 @@ def test_diff_versions_detects_removed() -> None:
 
 
 def test_diff_versions_detects_modified() -> None:
-    a = DocumentVersion(doc_id="d1", version="v1", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-    ])
-    b = DocumentVersion(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "alpha-updated", "section_path": "root"},
-    ])
+    a = DocumentVersion(
+        doc_id="d1",
+        version="v1",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+        ],
+    )
+    b = DocumentVersion(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha-updated", "section_path": "root"},
+        ],
+    )
     diff = diff_versions(a, b)
     assert diff.modified == ["c1"]
     assert diff.added == []
@@ -152,9 +185,13 @@ def test_diff_versions_no_change_is_empty() -> None:
 
 def test_diff_versions_to_dict_serializable() -> None:
     a = DocumentVersion(doc_id="d1", version="v1", chunks=[])
-    b = DocumentVersion(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-    ])
+    b = DocumentVersion(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+        ],
+    )
     diff = diff_versions(a, b)
     d = diff.to_dict()
     assert d["from_version"] == "v1"
@@ -165,25 +202,41 @@ def test_diff_versions_to_dict_serializable() -> None:
 def test_diff_versions_ignores_section_path_changes() -> None:
     """A chunk whose content didn't change is not "modified" even if the
     section_path was re-classified."""
-    a = DocumentVersion(doc_id="d1", version="v1", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "old/path"},
-    ])
-    b = DocumentVersion(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "new/path"},
-    ])
+    a = DocumentVersion(
+        doc_id="d1",
+        version="v1",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "old/path"},
+        ],
+    )
+    b = DocumentVersion(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "new/path"},
+        ],
+    )
     diff = diff_versions(a, b)
     assert diff.modified == []
 
 
 def test_diff_versions_combined_changes() -> None:
-    a = DocumentVersion(doc_id="d1", version="v1", chunks=[
-        {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
-        {"chunk_id": "c2", "content": "beta", "section_path": "root"},
-    ])
-    b = DocumentVersion(doc_id="d1", version="v2", chunks=[
-        {"chunk_id": "c1", "content": "alpha-modified", "section_path": "root"},
-        {"chunk_id": "c3", "content": "gamma", "section_path": "root"},
-    ])
+    a = DocumentVersion(
+        doc_id="d1",
+        version="v1",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
+            {"chunk_id": "c2", "content": "beta", "section_path": "root"},
+        ],
+    )
+    b = DocumentVersion(
+        doc_id="d1",
+        version="v2",
+        chunks=[
+            {"chunk_id": "c1", "content": "alpha-modified", "section_path": "root"},
+            {"chunk_id": "c3", "content": "gamma", "section_path": "root"},
+        ],
+    )
     diff = diff_versions(a, b)
     assert diff.added == ["c3"]
     assert diff.removed == ["c2"]

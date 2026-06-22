@@ -300,7 +300,8 @@ def build_provider(
         if not api_key:
             return StubEmbeddingProvider(dim=stub_dim), True
         base_url = os.getenv(
-            "SILICONFLOW_BASE_URL", "https://api.siliconflow.cn",
+            "SILICONFLOW_BASE_URL",
+            "https://api.siliconflow.cn",
         )
         dim = int(os.getenv("EMBEDDING_DIM", "1024"))
         return OpenAICompatEmbeddingProvider(
@@ -316,6 +317,7 @@ def build_provider(
 def _siliconflow_default_model() -> str:
     try:
         from ai_employee.llm_gateway.model_registry import get_model_for_task
+
         return get_model_for_task("embed").model_id
     except Exception:
         return "BAAI/bge-m3"

@@ -1,4 +1,5 @@
 """MCP Python SDK integration tests (spec P3 §4 MCP Python SDK / FastMCP)."""
+
 from __future__ import annotations
 
 import json
@@ -35,8 +36,11 @@ def test_to_mcp_tool_risk_level_serialised() -> None:
     from ai_employee.agent_platform_api.schemas import ToolRegistration
 
     reg = ToolRegistration(
-        tool_name="x", service_name="x", description="x",
-        input_schema={"type": "object"}, output_schema={"type": "object"},
+        tool_name="x",
+        service_name="x",
+        description="x",
+        input_schema={"type": "object"},
+        output_schema={"type": "object"},
         risk_level="approval_required",
     )
     tool = to_mcp_tool(reg)
@@ -64,16 +68,29 @@ def test_registry_list_tools_returns_mcp_shape() -> None:
         output_schema={"type": "object"},
         risk_level="approval_required",
     )
-    store.tools[reg.tool_name] = type("T", (), {
-        "tool_name": reg.tool_name, "service_name": reg.service_name,
-        "description": reg.description, "input_schema": reg.input_schema,
-        "output_schema": reg.output_schema, "risk_level": reg.risk_level,
-        "status": "active", "health_status": "healthy",
-    })()
+    store.tools[reg.tool_name] = type(
+        "T",
+        (),
+        {
+            "tool_name": reg.tool_name,
+            "service_name": reg.service_name,
+            "description": reg.description,
+            "input_schema": reg.input_schema,
+            "output_schema": reg.output_schema,
+            "risk_level": reg.risk_level,
+            "status": "active",
+            "health_status": "healthy",
+        },
+    )()
 
     registry = MCPToolRegistry(store=store)
     tools = registry.list_tools()
-    assert any(t.get("name") == "rca-agent.runs.create" if isinstance(t, dict) else t.name == "rca-agent.runs.create" for t in tools)
+    assert any(
+        t.get("name") == "rca-agent.runs.create"
+        if isinstance(t, dict)
+        else t.name == "rca-agent.runs.create"
+        for t in tools
+    )
 
 
 def test_registry_to_list_tools_result() -> None:
@@ -91,12 +108,20 @@ def test_registry_filters_by_risk_level() -> None:
 
     store = AgentPlatformStore()
     for i, risk in enumerate(["read_only", "approval_required", "forbidden"]):
-        store.tools[f"t{i}"] = type("T", (), {
-            "tool_name": f"t{i}", "service_name": "x",
-            "description": "x", "input_schema": {"type": "object"},
-            "output_schema": {"type": "object"},
-            "risk_level": risk, "status": "active", "health_status": "healthy",
-        })()
+        store.tools[f"t{i}"] = type(
+            "T",
+            (),
+            {
+                "tool_name": f"t{i}",
+                "service_name": "x",
+                "description": "x",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+                "risk_level": risk,
+                "status": "active",
+                "health_status": "healthy",
+            },
+        )()
 
     registry = MCPToolRegistry(store=store)
     safe_tools = registry.list_tools(risk_levels={"read_only"})
@@ -115,14 +140,21 @@ def test_registry_call_tool_dispatches_to_store() -> None:
     def fake_invoke(name, arguments):
         return {"result": f"echo {arguments.get('msg', '')}"}
 
-    store.tools["echo"] = type("T", (), {
-        "tool_name": "echo", "service_name": "x",
-        "description": "echo back",
-        "input_schema": {"type": "object", "properties": {"msg": {"type": "string"}}},
-        "output_schema": {"type": "object"},
-        "risk_level": "read_only", "status": "active", "health_status": "healthy",
-        "invoke": fake_invoke,
-    })()
+    store.tools["echo"] = type(
+        "T",
+        (),
+        {
+            "tool_name": "echo",
+            "service_name": "x",
+            "description": "echo back",
+            "input_schema": {"type": "object", "properties": {"msg": {"type": "string"}}},
+            "output_schema": {"type": "object"},
+            "risk_level": "read_only",
+            "status": "active",
+            "health_status": "healthy",
+            "invoke": fake_invoke,
+        },
+    )()
     store.invoke = fake_invoke  # type: ignore[attr-defined]
 
     registry = MCPToolRegistry(store=store, invoke_fn=lambda name, args: fake_invoke(name, args))

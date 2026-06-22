@@ -217,14 +217,20 @@ def test_store_uses_existing_connection_when_provided(tmp_path: Path) -> None:
     conn.row_factory = sqlite3.Row
     store = ApprovalTaskStore(connection=conn)
     store.init_schema()
-    store.upsert({
-        "task_id": "t1", "run_id": "r1", "template_id": "rca",
-        "requested_by": "alice", "status": "pending",
-        "risk_level": "approval_required", "reason": "x",
-        "created_at": "2026-06-17T00:00:00Z", "updated_at": "2026-06-17T00:00:00Z",
-    })
+    store.upsert(
+        {
+            "task_id": "t1",
+            "run_id": "r1",
+            "template_id": "rca",
+            "requested_by": "alice",
+            "status": "pending",
+            "risk_level": "approval_required",
+            "reason": "x",
+            "created_at": "2026-06-17T00:00:00Z",
+            "updated_at": "2026-06-17T00:00:00Z",
+        }
+    )
     rows, total = store.list()
     assert total == 1
     assert rows[0]["task_id"] == "t1"
     conn.close()
-

@@ -61,7 +61,10 @@ def _split_long_block(text: str, max_len: int) -> list[str]:
 
 
 def sliding_window_chunk(
-    text: str, *, window_size: int, overlap: int,
+    text: str,
+    *,
+    window_size: int,
+    overlap: int,
 ) -> list[str]:
     """Split a long text into overlapping chunks.
 

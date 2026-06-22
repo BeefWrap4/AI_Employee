@@ -5,6 +5,7 @@ metadata) and flushes them to Langfuse's HTTP ingestion endpoint.  When
 LANGFUSE_ENABLED is false (the default) it short-circuits to a no-op so
 tests / dev environments don't accidentally push to a real account.
 """
+
 from __future__ import annotations
 
 import json
@@ -31,7 +32,9 @@ class FakeResponse:
 
 
 class FakeClient:
-    def __init__(self, response: FakeResponse | None = None, raise_exc: Exception | None = None) -> None:
+    def __init__(
+        self, response: FakeResponse | None = None, raise_exc: Exception | None = None
+    ) -> None:
         self.calls: list[tuple[str, dict]] = []
         self._response = response or FakeResponse()
         self._raise = raise_exc
@@ -45,12 +48,19 @@ class FakeClient:
 
 def test_disabled_emitter_is_noop() -> None:
     emitter = build_langfuse_emitter(
-        enabled=False, public_key="pk", secret_key="sk", host="http://x",
+        enabled=False,
+        public_key="pk",
+        secret_key="sk",
+        host="http://x",
     )
     assert emitter.enabled is False
     emitter.record_llm_call(
-        trace_id="t1", span_id="s1", model="gpt-4o",
-        prompt="hi", response="hello", latency_ms=12.0,
+        trace_id="t1",
+        span_id="s1",
+        model="gpt-4o",
+        prompt="hi",
+        response="hello",
+        latency_ms=12.0,
     )
     result = emitter.flush()
     assert result["dispatched"] == 0
@@ -60,17 +70,28 @@ def test_disabled_emitter_is_noop() -> None:
 def test_enabled_emitter_buffers_and_flushes() -> None:
     client = FakeClient()
     emitter = LangfuseEmitter(
-        enabled=True, public_key="pk_test", secret_key="sk_test",
-        host="https://langfuse.example.com", client=client,  # type: ignore[arg-type]
+        enabled=True,
+        public_key="pk_test",
+        secret_key="sk_test",
+        host="https://langfuse.example.com",
+        client=client,  # type: ignore[arg-type]
     )
     emitter.record_llm_call(
-        trace_id="t1", span_id="s1", model="gpt-4o",
-        prompt="hi", response="hello", latency_ms=120.0,
+        trace_id="t1",
+        span_id="s1",
+        model="gpt-4o",
+        prompt="hi",
+        response="hello",
+        latency_ms=120.0,
         metadata={"role": "user"},
     )
     emitter.record_llm_call(
-        trace_id="t2", span_id="s2", model="claude",
-        prompt="explain", response="...", latency_ms=900.0,
+        trace_id="t2",
+        span_id="s2",
+        model="claude",
+        prompt="explain",
+        response="...",
+        latency_ms=900.0,
     )
     result = emitter.flush()
     assert result == {"dispatched": 2}
@@ -89,12 +110,19 @@ def test_enabled_emitter_buffers_and_flushes() -> None:
 def test_flush_handles_network_error() -> None:
     client = FakeClient(raise_exc=RuntimeError("connection refused"))
     emitter = LangfuseEmitter(
-        enabled=True, public_key="pk", secret_key="sk",
-        host="http://x", client=client,  # type: ignore[arg-type]
+        enabled=True,
+        public_key="pk",
+        secret_key="sk",
+        host="http://x",
+        client=client,  # type: ignore[arg-type]
     )
     emitter.record_llm_call(
-        trace_id="t1", span_id="s1", model="gpt-4o",
-        prompt="hi", response="hello", latency_ms=12.0,
+        trace_id="t1",
+        span_id="s1",
+        model="gpt-4o",
+        prompt="hi",
+        response="hello",
+        latency_ms=12.0,
     )
     # Must not raise; dispatcher returns dispatched=0.
     result = emitter.flush()
@@ -105,8 +133,11 @@ def test_flush_handles_network_error() -> None:
 def test_flush_skips_when_buffer_empty() -> None:
     client = FakeClient()
     emitter = LangfuseEmitter(
-        enabled=True, public_key="pk", secret_key="sk",
-        host="http://x", client=client,  # type: ignore[arg-type]
+        enabled=True,
+        public_key="pk",
+        secret_key="sk",
+        host="http://x",
+        client=client,  # type: ignore[arg-type]
     )
     result = emitter.flush()
     assert result == {"dispatched": 0}

@@ -1,4 +1,5 @@
 """Platform metrics endpoint + helpers."""
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api import platform_metrics

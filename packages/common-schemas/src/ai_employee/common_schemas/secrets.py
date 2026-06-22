@@ -18,6 +18,7 @@ Vault KV-v2 paths are used: ``secret/data/<mount>/<key>``.  The
 ``get("db/password")`` call maps to path
 ``secret/data/ai_employee/db`` with data key ``password``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,7 +67,8 @@ class EnvFallbackResolver:
             if default is not None:
                 return default
             raise SecretResolutionError(
-                f"secret {path!r} not in env ({env_var})", path=path,
+                f"secret {path!r} not in env ({env_var})",
+                path=path,
             )
         return value
 
@@ -97,7 +99,8 @@ class VaultSecretResolver:
         """Map ``db/password`` → (``secret/data/ai_employee/db``, ``password``)."""
         if "/" not in path:
             raise SecretResolutionError(
-                f"secret path must be '<resource>/<key>', got {path!r}", path=path,
+                f"secret path must be '<resource>/<key>', got {path!r}",
+                path=path,
             )
         resource, key = path.split("/", 1)
         return f"secret/data/{self._mount}/{resource}", key
@@ -117,7 +120,8 @@ class VaultSecretResolver:
             if self._allow_env_fallback:
                 return self._env_fallback.get(path, env_var=env_var, default=default)
             raise SecretResolutionError(
-                f"Vault not authenticated for {path!r}", path=path,
+                f"Vault not authenticated for {path!r}",
+                path=path,
             )
 
         vpath, key = self._vault_path(path)
@@ -128,14 +132,16 @@ class VaultSecretResolver:
             if self._allow_env_fallback:
                 return self._env_fallback.get(path, env_var=env_var, default=default)
             raise SecretResolutionError(
-                f"Vault read failed for {path!r}: {exc}", path=path,
+                f"Vault read failed for {path!r}: {exc}",
+                path=path,
             ) from exc
 
         if result is None:
             if self._allow_env_fallback:
                 return self._env_fallback.get(path, env_var=env_var, default=default)
             raise SecretResolutionError(
-                f"secret {path!r} not found in Vault at {vpath}", path=path,
+                f"secret {path!r} not found in Vault at {vpath}",
+                path=path,
             )
 
         # KV-v2: {"data": {"data": {key: value}}}
@@ -145,7 +151,8 @@ class VaultSecretResolver:
             if default is not None:
                 return default
             raise SecretResolutionError(
-                f"Vault secret {path!r} has no key {key!r}", path=path,
+                f"Vault secret {path!r} has no key {key!r}",
+                path=path,
             )
         with self._lock:
             self._cache[path] = value

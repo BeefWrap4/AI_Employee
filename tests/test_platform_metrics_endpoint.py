@@ -10,6 +10,7 @@ Drives the four remaining gaps:
 
 Surfaced via ``GET /api/v1/metrics/platform``.
 """
+
 from __future__ import annotations
 
 import pytest

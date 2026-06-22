@@ -47,6 +47,7 @@ def import_candidate_to_knowledge_api(
     # Sensitive field redaction (spec §8): scrub PII from title and
     # content before persisting into the knowledge base.
     from ai_employee.common_schemas.redaction import redact_text
+
     redacted_title = redact_text(candidate.title)
     redacted_content = redact_text(candidate.content)
     metadata = {

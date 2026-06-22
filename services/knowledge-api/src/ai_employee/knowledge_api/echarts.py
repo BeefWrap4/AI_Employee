@@ -10,6 +10,7 @@ sources.  Aggregation is pluggable so tests can inject fakes:
 The :class:`EChartsAggregator` composes them and emits the standard
 ECharts option dict.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -123,7 +124,7 @@ class RcaAgentAlarmAggregator(AlarmAggregator):
             return []
         # Bin into 3 equal sub-windows across the window.
         step = max(1, window_minutes // 3)
-        bins: dict[int, int] = {i: 0 for i in range(3)}
+        bins: dict[int, int] = dict.fromkeys(range(3), 0)
         for alarm in alarms:
             start_str = getattr(alarm, "start_time", None)
             if not start_str:
@@ -162,9 +163,7 @@ class InfluxKpiAggregator(KpiAggregator):
             return []
         window = f"{max(1, window_minutes)}m"
         try:
-            result = self._adapter.query_kpi(
-                metric=metric, site_id=site_id, window=window
-            )
+            result = self._adapter.query_kpi(metric=metric, site_id=site_id, window=window)
         except Exception:
             return []
         return list(getattr(result, "points", []))

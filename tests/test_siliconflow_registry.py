@@ -1,4 +1,5 @@
 """SiliconFlow model registry + routing tests (R15-2)."""
+
 from __future__ import annotations
 
 import pytest
@@ -55,7 +56,8 @@ def test_get_model_for_task_returns_default() -> None:
 
 def test_get_model_for_task_preferred_override() -> None:
     spec = get_model_for_task(
-        "chat", preferred="deepseek-ai/DeepSeek-V3",
+        "chat",
+        preferred="deepseek-ai/DeepSeek-V3",
     )
     assert spec.model_id == "deepseek-ai/DeepSeek-V3"
 
@@ -137,7 +139,8 @@ def test_build_siliconflow_client_for_task_preferred(
 ) -> None:
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-x")
     client = build_siliconflow_client_for_task(
-        "chat", preferred="deepseek-ai/DeepSeek-V3",
+        "chat",
+        preferred="deepseek-ai/DeepSeek-V3",
     )
     assert client.model == "deepseek-ai/DeepSeek-V3"
 

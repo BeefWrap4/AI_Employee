@@ -6,6 +6,7 @@ with rate=2 / burst=2, a single client can fire 2 RCA requests in a
 second but the 3rd is throttled — meanwhile the same client can still
 fire ``knowledge_qa`` calls because that template has a separate bucket.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -45,7 +46,9 @@ def test_parse_trims_whitespace() -> None:
 
 
 def test_parse_ignores_malformed_segments() -> None:
-    cfg = parse_template_rate_limit_env("rca:30,5;bad;change_assessment:abc,def;knowledge_qa:120,20")
+    cfg = parse_template_rate_limit_env(
+        "rca:30,5;bad;change_assessment:abc,def;knowledge_qa:120,20"
+    )
     assert cfg == {"rca": (30, 5), "knowledge_qa": (120, 20)}
 
 
@@ -56,10 +59,14 @@ def test_parse_ignores_malformed_segments() -> None:
 
 def test_template_key_includes_template_id() -> None:
     a = template_key_for_request(
-        template_id="rca", claims_sub="alice", remote_addr=None,
+        template_id="rca",
+        claims_sub="alice",
+        remote_addr=None,
     )
     b = template_key_for_request(
-        template_id="knowledge_qa", claims_sub="alice", remote_addr=None,
+        template_id="knowledge_qa",
+        claims_sub="alice",
+        remote_addr=None,
     )
     assert a != b
     assert a.startswith("template:rca:")
@@ -67,7 +74,9 @@ def test_template_key_includes_template_id() -> None:
 
 def test_template_key_falls_back_to_ip() -> None:
     a = template_key_for_request(
-        template_id="rca", claims_sub=None, remote_addr="10.0.0.1",
+        template_id="rca",
+        claims_sub=None,
+        remote_addr="10.0.0.1",
     )
     assert "ip:10.0.0.1" in a
 

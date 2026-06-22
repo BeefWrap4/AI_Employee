@@ -10,6 +10,7 @@ End-to-end shape of the R15 wiring without hitting the network:
   is set (the "free" upgrade path).
 * Env override precedence works for chat / embed / rerank simultaneously.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -100,12 +101,14 @@ def test_smoke_no_key_means_stub_everywhere(
 
     # Embedding falls back to stub.
     from ai_employee.common_schemas.embedding import StubEmbeddingProvider
+
     embed, degraded = build_provider()
     assert degraded is False  # default provider is stub (not degraded)
     assert isinstance(embed, StubEmbeddingProvider)
 
     # Reranker falls back to stub.
     from ai_employee.knowledge_api.reranker import StubReranker
+
     reranker = build_reranker()
     assert isinstance(reranker, StubReranker)
 
@@ -128,6 +131,7 @@ def test_all_three_endpoints_have_documented_url_paths() -> None:
     from ai_employee.llm_gateway.model_registry import (
         build_url_for_task,
     )
+
     base = "https://api.siliconflow.cn/v1"
     assert build_url_for_task("chat", base_url=base) == f"{base}/chat/completions"
     assert build_url_for_task("embed", base_url=base) == f"{base}/embeddings"

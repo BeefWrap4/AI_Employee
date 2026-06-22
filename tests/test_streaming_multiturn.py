@@ -1,4 +1,5 @@
 """Streaming + multi-turn + new metrics tests (spec §5.5 + §5.6)."""
+
 from __future__ import annotations
 
 import json

@@ -7,6 +7,7 @@ Adds the missing pieces to :class:`ToolRegistration`:
 - ``circuit_breaker`` (failure_threshold, cooldown_seconds)
 - ``health_check_url`` → real ``health_status`` evaluation
 """
+
 from __future__ import annotations
 
 import json
@@ -51,7 +52,8 @@ def test_canonical_4_levels_accepted_by_schema() -> None:
     """The schema accepts the canonical 4 levels (and aliases)."""
     for risk in ["read_only", "suggest", "approval_required", "forbidden"]:
         reg = ToolRegistration(
-            tool_name=f"t-{risk}", service_name="x",
+            tool_name=f"t-{risk}",
+            service_name="x",
             description="x",
             input_schema={"type": "object"},
             output_schema={"type": "object"},
@@ -227,8 +229,11 @@ def test_tool_response_includes_runtime_health() -> None:
 
     checker = HealthChecker(timeout_ms=100)
     reg = ToolRegistration(
-        tool_name="x", service_name="x", description="x",
-        input_schema={"type": "object"}, output_schema={"type": "object"},
+        tool_name="x",
+        service_name="x",
+        description="x",
+        input_schema={"type": "object"},
+        output_schema={"type": "object"},
         risk_level="read_only",
         health_check_url="http://127.0.0.1:1/health",  # unreachable
     )
@@ -240,26 +245,33 @@ def test_tool_response_includes_runtime_health() -> None:
 
 def _make_tool_stub(reg: ToolRegistration) -> Any:
     """Build a minimal store tool entry mirroring the in-memory shape."""
-    return type("T", (), {
-        "tool_name": reg.tool_name,
-        "service_name": reg.service_name,
-        "description": reg.description,
-        "input_schema": reg.input_schema,
-        "output_schema": reg.output_schema,
-        "risk_level": reg.risk_level,
-        "status": "active",
-        "health_status": "unknown",
-        "timeout_ms": reg.timeout_ms,
-        "retry_policy": reg.retry_policy,
-        "circuit_breaker": reg.circuit_breaker,
-        "health_check_url": reg.health_check_url,
-    })()
+    return type(
+        "T",
+        (),
+        {
+            "tool_name": reg.tool_name,
+            "service_name": reg.service_name,
+            "description": reg.description,
+            "input_schema": reg.input_schema,
+            "output_schema": reg.output_schema,
+            "risk_level": reg.risk_level,
+            "status": "active",
+            "health_status": "unknown",
+            "timeout_ms": reg.timeout_ms,
+            "retry_policy": reg.retry_policy,
+            "circuit_breaker": reg.circuit_breaker,
+            "health_check_url": reg.health_check_url,
+        },
+    )()
 
 
 def test_timeout_field_round_trips_json() -> None:
     reg = ToolRegistration(
-        tool_name="x", service_name="x", description="x",
-        input_schema={"type": "object"}, output_schema={"type": "object"},
+        tool_name="x",
+        service_name="x",
+        description="x",
+        input_schema={"type": "object"},
+        output_schema={"type": "object"},
         risk_level="read_only",
         timeout_ms=3000,
     )
@@ -283,7 +295,10 @@ def test_apply_resilience_records_latency() -> None:
         return "ok"
 
     result, elapsed = apply_resilience(
-        op, retry=policy, breaker=None, measure_latency=True,
+        op,
+        retry=policy,
+        breaker=None,
+        measure_latency=True,
     )
     assert result == "ok"
     assert elapsed >= 0.04  # 50ms sleep, allow scheduler slack

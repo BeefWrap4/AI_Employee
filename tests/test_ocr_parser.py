@@ -12,6 +12,7 @@ When no backend is available (``OCR_BACKEND=disabled`` or deps missing),
 the parser degrades gracefully: returns an empty section list + a
 warning flag so ingestion can mark the doc parse_failed rather than crash.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -213,7 +214,9 @@ def test_pdf_parser_skips_ocr_when_text_present(monkeypatch: pytest.MonkeyPatch)
     fake.seed_text("SHOULD NOT APPEAR")
     parser = PdfParser(ocr_backend=fake)
     monkeypatch.setattr(
-        parser, "_extract_text", lambda src: [(1, "real extracted text")],
+        parser,
+        "_extract_text",
+        lambda src: [(1, "real extracted text")],
     )
     monkeypatch.setattr(parser, "_ocr_page", lambda data, pn: "SHOULD NOT APPEAR")
     sections = parser.parse(b"%PDF-1.4 fake")

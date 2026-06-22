@@ -22,6 +22,7 @@ Usage::
 Routing rules are deterministic; tests pin the exact model id so a
 silent swap would break the suite.
 """
+
 from __future__ import annotations
 
 import os
@@ -60,24 +61,28 @@ _RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 _MODELS: dict[str, list[ModelSpec]] = {
     "chat": [
         ModelSpec(
-            task="chat", model_id=_DEFAULT_CHAT_MODEL,
+            task="chat",
+            model_id=_DEFAULT_CHAT_MODEL,
             url_path="/chat/completions",
             description="Qwen2.5-72B-Instruct — high-quality default",
         ),
         ModelSpec(
-            task="chat", model_id=_FAST_CHAT_MODEL,
+            task="chat",
+            model_id=_FAST_CHAT_MODEL,
             url_path="/chat/completions",
             description="Qwen2.5-7B-Instruct — fast low-latency fallback",
         ),
         ModelSpec(
-            task="chat", model_id=_CODE_CHAT_MODEL,
+            task="chat",
+            model_id=_CODE_CHAT_MODEL,
             url_path="/chat/completions",
             description="DeepSeek-V3 — code-heavy prompts",
         ),
     ],
     "embed": [
         ModelSpec(
-            task="embed", model_id=_EMBED_MODEL,
+            task="embed",
+            model_id=_EMBED_MODEL,
             url_path="/embeddings",
             description="BAAI/bge-m3 — multilingual 1024-dim embedding",
             dimensions=1024,
@@ -85,7 +90,8 @@ _MODELS: dict[str, list[ModelSpec]] = {
     ],
     "rerank": [
         ModelSpec(
-            task="rerank", model_id=_RERANK_MODEL,
+            task="rerank",
+            model_id=_RERANK_MODEL,
             url_path="/rerank",
             description="BAAI/bge-reranker-v2-m3 — cross-encoder reranker",
         ),

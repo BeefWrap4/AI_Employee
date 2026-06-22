@@ -213,7 +213,7 @@ def render_prometheus_text(registry: MetricRegistry | None = None) -> str:
                 count = series.bucket_counts.get(float(boundary), 0)
                 lines.append(f"{series.name}_bucket{_render_labels(bucket_lbls)} {count}")
             # +Inf bucket reflects the total observation count.
-            lines.append(f'{series.name}_bucket{_render_labels({"le": "+Inf"})} {series.count}')
+            lines.append(f"{series.name}_bucket{_render_labels({'le': '+Inf'})} {series.count}")
             lines.append(f"{series.name}_sum {series.sum_value}")
             lines.append(f"{series.name}_count {series.count}")
         else:

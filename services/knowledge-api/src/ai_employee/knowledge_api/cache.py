@@ -13,6 +13,7 @@ Cache keys are sha256 hex digests — see :func:`query_cache_key` and
 :func:`embedding_cache_key` for the canonical inputs.  Stable keys mean
 identical requests hit the same cache slot even across processes.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -125,7 +126,8 @@ class QueryCache:
             return
         try:
             self.redis_client.set(
-                key, json.dumps(value, ensure_ascii=False),
+                key,
+                json.dumps(value, ensure_ascii=False),
                 ex=ttl if ttl is not None else self.default_ttl_s,
             )
         except Exception as exc:
@@ -161,7 +163,8 @@ class EmbeddingCache:
             return
         try:
             self.redis_client.set(
-                key, json.dumps(list(value)),
+                key,
+                json.dumps(list(value)),
                 ex=ttl if ttl is not None else self.default_ttl_s,
             )
         except Exception as exc:
@@ -178,8 +181,7 @@ def _connect_redis(url: str, *, timeout_s: float) -> Any:
         import redis  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - import guard
         raise RuntimeError(
-            "redis is required for the Redis cache backend; "
-            "install with `pip install redis`",
+            "redis is required for the Redis cache backend; install with `pip install redis`",
         ) from exc
     return redis.Redis.from_url(url, socket_timeout=timeout_s, decode_responses=True)
 
@@ -207,9 +209,9 @@ def build_query_cache(
         return NoOpCache(disabled=True)
     return QueryCache(
         redis_client=client,
-        default_ttl_s=default_ttl_s if default_ttl_s is not None else int(
-            os.environ.get("QUERY_CACHE_TTL_S", "300")
-        ),
+        default_ttl_s=default_ttl_s
+        if default_ttl_s is not None
+        else int(os.environ.get("QUERY_CACHE_TTL_S", "300")),
         enabled=bool(enabled) if enabled is not None else True,
     )
 
@@ -233,9 +235,9 @@ def build_embedding_cache(
         return NoOpCache(disabled=True)
     return EmbeddingCache(
         redis_client=client,
-        default_ttl_s=default_ttl_s if default_ttl_s is not None else int(
-            os.environ.get("EMBEDDING_CACHE_TTL_S", "3600")
-        ),
+        default_ttl_s=default_ttl_s
+        if default_ttl_s is not None
+        else int(os.environ.get("EMBEDDING_CACHE_TTL_S", "3600")),
         enabled=bool(enabled) if enabled is not None else True,
     )
 

@@ -9,6 +9,7 @@ Zero-dependency: uses a curated telecom regex + keyword dictionary.  A
 production deployment could swap in an LLM-typed entity recogniser behind
 the same :func:`normalize_query` interface.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,8 +25,21 @@ _VENDORS = {"huawei", "zte", "nokia", "ericsson", "大唐", "烽火", "华为", 
 _NETWORK_TYPES = {"4g", "5g", "lte", "nr", "transport", "传输", "无线"}
 # Common KPI / metric terms.
 _METRICS = {
-    "rrc", "rrc setup", "rrc 建立失败", "setup failure", "接通率", "掉话率",
-    "ber", "crc", "光功率", "误码", "throughput", "吞吐", "prb", "cpu", "memory",
+    "rrc",
+    "rrc setup",
+    "rrc 建立失败",
+    "setup failure",
+    "接通率",
+    "掉话率",
+    "ber",
+    "crc",
+    "光功率",
+    "误码",
+    "throughput",
+    "吞吐",
+    "prb",
+    "cpu",
+    "memory",
 }
 
 

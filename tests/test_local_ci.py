@@ -6,6 +6,7 @@ issues before pushing.  Failures here print which command failed.
 Usage:
     python -m pytest tests/test_local_ci.py -v
 """
+
 from __future__ import annotations
 
 import shutil
@@ -21,8 +22,11 @@ def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 300) -> tupl
     """Run a shell command, return (exit_code, output)."""
     try:
         result = subprocess.run(
-            cmd, cwd=cwd or REPO_ROOT,
-            capture_output=True, text=True, timeout=timeout,
+            cmd,
+            cwd=cwd or REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         return result.returncode, result.stdout + result.stderr
     except subprocess.TimeoutExpired:
