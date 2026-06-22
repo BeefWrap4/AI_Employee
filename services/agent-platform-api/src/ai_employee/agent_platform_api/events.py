@@ -222,22 +222,36 @@ class RedisEventBus:
         self._listener_thread = None
 
     def _run(self) -> None:
-        self._started.set()
         try:
             pubsub = self._r.pubsub()
             pubsub.subscribe(self._channel)
         except Exception as exc:  # pragma: no cover - best-effort
             logger.warning("redis event bus subscribe failed: %s", exc)
+            # Mark started so start_listener() doesn't block forever even on
+            # failure; the thread then exits without a live subscription.
+            self._started.set()
             return
+        # Signal "subscription established" ONLY after subscribe() succeeded,
+        # so a publish() issued immediately after start_listener() returns
+        # is guaranteed to find a live subscription and won't be missed.
+        self._started.set()
         handler = _RedisMessageHandler(self._local)
-        pubsub.set_handler(handler.handle)
         try:
             while not self._stop_event.is_set():
-                # Fake / real redis: poll get_message; sleep when idle.
-                msg = pubsub.get_message(timeout=0.1)  # type: ignore[call-arg]
+                # Real redis-py PubSub.get_message returns each message once
+                # (it does NOT also invoke a registered handler — there is no
+                # set_handler on redis-py 5.x).  We dispatch the returned
+                # message ourselves, exactly once.
+                try:
+                    msg = pubsub.get_message(timeout=0.1)  # type: ignore[call-arg]
+                except Exception as exc:  # pragma: no cover - best-effort
+                    logger.warning("redis event bus get_message failed: %s", exc)
+                    self._stop_event.wait(timeout=0.05)
+                    continue
                 if msg is not None and msg.get("type") == "message":
                     handler.handle(msg)
                 else:
+                    # No message: back off so the stop flag check is responsive.
                     self._stop_event.wait(timeout=0.05)
         finally:
             try:

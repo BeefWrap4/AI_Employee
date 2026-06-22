@@ -16,6 +16,7 @@ import json
 import threading
 import time
 
+import pytest
 from ai_employee.agent_platform_api.events import (
     RedisEventBus,
     RunEvent,
@@ -25,28 +26,34 @@ from ai_employee.agent_platform_api.events import (
 class _FakePubSub:
     """Minimal fake redis pub/sub shared between two bus instances.
 
-    Tracks subscribers per channel and delivers messages synchronously
-    to every registered handler.  Mirrors ``redis.Redis.pubsub()``.
+    Mirrors ``redis.client.PubSub`` semantics: messages published to a
+    channel the instance has ``subscribe``d to are queued, and
+    ``get_message`` returns them one at a time (``None`` when the queue
+    is empty).  There is no ``set_handler`` — redis-py 5.x doesn't have
+    one — so delivery is purely via ``get_message`` polling, matching
+    the real client the production code now targets.
     """
 
     def __init__(self, broker: _FakeRedisBroker) -> None:
         self._broker = broker
-        self._handler = None
+        self._channel: str | None = None
+        self._queue: list[dict] = []
+        self._lock = threading.Lock()
 
     def subscribe(self, channel: str) -> None:
+        self._channel = channel
         self._broker.subscribe(channel, self)
 
     def get_message(self, timeout: float | None = None):
-        # Synchronous fake has no queued messages; delivery is via the
-        # handler registered by set_handler.
+        with self._lock:
+            if self._queue:
+                return self._queue.pop(0)
         return None
 
-    def set_handler(self, handler) -> None:
-        self._handler = handler
-
     def deliver(self, channel: str, message: bytes) -> None:
-        if self._handler is not None:
-            self._handler({"type": "message", "channel": channel, "data": message})
+        # Broker calls this on publish; queue the message for get_message.
+        with self._lock:
+            self._queue.append({"type": "message", "channel": channel, "data": message})
 
     def close(self) -> None:
         self._broker.unsubscribe(self)
@@ -256,3 +263,86 @@ def test_redis_event_bus_implements_event_bus_protocol() -> None:
         assert hasattr(bus, attr), f"missing {attr}"
     # Sanity: EventBus and RedisEventBus are interchangeable at the surface.
     assert callable(bus.subscribe) and callable(bus.publish)
+
+
+# --------------------------------------------------------------------------- #
+# Real redis-py PubSub semantics (R28 fix).
+#
+# The _FakeRedis/_FakePubSub above are hand-rolled and silently accept methods
+# that don't exist on the real redis-py PubSub (e.g. ``set_handler``).  These
+# tests use ``fakeredis.FakeRedis`` which returns a genuine
+# ``redis.client.PubSub`` instance, so they catch the
+# AttributeError-kills-listener bug that the hand-rolled fake hides.
+# --------------------------------------------------------------------------- #
+
+
+def _real_redis_client():
+    """Return a real redis-py PubSub-bearing client (fakeredis-backed)."""
+    fakeredis = pytest.importorskip("fakeredis")
+    return fakeredis.FakeRedis()
+
+
+def test_redis_bus_listener_thread_survives_with_real_pubsub() -> None:
+    """The listener thread must not crash on a real redis-py PubSub.
+
+    Regression: ``_run`` called ``pubsub.set_handler(...)`` which does not
+    exist on ``redis.client.PubSub`` in redis-py 5.x — the AttributeError
+    killed the listener thread immediately, so cross-replica delivery
+    silently never happened.
+    """
+    import time
+
+    bus = RedisEventBus(client=_real_redis_client(), channel="runs")
+    bus.start_listener()
+    try:
+        # Give the thread a moment to either subscribe or crash.
+        time.sleep(0.1)
+        assert bus._listener_thread is not None
+        assert bus._listener_thread.is_alive(), (
+            "redis-event-bus listener thread died (real PubSub API mismatch)"
+        )
+    finally:
+        bus.stop_listener()
+
+
+def test_redis_bus_delivers_cross_replica_with_real_pubsub() -> None:
+    """End-to-end cross-replica delivery using a real redis-py PubSub.
+
+    Two buses share one fakeredis server (in-memory broker); a publish on
+    bus A must reach a subscriber on bus B.  This only passes when the
+    listener thread stays alive and correctly dispatches messages from
+    ``get_message``.
+    """
+
+    fakeredis = pytest.importorskip("fakeredis")
+    # Two clients against the SAME server share the pub/sub channel.
+    server = fakeredis.FakeServer()
+    client_a = fakeredis.FakeStrictRedis(server=server)
+    client_b = fakeredis.FakeStrictRedis(server=server)
+
+    bus_a = RedisEventBus(client=client_a, channel="runs")
+    bus_b = RedisEventBus(client=client_b, channel="runs")
+    bus_a.start_listener()
+    bus_b.start_listener()
+    try:
+
+        async def scenario() -> None:
+            qid, queue = bus_b.subscribe("run_real")
+            # Let the subscription propagate through the broker.
+            await asyncio.sleep(0.05)
+            bus_a.publish(
+                RunEvent(
+                    run_id="run_real",
+                    event_type="tool_call.completed",
+                    payload={"t": "k"},
+                )
+            )
+            ev = await asyncio.wait_for(queue.get(), timeout=2.0)
+            assert ev.run_id == "run_real"
+            assert ev.event_type == "tool_call.completed"
+            bus_b.unsubscribe(run_id="run_real", queue_id=qid)
+
+        asyncio.run(scenario())
+    finally:
+        bus_a.stop_listener()
+        bus_b.stop_listener()

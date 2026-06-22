@@ -333,13 +333,14 @@ def test_kafka_sync_adapter_poll_returns_buffered_messages() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.skip(
-    reason="_SyncAdapter test runs a background asyncio thread that pollutes global loop state for downstream tests"
-)
 def test_sync_adapter_inner_class_poll_returns_queued_items() -> None:
     """White-box test of ``_SyncAdapter`` (now module-level in kafka_ingest):
     we instantiate it directly and verify ``poll()`` drains the bounded
     queue.  Pre-R27 the inner-class ``poll()`` returned ``[]``.
+
+    R28: the adapter now drives its own event loop via ``run_forever()``
+    in a dedicated thread (no global-loop pollution), so this end-to-end
+    poll() test no longer needs to be skipped.
     """
     from ai_employee.rca_agent.kafka_ingest import _SyncAdapter
 
@@ -347,10 +348,13 @@ def test_sync_adapter_inner_class_poll_returns_queued_items() -> None:
         async def start(self):
             return None
 
-        async def getmany(self, timeout_ms: int = 0, max_records: int = 0):
+        async def getmany(self, *, timeout_ms: int = 0, max_records: int = 0):
             return {}
 
         async def commit(self):
+            return None
+
+        async def stop(self):
             return None
 
     adapter = _SyncAdapter(_FakeAsyncConsumer())
@@ -382,3 +386,87 @@ def test_sync_adapter_poll_logic_drains_queue() -> None:
     )
     # The method should consult ``self._queue.get`` for items.
     assert "_queue.get" in src or "queue.get" in src
+
+
+# --------------------------------------------------------------------------- #
+# R28 fix: _SyncAdapter.close() must stop the consumer cleanly.
+# --------------------------------------------------------------------------- #
+
+
+class _TraceableAsyncConsumer:
+    """Async consumer that records every lifecycle method call.
+
+    Used to prove ``_SyncAdapter.close()`` actually drives the consumer
+    through ``stop()`` (and so the background getmany loop stops) rather
+    than just tearing down the event loop under in-flight coroutines.
+    """
+
+    def __init__(self) -> None:
+        self.stopped = False
+        self.stop_call_count = 0
+
+    async def start(self) -> None:
+        return None
+
+    async def getmany(self, *, timeout_ms: int = 200, max_records: int = 100):
+        # Yield control so the background loop can observe the stop flag.
+        import asyncio
+
+        await asyncio.sleep(0.01)
+        return {}
+
+    async def commit(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        self.stopped = True
+        self.stop_call_count += 1
+
+
+def test_sync_adapter_close_stops_consumer() -> None:
+    """close() must call consumer.stop() so the broker session is released."""
+    import time
+
+    from ai_employee.rca_agent.kafka_ingest import _SyncAdapter
+
+    consumer = _TraceableAsyncConsumer()
+    adapter = _SyncAdapter(consumer)
+    try:
+        # Let the background loop run a couple of getmany cycles.
+        time.sleep(0.05)
+    finally:
+        adapter.close()
+
+    assert consumer.stopped, (
+        "_SyncAdapter.close() did not call consumer.stop(); the Kafka "
+        "consumer session is leaked and the broker keeps the fetcher alive."
+    )
+
+
+def test_sync_adapter_close_does_not_leave_awaited_coroutines() -> None:
+    """close() must not leave start()/getmany() coroutines never-awaited.
+
+    Pre-R28, close() set _stop and joined the thread, but the thread's
+    ``finally`` closed the loop while ``consumer.start()`` (scheduled via
+    run_coroutine_threadsafe in __init__) and in-flight ``getmany()``
+    coroutines were still pending — Python emitted
+    ``RuntimeWarning: coroutine ... was never awaited``.  The fix must
+    drain those coroutines (or cancel them) before closing the loop.
+    """
+    import warnings as _warnings
+
+    from ai_employee.rca_agent.kafka_ingest import _SyncAdapter
+
+    consumer = _TraceableAsyncConsumer()
+    adapter = _SyncAdapter(consumer)
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        adapter.close()
+    leaked = [
+        str(w.message)
+        for w in caught
+        if issubclass(w.category, RuntimeWarning)
+        and "was never awaited" in str(w.message)
+        and ("start" in str(w.message) or "getmany" in str(w.message) or "stop" in str(w.message))
+    ]
+    assert not leaked, f"_SyncAdapter.close() leaked un-awaited coroutines: {leaked}"

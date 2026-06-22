@@ -8,6 +8,7 @@ boto3 is imported lazily inside :meth:`__init__` so environments that
 only need the LocalFs backend (tests, single-node dev) don't pay the
 import cost or need the dependency at all.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -53,16 +54,28 @@ class S3ObjectStore:
             from botocore.client import Config  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - import guard
             raise RuntimeError(
-                "boto3 is required for S3ObjectStore; install with "
-                "`pip install boto3`",
+                "boto3 is required for S3ObjectStore; install with `pip install boto3`",
             ) from exc
 
         self.bucket = bucket
         self.endpoint_url = endpoint_url or ""
 
+        # MinIO (and any non-AWS S3-compatible endpoint served from a single
+        # host without wildcard DNS) requires path-style addressing — i.e.
+        # ``http://minio:9000/bucket/key`` rather than the virtual-hosted
+        # ``http://bucket.minio:9000/key`` that boto3 picks by default.  The
+        # default fails DNS against a real MinIO deployment, so force
+        # ``addressing_style="path"`` whenever an explicit endpoint_url is
+        # given.  Vanilla AWS S3 (no endpoint_url) keeps virtual-hosted style.
+        s3_kwargs: dict[str, Any] = {}
+        if endpoint_url:
+            s3_kwargs["addressing_style"] = "path"
+
         kwargs: dict[str, Any] = {
             "region_name": region,
-            "config": Config(signature_version="s3v4"),
+            "config": Config(signature_version="s3v4", s3=s3_kwargs)
+            if s3_kwargs
+            else Config(signature_version="s3v4"),
         }
         if endpoint_url:
             kwargs["endpoint_url"] = endpoint_url
