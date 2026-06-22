@@ -36,9 +36,7 @@ def test_backup_script_has_shebang() -> None:
     """
     first_line = SCRIPT_PATH.read_text(encoding="utf-8").splitlines()[0]
     assert first_line.startswith("#!"), "backup.sh must start with a shebang"
-    assert "bash" in first_line, (
-        f"backup.sh shebang must invoke bash (got {first_line!r})"
-    )
+    assert "bash" in first_line, f"backup.sh shebang must invoke bash (got {first_line!r})"
 
 
 def test_backup_script_uses_strict_mode() -> None:
@@ -48,8 +46,7 @@ def test_backup_script_uses_strict_mode() -> None:
     # and the docstring comment).
     head = "\n".join(lines[:30])
     assert "set -euo pipefail" in head, (
-        "scripts/backup.sh must enable strict mode (set -euo pipefail) "
-        "within the first 30 lines"
+        "scripts/backup.sh must enable strict mode (set -euo pipefail) within the first 30 lines"
     )
 
 
@@ -112,9 +109,7 @@ def _load_cronjob() -> dict:
     for doc in docs:
         if isinstance(doc, dict) and doc.get("kind") == "CronJob":
             return doc
-    raise AssertionError(
-        f"no CronJob document found in {CRONJOB_PATH}"
-    )
+    raise AssertionError(f"no CronJob document found in {CRONJOB_PATH}")
 
 
 def test_backup_cronjob_runs_daily() -> None:
@@ -150,9 +145,7 @@ def test_backup_cronjob_invokes_backup_script() -> None:
     containers = data["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
     cmds = [c.get("command", []) for c in containers]
     flat = [str(part) for sublist in cmds for part in sublist]
-    assert any("backup.sh" in s for s in flat), (
-        "CronJob container must execute scripts/backup.sh"
-    )
+    assert any("backup.sh" in s for s in flat), "CronJob container must execute scripts/backup.sh"
 
 
 def test_backup_cronjob_has_pvc_mount() -> None:

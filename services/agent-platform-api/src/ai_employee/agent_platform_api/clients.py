@@ -51,9 +51,7 @@ class ApprovalServiceClient(Protocol):
 
     applies_run_side_effects: bool
 
-    def list_tasks(
-        self, *, status: str | None, page: int, page_size: int
-    ) -> dict[str, Any]: ...
+    def list_tasks(self, *, status: str | None, page: int, page_size: int) -> dict[str, Any]: ...
 
     def get_task(self, task_id: str) -> ApprovalTask | None: ...
 
@@ -248,10 +246,16 @@ class HttpMcpGatewayClient:
         return h
 
     def _post(self, path: str, json: dict[str, Any]) -> httpx.Response:  # pragma: no cover
-        return httpx.post(self.base_url + path, json=json, headers=self._headers(), timeout=self.timeout)
+        return httpx.post(
+            self.base_url + path, json=json, headers=self._headers(), timeout=self.timeout
+        )
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:  # pragma: no cover
-        return httpx.get(self.base_url + path, params=params, headers=self._headers(), timeout=self.timeout)
+    def _get(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> httpx.Response:  # pragma: no cover
+        return httpx.get(
+            self.base_url + path, params=params, headers=self._headers(), timeout=self.timeout
+        )
 
     def _check(self, resp: Any) -> dict[str, Any]:
         if resp.status_code >= 400:
@@ -513,9 +517,7 @@ class InMemoryApprovalServiceClient:
             raise RuntimeError("InMemoryApprovalServiceClient.store not bound")
         return self._store
 
-    def list_tasks(
-        self, *, status: str | None, page: int, page_size: int
-    ) -> dict[str, Any]:
+    def list_tasks(self, *, status: str | None, page: int, page_size: int) -> dict[str, Any]:
         tasks = list(self.store.approval_tasks.values())
         if status is not None:
             tasks = [t for t in tasks if t.status == status]
@@ -668,10 +670,16 @@ class HttpApprovalServiceClient:
     # to route through a TestClient) so the HTTP path can be exercised
     # hermetically without opening a socket.
     def _post(self, path: str, json: dict[str, Any]) -> httpx.Response:  # pragma: no cover
-        return httpx.post(self.base_url + path, json=json, headers=self._headers(), timeout=self.timeout)
+        return httpx.post(
+            self.base_url + path, json=json, headers=self._headers(), timeout=self.timeout
+        )
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:  # pragma: no cover
-        return httpx.get(self.base_url + path, params=params, headers=self._headers(), timeout=self.timeout)
+    def _get(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> httpx.Response:  # pragma: no cover
+        return httpx.get(
+            self.base_url + path, params=params, headers=self._headers(), timeout=self.timeout
+        )
 
     def _check(self, resp: Any) -> dict[str, Any]:
         status_code = resp.status_code
@@ -683,9 +691,7 @@ class HttpApprovalServiceClient:
             raise _ApprovalError(status_code, body)
         return body
 
-    def list_tasks(
-        self, *, status: str | None, page: int, page_size: int
-    ) -> dict[str, Any]:
+    def list_tasks(self, *, status: str | None, page: int, page_size: int) -> dict[str, Any]:
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         if status is not None:
             params["status"] = status
@@ -816,9 +822,7 @@ class FakeApprovalServiceClient:
     def seed(self, task: ApprovalTask) -> None:
         self._tasks[task.task_id] = task
 
-    def list_tasks(
-        self, *, status: str | None, page: int, page_size: int
-    ) -> dict[str, Any]:
+    def list_tasks(self, *, status: str | None, page: int, page_size: int) -> dict[str, Any]:
         self._record("list_tasks", status=status, page=page, page_size=page_size)
         tasks = list(self._tasks.values())
         if status is not None:
@@ -859,11 +863,15 @@ class FakeApprovalServiceClient:
         self._tasks[task_id] = updated
         return updated
 
-    def request_supplement(self, **kwargs: Any) -> ApprovalTask:  # pragma: no cover - not used in tests
+    def request_supplement(
+        self, **kwargs: Any
+    ) -> ApprovalTask:  # pragma: no cover - not used in tests
         self._record("request_supplement", **kwargs)
         raise NotImplementedError
 
-    def resolve_supplement(self, **kwargs: Any) -> ApprovalTask:  # pragma: no cover - not used in tests
+    def resolve_supplement(
+        self, **kwargs: Any
+    ) -> ApprovalTask:  # pragma: no cover - not used in tests
         self._record("resolve_supplement", **kwargs)
         raise NotImplementedError
 

@@ -10,6 +10,7 @@ States per tool name:
   - open:     calls fast-fail with :class:`CircuitOpenError`.
   - half-open: one trial call permitted after the recovery window.
 """
+
 from __future__ import annotations
 
 import time
@@ -47,8 +48,7 @@ class CircuitBreaker:
         state = self.state(tool_name)
         if state == "open":
             raise CircuitOpenError(
-                f"circuit open for tool {tool_name!r} "
-                f"(failures={self._failures.get(tool_name, 0)})"
+                f"circuit open for tool {tool_name!r} (failures={self._failures.get(tool_name, 0)})"
             )
         try:
             result = fn(*args, **kwargs)

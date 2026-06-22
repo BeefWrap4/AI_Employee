@@ -14,6 +14,7 @@ The wrapper deliberately does NOT introduce an ORM.  The existing stores
 already use hand-written SQL; this keeps their SQL intact while making
 the backend swappable.  An ORM migration is a future concern.
 """
+
 from __future__ import annotations
 
 import os
@@ -48,8 +49,7 @@ def detect_backend(url: str | None) -> Backend:
     if scheme in {"sqlite", "sqlite3"}:
         return Backend.SQLITE
     raise ValueError(
-        f"unsupported database scheme: {scheme or url!r}; "
-        "expected sqlite:/// or postgres://",
+        f"unsupported database scheme: {scheme or url!r}; expected sqlite:/// or postgres://",
     )
 
 
@@ -209,7 +209,9 @@ class _DictCursor:
             if isinstance(col, str):
                 cols.append(col)
             else:
-                cols.append(col[0] if isinstance(col, (tuple, list)) else getattr(col, "name", str(col)))
+                cols.append(
+                    col[0] if isinstance(col, (tuple, list)) else getattr(col, "name", str(col))
+                )
         return cols
 
     def fetchone(self) -> dict[str, Any] | None:
@@ -294,9 +296,9 @@ def _sqlite_path(url: str) -> str:
 def _normalise_postgres_url(url: str) -> str:
     """psycopg accepts ``postgresql://`` (and ``postgres://`` via alias)."""
     if url.startswith("postgresql+psycopg://"):
-        return "postgresql://" + url[len("postgresql+psycopg://"):]
+        return "postgresql://" + url[len("postgresql+psycopg://") :]
     if url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://"):]
+        return "postgresql://" + url[len("postgres://") :]
     return url
 
 

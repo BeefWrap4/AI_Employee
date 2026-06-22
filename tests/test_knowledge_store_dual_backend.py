@@ -11,6 +11,7 @@ document + chunk lifecycle against:
 The factory :func:`build_knowledge_store` picks :class:`SQLiteStore`
 (default, unchanged) or :class:`PgKnowledgeStore` (Postgres).
 """
+
 from __future__ import annotations
 
 import os
@@ -60,7 +61,8 @@ def _safe_uri(tmp_path, name: str) -> str:
 
 
 def test_build_knowledge_store_defaults_to_sqlite(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     store = build_knowledge_store(
@@ -71,7 +73,8 @@ def test_build_knowledge_store_defaults_to_sqlite(
 
 
 def test_build_knowledge_store_sqlite_url(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/k.sqlite3")
     store = build_knowledge_store(data_dir=str(tmp_path))
@@ -123,12 +126,20 @@ def test_list_documents_returns_created(tmp_path) -> None:
     for _label, db in _dbs(tmp_path):
         store = _store(db, tmp_path)
         store.create_document(
-            title="a", source_uri=_safe_uri(tmp_path, "a"), mime_type="text/plain",
-            metadata={}, acl_tags=[], version="v1",
+            title="a",
+            source_uri=_safe_uri(tmp_path, "a"),
+            mime_type="text/plain",
+            metadata={},
+            acl_tags=[],
+            version="v1",
         )
         store.create_document(
-            title="b", source_uri=_safe_uri(tmp_path, "b"), mime_type="text/plain",
-            metadata={}, acl_tags=[], version="v1",
+            title="b",
+            source_uri=_safe_uri(tmp_path, "b"),
+            mime_type="text/plain",
+            metadata={},
+            acl_tags=[],
+            version="v1",
         )
         docs = store.list_documents()
         titles = {d["title"] for d in docs}
@@ -139,8 +150,12 @@ def test_create_chunk_and_retrieve(tmp_path) -> None:
     for _label, db in _dbs(tmp_path):
         store = _store(db, tmp_path)
         doc_id = store.create_document(
-            title="x", source_uri=_safe_uri(tmp_path, "x"), mime_type="text/plain",
-            metadata={}, acl_tags=[], version="v1",
+            title="x",
+            source_uri=_safe_uri(tmp_path, "x"),
+            mime_type="text/plain",
+            metadata={},
+            acl_tags=[],
+            version="v1",
         )
         store.create_chunk(
             doc_id=doc_id,
@@ -162,8 +177,12 @@ def test_update_parse_status(tmp_path) -> None:
     for _label, db in _dbs(tmp_path):
         store = _store(db, tmp_path)
         doc_id = store.create_document(
-            title="x", source_uri=_safe_uri(tmp_path, "x"), mime_type="text/plain",
-            metadata={}, acl_tags=[], version="v1",
+            title="x",
+            source_uri=_safe_uri(tmp_path, "x"),
+            mime_type="text/plain",
+            metadata={},
+            acl_tags=[],
+            version="v1",
         )
         store.update_parse_status(doc_id, "ready", chunk_count=3)
         doc = store.get_document(doc_id)
@@ -182,8 +201,12 @@ def test_invalid_status_transition_rejected(tmp_path) -> None:
     for _label, db in _dbs(tmp_path):
         store = _store(db, tmp_path)
         doc_id = store.create_document(
-            title="x", source_uri=_safe_uri(tmp_path, "x"), mime_type="text/plain",
-            metadata={}, acl_tags=[], version="v1",
+            title="x",
+            source_uri=_safe_uri(tmp_path, "x"),
+            mime_type="text/plain",
+            metadata={},
+            acl_tags=[],
+            version="v1",
         )
         # uploaded -> published is not a valid transition.
         with pytest.raises(Exception):
@@ -231,12 +254,19 @@ def test_pg_store_runs_against_sqlite_db(tmp_path) -> None:
     assert store.backend == Backend.SQLITE
     store.init_schema()
     doc_id = store.create_document(
-        title="t", source_uri=_safe_uri(tmp_path, "t"), mime_type="text/plain",
-        metadata={}, acl_tags=[], version="v1",
+        title="t",
+        source_uri=_safe_uri(tmp_path, "t"),
+        mime_type="text/plain",
+        metadata={},
+        acl_tags=[],
+        version="v1",
     )
     assert store.get_document(doc_id)["title"] == "t"
     store.create_chunk(
-        doc_id=doc_id, chunk_no=0, content="c", section_path="root",
+        doc_id=doc_id,
+        chunk_no=0,
+        content="c",
+        section_path="root",
     )
     assert len(store.get_chunks_for_doc(doc_id)) == 1
 
@@ -251,7 +281,11 @@ def test_pg_store_runs_against_live_postgres(tmp_path) -> None:
     assert store.backend == Backend.POSTGRES
     store.init_schema()
     doc_id = store.create_document(
-        title="pg-doc", source_uri=os.path.abspath("./var/data/raw/pg-doc"),
-        mime_type="text/plain", metadata={}, acl_tags=[], version="v1",
+        title="pg-doc",
+        source_uri=os.path.abspath("./var/data/raw/pg-doc"),
+        mime_type="text/plain",
+        metadata={},
+        acl_tags=[],
+        version="v1",
     )
     assert store.get_document(doc_id)["title"] == "pg-doc"

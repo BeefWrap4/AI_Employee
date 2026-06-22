@@ -1,4 +1,5 @@
 """Tool governance: tool_call_log, health check, timeout, circuit breaker."""
+
 from __future__ import annotations
 
 import time
@@ -20,8 +21,12 @@ def test_toolspec_defaults_governance_fields() -> None:
 
 def test_toolspec_to_mcp_includes_governance() -> None:
     spec = ToolSpec(
-        name="x", description="d", input_schema={}, output_schema={},
-        timeout_ms=2000, retry_policy={"max_retries": 2},
+        name="x",
+        description="d",
+        input_schema={},
+        output_schema={},
+        timeout_ms=2000,
+        retry_policy={"max_retries": 2},
         health_check_url="http://x/health",
     )
     meta = spec.to_mcp_tool()["metadata"]
@@ -36,9 +41,13 @@ def test_toolspec_to_mcp_includes_governance() -> None:
 def test_tool_call_log_records_invocation(tmp_path) -> None:
     store = ToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     log_id = store.record(
-        run_id="run_001", tool_name="echo",
-        input={"text": "hi"}, output_summary='{"echo":"hi"}',
-        status="success", latency_ms=12, error_code=None,
+        run_id="run_001",
+        tool_name="echo",
+        input={"text": "hi"},
+        output_summary='{"echo":"hi"}',
+        status="success",
+        latency_ms=12,
+        error_code=None,
     )
     assert log_id.startswith("tcl_")
     rows = store.list_for_run("run_001")
@@ -51,9 +60,13 @@ def test_tool_call_log_records_invocation(tmp_path) -> None:
 def test_tool_call_log_records_failure(tmp_path) -> None:
     store = ToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     store.record(
-        run_id="run_002", tool_name="boom",
-        input={}, output_summary="",
-        status="failed", latency_ms=50, error_code="TIMEOUT",
+        run_id="run_002",
+        tool_name="boom",
+        input={},
+        output_summary="",
+        status="failed",
+        latency_ms=50,
+        error_code="TIMEOUT",
     )
     rows = store.list_for_run("run_002")
     assert rows[0]["status"] == "failed"
@@ -62,9 +75,33 @@ def test_tool_call_log_records_failure(tmp_path) -> None:
 
 def test_tool_call_log_success_rate(tmp_path) -> None:
     store = ToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
-    store.record(run_id="r", tool_name="t", input={}, output_summary="", status="success", latency_ms=10, error_code=None)
-    store.record(run_id="r", tool_name="t", input={}, output_summary="", status="success", latency_ms=20, error_code=None)
-    store.record(run_id="r", tool_name="t", input={}, output_summary="", status="failed", latency_ms=30, error_code="ERR")
+    store.record(
+        run_id="r",
+        tool_name="t",
+        input={},
+        output_summary="",
+        status="success",
+        latency_ms=10,
+        error_code=None,
+    )
+    store.record(
+        run_id="r",
+        tool_name="t",
+        input={},
+        output_summary="",
+        status="success",
+        latency_ms=20,
+        error_code=None,
+    )
+    store.record(
+        run_id="r",
+        tool_name="t",
+        input={},
+        output_summary="",
+        status="failed",
+        latency_ms=30,
+        error_code="ERR",
+    )
     rate = store.success_rate(tool_name="t")
     assert rate == pytest.approx(2 / 3)
 
@@ -72,7 +109,15 @@ def test_tool_call_log_success_rate(tmp_path) -> None:
 def test_tool_call_log_paginates(tmp_path) -> None:
     store = ToolCallLogStore(db_path=str(tmp_path / "calls.sqlite3"))
     for i in range(5):
-        store.record(run_id="r", tool_name="t", input={}, output_summary="", status="success", latency_ms=i, error_code=None)
+        store.record(
+            run_id="r",
+            tool_name="t",
+            input={},
+            output_summary="",
+            status="success",
+            latency_ms=i,
+            error_code=None,
+        )
     rows, total = store.list(page=1, page_size=2)
     assert total == 5
     assert len(rows) == 2

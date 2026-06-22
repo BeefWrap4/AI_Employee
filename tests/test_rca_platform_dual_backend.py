@@ -6,6 +6,7 @@ so the same SQL runs on SQLite and Postgres.  We prove portability by
 running the persistence contract against a SQLite DB (always) and a
 live Postgres (when ``TEST_POSTGRES_URL`` is set).
 """
+
 from __future__ import annotations
 
 import os
@@ -52,9 +53,16 @@ def _dbs(tmp_path):
 
 def _raw_alarm(alarm_id: str = "a1") -> RawAlarmEvent:
     return RawAlarmEvent(
-        alarm_id=alarm_id, alarm_code="LINK_DEGRADE", alarm_name="link down",
-        vendor="huawei", site_id="SITE-001", cell_id="CELL-1", ne_id="NE-1",
-        severity="major", start_time="2026-06-18T10:00:00+08:00", raw_payload={},
+        alarm_id=alarm_id,
+        alarm_code="LINK_DEGRADE",
+        alarm_name="link down",
+        vendor="huawei",
+        site_id="SITE-001",
+        cell_id="CELL-1",
+        ne_id="NE-1",
+        severity="major",
+        start_time="2026-06-18T10:00:00+08:00",
+        raw_payload={},
     )
 
 
@@ -68,9 +76,14 @@ def _alarm_event(alarm_id: str = "a1") -> AlarmEvent:
 
 def _incident(incident_id: str = "inc_001") -> IncidentResponse:
     return IncidentResponse(
-        incident_id=incident_id, title="SITE-001 link down", status="analyzing",
-        severity="major", site_id="SITE-001", primary_alarm=_alarm_event(),
-        related_alarm_count=0, alarm_events=[_alarm_event()],
+        incident_id=incident_id,
+        title="SITE-001 link down",
+        status="analyzing",
+        severity="major",
+        site_id="SITE-001",
+        primary_alarm=_alarm_event(),
+        related_alarm_count=0,
+        alarm_events=[_alarm_event()],
     )
 
 
@@ -80,7 +93,8 @@ def _incident(incident_id: str = "inc_001") -> IncidentResponse:
 
 
 def test_build_rca_store_defaults_to_sqlite(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     store = build_rca_store(db_path=str(tmp_path / "r.sqlite3"))
@@ -88,7 +102,8 @@ def test_build_rca_store_defaults_to_sqlite(
 
 
 def test_build_rca_store_sqlite_url(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/r.sqlite3")
     store = build_rca_store()
@@ -145,14 +160,24 @@ def test_rca_save_run_and_report(tmp_path) -> None:
         store = PgRcaStore(db=db)
         store.init_schema()
         run = RcaRunResponse(
-            run_id="rca_run_001", incident_id="inc_001", report_id="rca_report_001",
-            status="accepted", current_node="HumanReview", trace_id="trace-1",
-            state_history=["AlarmReceived", "HumanReview"], evidence_count=0,
-            evidence=[], hypotheses=[],
+            run_id="rca_run_001",
+            incident_id="inc_001",
+            report_id="rca_report_001",
+            status="accepted",
+            current_node="HumanReview",
+            trace_id="trace-1",
+            state_history=["AlarmReceived", "HumanReview"],
+            evidence_count=0,
+            evidence=[],
+            hypotheses=[],
         )
         report = RcaReportResponse(
-            report_id="rca_report_001", run_id="rca_run_001", incident_id="inc_001",
-            report_markdown="# RCA", hypotheses=[], evidence=[],
+            report_id="rca_report_001",
+            run_id="rca_run_001",
+            incident_id="inc_001",
+            report_markdown="# RCA",
+            hypotheses=[],
+            evidence=[],
             review_status="accepted",
         )
         store.save_run(run)

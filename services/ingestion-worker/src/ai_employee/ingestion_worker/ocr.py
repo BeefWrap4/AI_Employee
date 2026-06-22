@@ -15,6 +15,7 @@ Backends:
 
 Env: ``OCR_BACKEND`` = ``rapidocr`` | ``tesseract`` | ``disabled`` (default).
 """
+
 from __future__ import annotations
 
 import os
@@ -233,11 +234,7 @@ class QwenVlOcrBackend:
             or os.getenv("SILICONFLOW_BASE_URL", _DEFAULT_BAILIAN_BASE_URL)
         ).rstrip("/")
         # Resolve model: explicit arg > QWEN_VL_OCR_MODEL > default.
-        self.model = (
-            model
-            or os.getenv("QWEN_VL_OCR_MODEL")
-            or _DEFAULT_OCR_MODEL
-        )
+        self.model = model or os.getenv("QWEN_VL_OCR_MODEL") or _DEFAULT_OCR_MODEL
         self.timeout = timeout_seconds
         # Available iff a key is configured; the VLM is always hosted.
         self.available = bool(self.api_key)

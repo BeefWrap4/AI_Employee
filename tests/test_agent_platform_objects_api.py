@@ -7,6 +7,7 @@
   no OBJECT_STORE_URL the upload URL is a same-origin /api/v1/objects
   link.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

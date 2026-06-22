@@ -4,6 +4,7 @@ Verifies that ``/api/v1/chat/query`` injects prior session chunks + answers
 into the LLM prompt as ``context_str`` so follow-up questions can resolve
 pronouns / references against earlier turns.
 """
+
 from __future__ import annotations
 
 import json
@@ -73,9 +74,7 @@ def _upload_and_publish(client: TestClient) -> str:
     return doc_id
 
 
-def test_followup_includes_prior_chunks_and_answer_in_context_str(
-    api_factory, monkeypatch
-) -> None:
+def test_followup_includes_prior_chunks_and_answer_in_context_str(api_factory, monkeypatch) -> None:
     client = api_factory()
     _upload_and_publish(client)
     capturing = _CapturingClient()

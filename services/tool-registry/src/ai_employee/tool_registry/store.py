@@ -97,7 +97,9 @@ class ToolRegistryStore:
                         payload.get("service_name"),
                         payload.get("version", "v1"),
                         int(payload.get("timeout_ms", 5000)),
-                        json.dumps(payload.get("retry_policy", {"max_retries": 0}), ensure_ascii=False),
+                        json.dumps(
+                            payload.get("retry_policy", {"max_retries": 0}), ensure_ascii=False
+                        ),
                         payload.get("health_check_url"),
                         now,
                         now,
@@ -119,7 +121,9 @@ class ToolRegistryStore:
                         payload.get("service_name"),
                         payload.get("version", "v1"),
                         int(payload.get("timeout_ms", 5000)),
-                        json.dumps(payload.get("retry_policy", {"max_retries": 0}), ensure_ascii=False),
+                        json.dumps(
+                            payload.get("retry_policy", {"max_retries": 0}), ensure_ascii=False
+                        ),
                         payload.get("health_check_url"),
                         now,
                         payload["name"],
@@ -169,7 +173,11 @@ class ToolRegistryStore:
                        updated_at = ?
                    WHERE name = ?""",
                 (
-                    status, float(latency_ms), error, _now_iso(), _now_iso(),
+                    status,
+                    float(latency_ms),
+                    error,
+                    _now_iso(),
+                    _now_iso(),
                     name,
                 ),
             )

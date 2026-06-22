@@ -6,6 +6,7 @@ answer to a target locale.  Locale can be supplied via:
   - ``X-Locale`` header
   - auto-detection from the question (fallback)
 """
+
 from __future__ import annotations
 
 from ai_employee.knowledge_api.i18n import (
@@ -95,7 +96,8 @@ def test_resolve_locale_header_used_when_no_explicit() -> None:
 
 def test_resolve_locale_detects_from_question() -> None:
     locale = resolve_locale(
-        explicit=None, header=None,
+        explicit=None,
+        header=None,
         question="什么是 RRC 建立失败？",
     )
     assert locale == "zh-CN"
@@ -103,7 +105,8 @@ def test_resolve_locale_detects_from_question() -> None:
 
 def test_resolve_locale_unsupported_header_falls_back_to_detection() -> None:
     locale = resolve_locale(
-        explicit=None, header="fr-FR",
+        explicit=None,
+        header="fr-FR",
         question="什么是 RRC？",
     )
     assert locale == "zh-CN"

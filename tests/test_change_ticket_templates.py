@@ -5,6 +5,7 @@ change_assessment, ticket_summary) must each be reachable via the
 agent-run endpoint, return their declared output schema, and route to
 the right tools.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -79,8 +80,11 @@ def test_all_five_templates_listed() -> None:
     assert resp.status_code == 200
     ids = {t["template_id"] for t in resp.json()["items"]}
     expected = {
-        "knowledge_qa", "rca", "inspection",
-        "change_assessment", "ticket_summary",
+        "knowledge_qa",
+        "rca",
+        "inspection",
+        "change_assessment",
+        "ticket_summary",
     }
     assert expected.issubset(ids), f"missing templates: {expected - ids}"
 

@@ -4,6 +4,7 @@ Liveness = "process is alive" (cheap, always ok unless the process is
 about to exit).  Readiness = "downstream deps are reachable and the
 service can serve traffic" (probes DB / Redis / downstream services).
 """
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.health import (
@@ -140,7 +141,10 @@ def test_readiness_endpoint_503_when_dep_unhealthy(monkeypatch) -> None:
 
     def fake_check_sqlite(path: str):
         return health_mod.DependencyCheck(
-            name="sqlite", healthy=False, latency_ms=0.0, error="boom",
+            name="sqlite",
+            healthy=False,
+            latency_ms=0.0,
+            error="boom",
         )
 
     monkeypatch.setattr(health_mod, "check_sqlite", fake_check_sqlite)

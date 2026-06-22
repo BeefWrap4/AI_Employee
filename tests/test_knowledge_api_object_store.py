@@ -5,6 +5,7 @@ ingestion worker can read it (the parser is path-based).  In addition,
 the same bytes are stored under ``documents/{uuid}.{ext}`` in the
 configured :class:`ObjectStore` (LocalFs by default in dev/test).
 """
+
 from __future__ import annotations
 
 import os

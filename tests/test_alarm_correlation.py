@@ -4,6 +4,7 @@ Covers dedup by fingerprint, time-window grouping, primary/companion
 selection, and topology-aware aggregation — the gap flagged in the
 gap analysis (`del time_window_minutes` was a stub).
 """
+
 from __future__ import annotations
 
 from ai_employee.rca_agent.runtime import RcaStore, build_incident
@@ -48,7 +49,9 @@ def test_dedup_drops_duplicate_fingerprints() -> None:
 def test_distinct_alarms_within_window_group_into_one_incident() -> None:
     store = RcaStore()
     alarms = [
-        _alarm("a_001", code="LINK_DEGRADE", severity="critical", start="2026-06-17T10:00:00+08:00"),
+        _alarm(
+            "a_001", code="LINK_DEGRADE", severity="critical", start="2026-06-17T10:00:00+08:00"
+        ),
         _alarm("a_002", code="RRC_SETUP_FAIL", severity="major", start="2026-06-17T10:10:00+08:00"),
     ]
     incident = build_incident(store, alarms, time_window_minutes=30)
@@ -74,7 +77,9 @@ def test_primary_selected_by_severity_then_earliest_time() -> None:
     store = RcaStore()
     alarms = [
         _alarm("a_001", code="RRC_SETUP_FAIL", severity="minor", start="2026-06-17T10:00:00+08:00"),
-        _alarm("a_002", code="LINK_DEGRADE", severity="critical", start="2026-06-17T10:05:00+08:00"),
+        _alarm(
+            "a_002", code="LINK_DEGRADE", severity="critical", start="2026-06-17T10:05:00+08:00"
+        ),
         _alarm("a_003", code="POWER_ALARM", severity="critical", start="2026-06-17T10:02:00+08:00"),
     ]
     incident = build_incident(store, alarms, time_window_minutes=30)

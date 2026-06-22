@@ -1,4 +1,5 @@
 """OpenTelemetry SDK + OTLP export tests (spec 三 spec §可观测 OpenTelemetry)."""
+
 from __future__ import annotations
 
 import pytest

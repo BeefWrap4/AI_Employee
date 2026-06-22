@@ -14,6 +14,7 @@ extra guards:
 Backward compat: the default ``max_attempts=1`` means the adapter
 behaves identically to the pre-R25 single-shot path (regression-free).
 """
+
 from __future__ import annotations
 
 from typing import Any

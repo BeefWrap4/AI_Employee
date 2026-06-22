@@ -16,6 +16,7 @@ can't catch:
 Each test is independent and uses the in-memory stores so no external
 services are required.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,10 +58,13 @@ def test_websocket_streams_run_creation_event() -> None:
     # Publish a synthetic event for that run and confirm the WS delivers it.
     from ai_employee.agent_platform_api.events import RunEvent
 
-    platform_bus.publish(RunEvent(
-        run_id=run_id, event_type="run.step_changed",
-        payload={"node": "ToolPlan"},
-    ))
+    platform_bus.publish(
+        RunEvent(
+            run_id=run_id,
+            event_type="run.step_changed",
+            payload={"node": "ToolPlan"},
+        )
+    )
     with client.websocket_connect(f"/api/v1/ws/runs/{run_id}") as ws:
         frame = json.loads(ws.receive_text())
     assert frame["run_id"] == run_id
@@ -162,7 +166,9 @@ def test_ab_bucketing_deterministic_across_calls() -> None:
     store = ABExperimentStore()
     store.create(
         experiment_id="exp_qwen_vs_gpt",
-        control="qwen", treatment="gpt4o", traffic_split=0.5,
+        control="qwen",
+        treatment="gpt4o",
+        traffic_split=0.5,
     )
     exp = store.get("exp_qwen_vs_gpt")
     assert exp is not None
@@ -174,7 +180,10 @@ def test_ab_bucketing_deterministic_across_calls() -> None:
 def test_ab_bucketing_different_subjects_can_differ() -> None:
     """With a 0.5 split across many subjects, both variants get traffic."""
     exp = ABExperiment(
-        experiment_id="exp1", control="c", treatment="t", traffic_split=0.5,
+        experiment_id="exp1",
+        control="c",
+        treatment="t",
+        traffic_split=0.5,
     )
     variants = {assign_variant(exp, bucket_key=f"u{i}") for i in range(500)}
     assert variants == {"c", "t"}
@@ -189,14 +198,16 @@ def test_document_version_diff_round_trip() -> None:
     """Two versions of one doc produce an add/remove/modified diff."""
     store = VersionStore()
     store.create(
-        doc_id="d1", version="v1",
+        doc_id="d1",
+        version="v1",
         chunks=[
             {"chunk_id": "c1", "content": "alpha", "section_path": "root"},
             {"chunk_id": "c2", "content": "beta", "section_path": "root"},
         ],
     )
     store.create(
-        doc_id="d1", version="v2",
+        doc_id="d1",
+        version="v2",
         chunks=[
             {"chunk_id": "c1", "content": "alpha-updated", "section_path": "root"},
             {"chunk_id": "c3", "content": "gamma", "section_path": "root"},
@@ -221,7 +232,10 @@ def test_readiness_probe_503_when_dep_unhealthy(monkeypatch: pytest.MonkeyPatch)
 
     def fake_check_sqlite(path: str) -> health_mod.DependencyCheck:
         return health_mod.DependencyCheck(
-            name="sqlite", healthy=False, latency_ms=0.0, error="boom",
+            name="sqlite",
+            healthy=False,
+            latency_ms=0.0,
+            error="boom",
         )
 
     monkeypatch.setattr(health_mod, "check_sqlite", fake_check_sqlite)
@@ -273,7 +287,7 @@ def test_upload_progress_sse_replays_snapshot() -> None:
             body = resp.read().decode("utf-8")
         frames = [line for line in body.split("\n") if line.startswith("data: ")]
         assert frames
-        first = json.loads(frames[0][len("data: "):])
+        first = json.loads(frames[0][len("data: ") :])
         assert first["doc_id"] == "doc-sse"
         assert first["stage"] == "completed"
         assert first["percent"] == 100.0

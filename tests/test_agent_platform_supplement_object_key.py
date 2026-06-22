@@ -5,6 +5,7 @@ attachments.  R22 lets callers reference objects uploaded via
 ``POST /api/v1/objects`` — the platform resolves the key into a
 download URL through the configured object store.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -89,7 +90,5 @@ def test_supplement_with_inline_uri_still_works(platform_with_supplement: TestCl
         normalize_attachments,
     )
 
-    normalized = normalize_attachments(
-        [{"name": "manual.txt", "uri": "https://example.com/x.txt"}]
-    )
+    normalized = normalize_attachments([{"name": "manual.txt", "uri": "https://example.com/x.txt"}])
     assert normalized[0]["uri"] == "https://example.com/x.txt"

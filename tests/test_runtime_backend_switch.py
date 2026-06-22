@@ -3,6 +3,7 @@
 Verifies the env-driven backend selection doesn't break the default
 DAG path and that ``langgraph`` returns the LangGraph runtime.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,6 +26,7 @@ def test_langgraph_backend_returns_runtime(monkeypatch: pytest.MonkeyPatch) -> N
     runtime = select_runtime()
     assert runtime is not None
     from ai_employee.agent_platform_api.langgraph_runtime import LangGraphRuntime
+
     assert isinstance(runtime, LangGraphRuntime)
 
 

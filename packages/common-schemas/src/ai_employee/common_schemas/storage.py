@@ -19,6 +19,7 @@ Postgres support is lazy: :class:`PostgresBackend` imports
 ``psycopg2`` only when instantiated, so the package stays importable
 in environments that don't have it installed.
 """
+
 from __future__ import annotations
 
 import os

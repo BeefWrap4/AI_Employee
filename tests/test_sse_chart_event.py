@@ -4,6 +4,7 @@ Verifies that ``/api/v1/chat/query/stream`` emits an additional
 ``event: chart`` SSE event with ``chart_id`` + ``schema_url`` alongside
 the existing ``meta`` / ``token`` / ``citations`` / ``done`` events.
 """
+
 from __future__ import annotations
 
 import json
@@ -97,7 +98,7 @@ def test_stream_emits_chart_event_with_id_and_schema_url(api_factory) -> None:
         if "event: chart" in block:
             for ln in block.splitlines():
                 if ln.startswith("data: "):
-                    chart_payload = json.loads(ln[len("data: "):])
+                    chart_payload = json.loads(ln[len("data: ") :])
                     break
             break
     assert chart_payload is not None, f"chart event missing in SSE: {body[:400]}"

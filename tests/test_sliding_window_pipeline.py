@@ -6,6 +6,7 @@
 across chunk boundaries.  This wires ``sliding_window_chunk`` into the
 main pipeline, env-gated so the boundary strategy remains available.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -123,7 +124,8 @@ def test_chunk_sections_preserves_section_path(
     monkeypatch.setenv("CHUNK_STRATEGY", "sliding")
     long_block = _long_text(1000)
     chunks = chunk_sections(
-        "d1", [ParsedSection(section_path="Page 3", blocks=[long_block])],
+        "d1",
+        [ParsedSection(section_path="Page 3", blocks=[long_block])],
     )
     assert all(c.section_path == "Page 3" for c in chunks)
 

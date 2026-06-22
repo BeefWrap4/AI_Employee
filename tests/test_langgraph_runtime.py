@@ -10,6 +10,7 @@ When a template requires approval, the graph pauses at
 approval endpoints then drive the decision.  This keeps the public
 HTTP contract identical to the self-built runtime.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,11 +24,13 @@ from ai_employee.agent_platform_api.schemas import AgentRunCreate
 def _payload(template_id: str, *, requires_approval: bool = False) -> AgentRunCreate:
     if template_id == "knowledge_qa":
         return AgentRunCreate(
-            template_id="knowledge_qa", requested_by="alice",
+            template_id="knowledge_qa",
+            requested_by="alice",
             input={"question": "什么是 RRC？"},
         )
     return AgentRunCreate(
-        template_id=template_id, requested_by="alice",
+        template_id=template_id,
+        requested_by="alice",
         input={"incident_id": "inc_001"},
     )
 

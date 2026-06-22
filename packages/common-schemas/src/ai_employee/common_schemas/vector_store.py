@@ -63,7 +63,7 @@ def _safe_import_pymilvus() -> None:
         import pymilvus  # noqa: F401
     except ImportError as exc:
         raise ImportError(
-            "pymilvus is required for MilvusVectorStore. " "Install it with: pip install pymilvus"
+            "pymilvus is required for MilvusVectorStore. Install it with: pip install pymilvus"
         ) from exc
 
 

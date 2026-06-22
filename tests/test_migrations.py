@@ -4,6 +4,7 @@ Verifies the baseline migration applies cleanly to a fresh SQLite DB,
 creates every expected table, and that ``downgrade`` removes them.
 Runs Alembic programmatically (no shell) so the test works in CI.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -37,9 +38,16 @@ def _tables(db_path: str) -> set[str]:
 
 
 EXPECTED_TABLES = {
-    "documents", "chunks", "chunks_fts", "qa_logs", "feedbacks",
-    "rca_objects", "candidate_knowledge",
-    "agent_runs", "agent_run_events", "eval_runs",
+    "documents",
+    "chunks",
+    "chunks_fts",
+    "qa_logs",
+    "feedbacks",
+    "rca_objects",
+    "candidate_knowledge",
+    "agent_runs",
+    "agent_run_events",
+    "eval_runs",
     "tools",
     "approval_tasks",
 }

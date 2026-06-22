@@ -85,9 +85,7 @@ def resilient_fetch(op: Callable[[], T], *, timeout_ms: int = 5000) -> T:
                 if backoff > 0:
                     _time.sleep(backoff)
                 continue
-            raise _FetchTimeoutError(
-                f"fetch timed out after {timeout_ms}ms ({attempt} attempt(s))"
-            )
+            raise _FetchTimeoutError(f"fetch timed out after {timeout_ms}ms ({attempt} attempt(s))")
         if "error" in holder:
             exc = holder["error"]
             if attempt < max_attempts:
@@ -103,9 +101,7 @@ def resilient_fetch(op: Callable[[], T], *, timeout_ms: int = 5000) -> T:
 
             if isinstance(exc, _FetchTimeoutError):
                 raise AdapterUnavailable(str(exc)) from exc
-            raise AdapterUnavailable(
-                f"fetch failed after {attempt} attempt(s): {exc}"
-            ) from exc
+            raise AdapterUnavailable(f"fetch failed after {attempt} attempt(s): {exc}") from exc
         return holder["result"]  # type: ignore[return-value]
 
     # Defensive — should not reach here.

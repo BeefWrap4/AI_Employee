@@ -1,4 +1,5 @@
 """Tenant middleware + whoami endpoint tests."""
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app

@@ -16,6 +16,7 @@ All three follow the same pluggable client pattern: ``adapter`` takes
 an injected client, ``build_*_adapter`` wires a default client from
 env vars.
 """
+
 from __future__ import annotations
 
 import os
@@ -67,10 +68,13 @@ class FakeCMDBClient:
         with self._lock:
             self._assets = list(assets)
 
-    def list_assets(self, *, site_id: str | None = None, vendor: str | None = None) -> list[CMDBAsset]:
+    def list_assets(
+        self, *, site_id: str | None = None, vendor: str | None = None
+    ) -> list[CMDBAsset]:
         with self._lock:
             return [
-                a for a in self._assets
+                a
+                for a in self._assets
                 if (site_id is None or a.site_id == site_id)
                 and (vendor is None or a.vendor == vendor)
             ]
@@ -85,7 +89,9 @@ class HttpCMDBClient:
         ).rstrip("/")
         self._timeout_s = timeout_s
 
-    def list_assets(self, *, site_id: str | None = None, vendor: str | None = None) -> list[CMDBAsset]:
+    def list_assets(
+        self, *, site_id: str | None = None, vendor: str | None = None
+    ) -> list[CMDBAsset]:
         params: dict[str, str] = {}
         if site_id:
             params["site_id"] = site_id
@@ -103,7 +109,10 @@ class CMDBAdapter:
         self._client = client
 
     def query_assets(
-        self, *, site_id: str | None = None, vendor: str | None = None,
+        self,
+        *,
+        site_id: str | None = None,
+        vendor: str | None = None,
     ) -> list[CMDBAsset]:
         return self._client.list_assets(site_id=site_id, vendor=vendor)
 
@@ -198,7 +207,9 @@ class HttpTicketClient:
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
         resp = httpx.post(
             f"{self.base_url}/api/v1/tickets",
-            headers=headers, json=payload, timeout=self._timeout_s,
+            headers=headers,
+            json=payload,
+            timeout=self._timeout_s,
         )
         resp.raise_for_status()
         return resp.json()
@@ -207,7 +218,8 @@ class HttpTicketClient:
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
         resp = httpx.get(
             f"{self.base_url}/api/v1/tickets/{ticket_id}",
-            headers=headers, timeout=self._timeout_s,
+            headers=headers,
+            timeout=self._timeout_s,
         )
         if resp.status_code == 404:
             return None
@@ -230,13 +242,15 @@ class TicketAdapter:
         severity: str = "major",
         description: str = "",
     ) -> TicketRecord:
-        body = self._client.create({
-            "title": title,
-            "source_report_id": source_report_id,
-            "priority": priority,
-            "severity": severity,
-            "description": description,
-        })
+        body = self._client.create(
+            {
+                "title": title,
+                "source_report_id": source_report_id,
+                "priority": priority,
+                "severity": severity,
+                "description": description,
+            }
+        )
         return TicketRecord(**body)
 
     def get_ticket(self, ticket_id: str) -> TicketRecord | None:
@@ -253,14 +267,16 @@ class TicketAdapter:
         severity: str = "critical",
     ) -> TicketRecord:
         """Create a ticket that references the RCA report id."""
-        body = self._client.create({
-            "title": title,
-            "source_report_id": report_id,
-            "priority": priority,
-            "severity": severity,
-            "description": f"RCA report {report_id}: {report_summary}",
-            "report_summary": report_summary,
-        })
+        body = self._client.create(
+            {
+                "title": title,
+                "source_report_id": report_id,
+                "priority": priority,
+                "severity": severity,
+                "description": f"RCA report {report_id}: {report_summary}",
+                "report_summary": report_summary,
+            }
+        )
         return TicketRecord(**body)
 
 
@@ -317,14 +333,16 @@ class HttpIMClient:
     """Webhook poster to the enterprise IM platform (Slack/Lark/DingTalk)."""
 
     def __init__(self, webhook_url: str | None = None, *, timeout_s: float = 5.0) -> None:
-        self.webhook_url = (
-            webhook_url or os.environ.get("IM_WEBHOOK_URL", "http://localhost:8083/hook")
+        self.webhook_url = webhook_url or os.environ.get(
+            "IM_WEBHOOK_URL", "http://localhost:8083/hook"
         )
         self._timeout_s = timeout_s
 
     def post(self, payload: dict[str, Any]) -> dict[str, Any]:
         resp = httpx.post(
-            self.webhook_url, json=payload, timeout=self._timeout_s,
+            self.webhook_url,
+            json=payload,
+            timeout=self._timeout_s,
         )
         resp.raise_for_status()
         return resp.json() if resp.content else {"ok": True}
@@ -335,14 +353,26 @@ class IMAdapter:
         self._client = client
 
     def send(
-        self, *, channel: str, text: str, severity: str = "info",
+        self,
+        *,
+        channel: str,
+        text: str,
+        severity: str = "info",
         sender: str = "ai-employee",
     ) -> IMMessage:
-        body = self._client.post({
-            "channel": channel, "text": text, "severity": severity, "sender": sender,
-        })
+        body = self._client.post(
+            {
+                "channel": channel,
+                "text": text,
+                "severity": severity,
+                "sender": sender,
+            }
+        )
         return IMMessage(
-            channel=channel, text=text, severity=severity, sender=sender,
+            channel=channel,
+            text=text,
+            severity=severity,
+            sender=sender,
             ts=body.get("ts", datetime.now(timezone.utc).isoformat()),
         )
 

@@ -4,6 +4,7 @@ Wraps the built-in ``sqlite3`` connection backup API
 (``Connection.backup``) which streams pages one at a time — safe to
 call on a live, in-use database and robust against partial writes.
 """
+
 from __future__ import annotations
 
 import sqlite3

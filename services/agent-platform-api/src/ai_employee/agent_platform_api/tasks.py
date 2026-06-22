@@ -20,6 +20,7 @@ The actual business logic lives in thin ``_worker_parse`` /
 share one implementation.  Both delegates are module-level so tests
 can monkeypatch them.
 """
+
 from __future__ import annotations
 
 import os
@@ -34,7 +35,10 @@ from typing import Any, Protocol
 
 
 def _worker_parse(
-    doc_id: str, file_path: str, mime_type: str, metadata: dict[str, Any],
+    doc_id: str,
+    file_path: str,
+    mime_type: str,
+    metadata: dict[str, Any],
 ) -> dict[str, Any]:
     """Parse a document via the ingestion worker.
 
@@ -49,8 +53,10 @@ def _worker_parse(
     resp = client.post(
         "/internal/parse",
         json={
-            "doc_id": doc_id, file_path: file_path,
-            "mime_type": mime_type, "metadata": metadata,
+            "doc_id": doc_id,
+            file_path: file_path,
+            "mime_type": mime_type,
+            "metadata": metadata,
         },
     )
     resp.raise_for_status()
@@ -58,7 +64,9 @@ def _worker_parse(
 
 
 def _create_agent_run(
-    template_id: str, requested_by: str, input: dict[str, Any],
+    template_id: str,
+    requested_by: str,
+    input: dict[str, Any],
 ) -> dict[str, Any]:
     """Create an agent run via the platform API."""
     from ai_employee.agent_platform_api.runtime import (
@@ -105,7 +113,10 @@ class EagerBackend:
     """Runs tasks synchronously in-process.  Default when no broker."""
 
     def submit(
-        self, fn: Callable[..., Any], *args: Any, **kwargs: Any,
+        self,
+        fn: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
     ) -> TaskResult:
         task_name = kwargs.pop("task_name", None)
         task_id = f"task_{uuid.uuid4().hex[:12]}"
@@ -113,10 +124,16 @@ class EagerBackend:
             value = fn(*args, **kwargs)
         except Exception as exc:
             return TaskResult(
-                task_id=task_id, ready=True, error=str(exc), task_name=task_name,
+                task_id=task_id,
+                ready=True,
+                error=str(exc),
+                task_name=task_name,
             )
         return TaskResult(
-            task_id=task_id, ready=True, value=value, task_name=task_name,
+            task_id=task_id,
+            ready=True,
+            value=value,
+            task_name=task_name,
         )
 
 
@@ -153,7 +170,10 @@ class CeleryBackend:
             return _create_agent_run(template_id, requested_by, input)
 
     def submit(
-        self, fn: Callable[..., Any], *args: Any, **kwargs: Any,
+        self,
+        fn: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
     ) -> TaskResult:
         """Submit ``fn`` as a Celery task.
 
@@ -180,10 +200,16 @@ class CeleryBackend:
             value = fn(*args, **kwargs)
         except Exception as exc:
             return TaskResult(
-                task_id=task_id, ready=True, error=str(exc), task_name=task_name,
+                task_id=task_id,
+                ready=True,
+                error=str(exc),
+                task_name=task_name,
             )
         return TaskResult(
-            task_id=task_id, ready=True, value=value, task_name=task_name,
+            task_id=task_id,
+            ready=True,
+            value=value,
+            task_name=task_name,
         )
 
 
@@ -193,14 +219,21 @@ class CeleryBackend:
 
 
 def parse_document_task(
-    *, doc_id: str, file_path: str, mime_type: str, metadata: dict[str, Any],
+    *,
+    doc_id: str,
+    file_path: str,
+    mime_type: str,
+    metadata: dict[str, Any],
 ) -> dict[str, Any]:
     """Parse a document.  Runs via the configured backend."""
     return _worker_parse(doc_id, file_path, mime_type, metadata)
 
 
 def run_agent_task(
-    *, template_id: str, requested_by: str, input: dict[str, Any],
+    *,
+    template_id: str,
+    requested_by: str,
+    input: dict[str, Any],
 ) -> dict[str, Any]:
     """Create an agent run.  Runs via the configured backend."""
     return _create_agent_run(template_id, requested_by, input)
@@ -218,7 +251,8 @@ def build_task_backend() -> TaskBackend:
         return CeleryBackend(
             broker_url=os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
             result_backend=os.environ.get(
-                "CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/1",
+                "CELERY_RESULT_BACKEND",
+                "redis://127.0.0.1:6379/1",
             ),
         )
     return EagerBackend()

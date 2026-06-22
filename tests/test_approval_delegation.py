@@ -5,6 +5,7 @@ Distinguishes *delegation* from *routing* (R6-2):
   - Delegation adds a co-reviewer; both the original assignee and any
     delegate can decide the task.  The first decision wins.
 """
+
 from __future__ import annotations
 
 from ai_employee.agent_platform_api.app import create_app
@@ -75,7 +76,9 @@ def test_delegate_can_decide() -> None:
     resp = client.post(
         f"/api/v1/approval-tasks/{task_id}/decision",
         json={
-            "decision": "approved", "decided_by": "reviewer-bob", "comment": "ok",
+            "decision": "approved",
+            "decided_by": "reviewer-bob",
+            "comment": "ok",
         },
     )
     assert resp.status_code == 200
@@ -97,7 +100,9 @@ def test_requested_by_can_still_decide_after_delegation() -> None:
     resp = client.post(
         f"/api/v1/approval-tasks/{task_id}/decision",
         json={
-            "decision": "rejected", "decided_by": "alice", "comment": "no",
+            "decision": "rejected",
+            "decided_by": "alice",
+            "comment": "no",
         },
     )
     assert resp.status_code == 200

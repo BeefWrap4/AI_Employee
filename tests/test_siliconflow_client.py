@@ -7,6 +7,7 @@ and defaults to the platform's preferred Qwen model.  When the env is
 unset, ``build_siliconflow_client`` raises so callers fail fast (no
 silent fallback to another vendor).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,12 +24,14 @@ from ai_employee.llm_gateway.client import (
 
 def test_siliconflow_base_url_constant() -> None:
     from ai_employee.llm_gateway.client import _SILICONFLOW_BASE_URL
+
     assert _SILICONFLOW_BASE_URL == "https://api.siliconflow.cn/v1"
 
 
 def test_siliconflow_default_model_is_qwen() -> None:
     """Default to Qwen2.5-7B-Instruct — small, fast, instruction-tuned."""
     from ai_employee.llm_gateway.client import _SILICONFLOW_DEFAULT_MODEL
+
     assert "Qwen" in _SILICONFLOW_DEFAULT_MODEL
 
 
@@ -54,7 +57,8 @@ def test_siliconflow_client_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_siliconflow_client_can_override_model() -> None:
     client = SiliconFlowClient(
-        api_key="sk-x", model="Qwen/Qwen2.5-72B-Instruct",
+        api_key="sk-x",
+        model="Qwen/Qwen2.5-72B-Instruct",
     )
     assert client.model == "Qwen/Qwen2.5-72B-Instruct"
 
@@ -119,7 +123,9 @@ def test_chat_parses_openai_compatible_response() -> None:
             {"index": 0, "message": {"role": "assistant", "content": "你好"}},
         ],
         "usage": {
-            "prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16,
+            "prompt_tokens": 12,
+            "completion_tokens": 4,
+            "total_tokens": 16,
         },
     }
 
@@ -135,7 +141,10 @@ def test_chat_parses_openai_compatible_response() -> None:
 
         @staticmethod
         def __call__(
-            url: str, headers: dict, json: dict, timeout: float,
+            url: str,
+            headers: dict,
+            json: dict,
+            timeout: float,
         ) -> _Resp:
             _HttpxPost.called = True
             # Verify the URL targets the SiliconFlow endpoint.

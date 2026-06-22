@@ -10,6 +10,7 @@ sources.  Aggregation is pluggable so tests can inject fakes:
 The :class:`EChartsAggregator` composes them and emits the standard
 ECharts option dict.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -162,9 +163,7 @@ class InfluxKpiAggregator(KpiAggregator):
             return []
         window = f"{max(1, window_minutes)}m"
         try:
-            result = self._adapter.query_kpi(
-                metric=metric, site_id=site_id, window=window
-            )
+            result = self._adapter.query_kpi(metric=metric, site_id=site_id, window=window)
         except Exception:
             return []
         return list(getattr(result, "points", []))

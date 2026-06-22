@@ -1,4 +1,5 @@
 """Sliding-window chunking + table structure tests."""
+
 from __future__ import annotations
 
 import io

@@ -4,6 +4,7 @@ These tests pin the cross-backend behaviour we rely on: parameter
 substitution, transaction handling, and a small smoke CRUD on a
 representative schema (documents + chunks).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -49,9 +50,7 @@ def test_build_backend_unknown_dialect_raises(monkeypatch: pytest.MonkeyPatch) -
 
 def test_sqlite_backend_create_and_insert(tmp_path: Path) -> None:
     backend = SqliteBackend(tmp_path / "test.sqlite3")
-    backend.execute(
-        "CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT)"
-    )
+    backend.execute("CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT)")
     backend.execute(
         "INSERT INTO items (id, name) VALUES (?, ?)",
         ("i1", "widget"),
@@ -114,9 +113,7 @@ def pg_backend() -> PostgresBackend:
     backend = PostgresBackend(dsn)
     # Clean slate.
     backend.execute("DROP TABLE IF EXISTS items")
-    backend.execute(
-        "CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT)"
-    )
+    backend.execute("CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT)")
     yield backend
     backend.execute("DROP TABLE IF EXISTS items")
     backend.close()

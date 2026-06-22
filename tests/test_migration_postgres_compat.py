@@ -11,6 +11,7 @@ PostgreSQL.  We exercise this two ways:
    migration to a real Postgres, confirm the expected tables exist,
    then downgrade.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,7 +52,10 @@ class _FakeOp:
 _SQLITE_ONLY_TOKENS = [
     (re.compile(r"\bfts5\b", re.IGNORECASE), "fts5 virtual table"),
     (re.compile(r"\bAUTOINCREMENT\b", re.IGNORECASE), "AUTOINCREMENT"),
-    (re.compile(r"CREATE\s+TRIGGER.*BEGIN", re.IGNORECASE | re.DOTALL), "SQLite trigger BEGIN block"),
+    (
+        re.compile(r"CREATE\s+TRIGGER.*BEGIN", re.IGNORECASE | re.DOTALL),
+        "SQLite trigger BEGIN block",
+    ),
     (re.compile(r"CREATE\s+VIRTUAL\s+TABLE", re.IGNORECASE), "CREATE VIRTUAL TABLE"),
 ]
 
@@ -87,8 +91,9 @@ def test_postgres_branch_has_no_sqlite_only_tokens() -> None:
     for pattern, label in _SQLITE_ONLY_TOKENS:
         match = pattern.search(joined)
         assert match is None, (
-            f"Postgres branch emitted SQLite-only construct {label!r}: "
-            f"{match.group(0)!r}" if match else ""
+            f"Postgres branch emitted SQLite-only construct {label!r}: {match.group(0)!r}"
+            if match
+            else ""
         )
 
 
@@ -111,9 +116,16 @@ def test_postgres_branch_still_creates_core_tables() -> None:
     stmts = _run_upgrade_against("postgresql")
     joined = "\n".join(stmts)
     for table in (
-        "documents", "chunks", "qa_logs", "feedbacks",
-        "rca_objects", "candidate_knowledge",
-        "agent_runs", "agent_run_events", "eval_runs", "tools",
+        "documents",
+        "chunks",
+        "qa_logs",
+        "feedbacks",
+        "rca_objects",
+        "candidate_knowledge",
+        "agent_runs",
+        "agent_run_events",
+        "eval_runs",
+        "tools",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in joined, (
             f"Postgres branch missing CREATE TABLE for {table}"
@@ -212,9 +224,16 @@ def test_baseline_applies_to_live_postgres() -> None:
         ).fetchall()
         tables = {r[0] for r in rows}
     for expected in (
-        "documents", "chunks", "qa_logs", "feedbacks",
-        "rca_objects", "candidate_knowledge",
-        "agent_runs", "agent_run_events", "eval_runs", "tools",
+        "documents",
+        "chunks",
+        "qa_logs",
+        "feedbacks",
+        "rca_objects",
+        "candidate_knowledge",
+        "agent_runs",
+        "agent_run_events",
+        "eval_runs",
+        "tools",
     ):
         assert expected in tables, f"missing {expected} in live Postgres"
     # FTS table must NOT exist on Postgres.

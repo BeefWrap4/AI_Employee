@@ -1,4 +1,5 @@
 """SchedulerLoop tests (cron tick loop)."""
+
 from __future__ import annotations
 
 import threading
@@ -21,13 +22,13 @@ def _make_due_schedule(
     input: dict | None = None,
 ) -> ScheduledRun:
     sched = store.create(
-        template_id=template_id, cron=cron,
-        input=input or {}, requested_by="alice",
+        template_id=template_id,
+        cron=cron,
+        input=input or {},
+        requested_by="alice",
     )
     # Force it to be due now.
-    store._schedules[sched.schedule_id].next_fire_at = (
-        "2020-01-01T00:00:00+00:00"
-    )
+    store._schedules[sched.schedule_id].next_fire_at = "2020-01-01T00:00:00+00:00"
     return sched
 
 
@@ -61,8 +62,10 @@ def test_run_once_skips_when_no_due() -> None:
 def test_run_once_callback_exception_does_not_break_loop() -> None:
     store = ScheduledRunStore()
     _make_due_schedule(store)
+
     def bad_cb(s):
         raise RuntimeError("boom")
+
     loop = SchedulerLoop(store=store, fire_callback=bad_cb)
     # Must not raise.
     loop.run_once()
@@ -84,7 +87,9 @@ def test_start_runs_callback_in_background() -> None:
         fired_event.set()
 
     loop = SchedulerLoop(
-        store=store, fire_callback=cb, tick_interval_s=0.05,
+        store=store,
+        fire_callback=cb,
+        tick_interval_s=0.05,
     )
     loop.start()
     try:
@@ -97,7 +102,9 @@ def test_start_runs_callback_in_background() -> None:
 def test_stop_halts_background_thread() -> None:
     store = ScheduledRunStore()
     loop = SchedulerLoop(
-        store=store, fire_callback=lambda s: None, tick_interval_s=0.05,
+        store=store,
+        fire_callback=lambda s: None,
+        tick_interval_s=0.05,
     )
     loop.start()
     assert loop.is_running is True
@@ -125,8 +132,10 @@ def test_loop_records_run_id_via_callback_metadata() -> None:
     """The callback can return a run_id; the loop records it on the schedule."""
     store = ScheduledRunStore()
     sched = _make_due_schedule(store)
+
     def cb(s: ScheduledRun) -> str:  # type: ignore[return-value]
         return "agent_run_test_001"
+
     loop = SchedulerLoop(store=store, fire_callback=cb, auto_record_runs=True)
     loop.run_once()
     refreshed = store.get(sched.schedule_id)
@@ -136,8 +145,10 @@ def test_loop_records_run_id_via_callback_metadata() -> None:
 def test_loop_without_auto_record_does_not_record() -> None:
     store = ScheduledRunStore()
     sched = _make_due_schedule(store)
+
     def cb(s: ScheduledRun) -> str:  # type: ignore[return-value]
         return "agent_run_ignored"
+
     loop = SchedulerLoop(store=store, fire_callback=cb, auto_record_runs=False)
     loop.run_once()
     refreshed = store.get(sched.schedule_id)

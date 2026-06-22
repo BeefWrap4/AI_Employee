@@ -7,6 +7,7 @@ The provider is selected by setting ``EMBEDDING_PROVIDER=siliconflow``
 and ``SILICONFLOW_API_KEY=...``; ``build_provider`` returns an
 OpenAI-compatible client pointed at ``api.siliconflow.cn/v1/embeddings``.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -177,9 +178,7 @@ def test_siliconflow_provider_batches_large_inputs(
         assert len(body["input"]) <= 5
         # Return one embedding per input.
         resp_data = {
-            "data": [
-                {"embedding": [0.5] * 1024} for _ in body["input"]
-            ],
+            "data": [{"embedding": [0.5] * 1024} for _ in body["input"]],
         }
 
         class _Resp:

@@ -1,4 +1,5 @@
 """Cron-triggered scheduled runs tests."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -118,12 +119,16 @@ def test_schedule_create_and_get() -> None:
 def test_schedule_list_returns_all() -> None:
     store = ScheduledRunStore()
     store.create(
-        template_id="rca", cron="*/5 * * * *",
-        input={}, requested_by="alice",
+        template_id="rca",
+        cron="*/5 * * * *",
+        input={},
+        requested_by="alice",
     )
     store.create(
-        template_id="knowledge_qa", cron="0 9 * * *",
-        input={}, requested_by="bob",
+        template_id="knowledge_qa",
+        cron="0 9 * * *",
+        input={},
+        requested_by="bob",
     )
     assert len(store.list_all()) == 2
 
@@ -131,8 +136,10 @@ def test_schedule_list_returns_all() -> None:
 def test_schedule_delete() -> None:
     store = ScheduledRunStore()
     sched = store.create(
-        template_id="rca", cron="*/5 * * * *",
-        input={}, requested_by="alice",
+        template_id="rca",
+        cron="*/5 * * * *",
+        input={},
+        requested_by="alice",
     )
     assert store.delete(sched.schedule_id) is True
     assert store.get(sched.schedule_id) is None
@@ -142,13 +149,15 @@ def test_schedule_delete() -> None:
 def test_schedule_tick_returns_due_schedules() -> None:
     store = ScheduledRunStore()
     sched = store.create(
-        template_id="rca", cron="*/5 * * * *",
-        input={}, requested_by="alice",
+        template_id="rca",
+        cron="*/5 * * * *",
+        input={},
+        requested_by="alice",
     )
     # Force a past next_fire_at to make it immediately due.
-    store._schedules[sched.schedule_id].next_fire_at = (
-        datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat()
-    )
+    store._schedules[sched.schedule_id].next_fire_at = datetime(
+        2020, 1, 1, tzinfo=timezone.utc
+    ).isoformat()
     due = store.tick_due(now=datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc))
     assert len(due) == 1
     assert due[0].schedule_id == sched.schedule_id
@@ -157,8 +166,10 @@ def test_schedule_tick_returns_due_schedules() -> None:
 def test_schedule_tick_skips_not_due() -> None:
     store = ScheduledRunStore()
     sched = store.create(
-        template_id="rca", cron="*/5 * * * *",
-        input={}, requested_by="alice",
+        template_id="rca",
+        cron="*/5 * * * *",
+        input={},
+        requested_by="alice",
     )
     # next_fire_at is in the future.
     due = store.tick_due(now=datetime(2020, 1, 1, tzinfo=timezone.utc))
@@ -169,13 +180,15 @@ def test_schedule_tick_advances_next_fire_after_fire() -> None:
     """After a tick fires a schedule, its next_fire_at is recomputed."""
     store = ScheduledRunStore()
     sched = store.create(
-        template_id="rca", cron="*/5 * * * *",
-        input={}, requested_by="alice",
+        template_id="rca",
+        cron="*/5 * * * *",
+        input={},
+        requested_by="alice",
     )
     initial_next = sched.next_fire_at
-    store._schedules[sched.schedule_id].next_fire_at = (
-        datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat()
-    )
+    store._schedules[sched.schedule_id].next_fire_at = datetime(
+        2020, 1, 1, tzinfo=timezone.utc
+    ).isoformat()
     due = store.tick_due(now=datetime(2026, 6, 18, 10, 3, tzinfo=timezone.utc))
     assert due
     # fire_count is incremented.
@@ -188,12 +201,14 @@ def test_schedule_tick_advances_next_fire_after_fire() -> None:
 def test_schedule_resolve_run_id_records_history() -> None:
     store = ScheduledRunStore()
     sched = store.create(
-        template_id="rca", cron="*/5 * * * *",
-        input={}, requested_by="alice",
+        template_id="rca",
+        cron="*/5 * * * *",
+        input={},
+        requested_by="alice",
     )
-    store._schedules[sched.schedule_id].next_fire_at = (
-        datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat()
-    )
+    store._schedules[sched.schedule_id].next_fire_at = datetime(
+        2020, 1, 1, tzinfo=timezone.utc
+    ).isoformat()
     due = store.tick_due(now=datetime(2026, 6, 18, 10, 3, tzinfo=timezone.utc))
     store.record_run(schedule_id=due[0].schedule_id, run_id="agent_run_001")
     refreshed = store.get(due[0].schedule_id)

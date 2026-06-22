@@ -6,6 +6,7 @@ option dict containing ``xAxis``/``yAxis``/``series``.  The data is aggregated
 from existing alarm/KPI sources (rca-agent ``AlarmEvent`` store + KPI
 adapter), with pluggable aggregators so tests inject fakes.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -32,9 +33,7 @@ class _FakeAlarmAgg(AlarmAggregator):
         window_minutes: int,
         now: datetime,
     ) -> list[dict[str, Any]]:
-        self.calls.append(
-            {"metric": metric, "window_minutes": window_minutes, "now": now}
-        )
+        self.calls.append({"metric": metric, "window_minutes": window_minutes, "now": now})
         # 3 buckets spanning the window
         buckets: list[dict[str, Any]] = []
         for i in range(3):
@@ -65,7 +64,9 @@ class _FakeKpiAgg(KpiAggregator):
         )
         return [
             KpiPoint(
-                ts=(now - timedelta(minutes=window_minutes - i * (window_minutes // 3))).isoformat(),
+                ts=(
+                    now - timedelta(minutes=window_minutes - i * (window_minutes // 3))
+                ).isoformat(),
                 value=float(10 + i),
                 field=metric,
             )
@@ -172,9 +173,7 @@ def test_echarts_404_when_no_data() -> None:
         def bucket_kpi(self, **kwargs):  # type: ignore[no-untyped-def]
             return []
 
-    app.state.echarts_aggregator = EChartsAggregator(
-        alarm=_EmptyAlarm(), kpi=_EmptyKpi()
-    )
+    app.state.echarts_aggregator = EChartsAggregator(alarm=_EmptyAlarm(), kpi=_EmptyKpi())
     resp = client.post(
         "/api/v1/chat/echarts",
         json={

@@ -13,6 +13,7 @@ through unchanged so the same retry pair is never executed twice.
 The HTTP layer parses the standard ``Retry-After`` header via
 :func:`parse_retry_after_ms` to honour upstream rate limits.
 """
+
 from __future__ import annotations
 
 import re
@@ -33,7 +34,9 @@ class RetryPolicy:
     max_attempts: int = 3
     backoff_s: float = 1.0
     retryable_errors: tuple[str, ...] = (
-        "timeout", "connection_error", "5xx",
+        "timeout",
+        "connection_error",
+        "5xx",
     )
 
     def __post_init__(self) -> None:

@@ -6,6 +6,7 @@ consumer is pluggable: tests inject a :class:`FakeKafkaConsumer` so no
 broker is required.  Production wires :mod:`aiokafka` (or confluent-
 kafka) behind the same interface.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,8 +54,12 @@ def test_parse_alarm_message_invalid_json_raises() -> None:
 def test_alarm_message_to_raw_alarm_event() -> None:
     """An AlarmMessage converts to the RawAlarmEvent the pipeline expects."""
     msg = AlarmMessage(
-        alarm_id="AL-001", site_id="BJ-001", alarm_code="RRC_FAIL",
-        severity="critical", ts="2026-06-18T10:00:00Z", raw={"ne": "gNB-01"},
+        alarm_id="AL-001",
+        site_id="BJ-001",
+        alarm_code="RRC_FAIL",
+        severity="critical",
+        ts="2026-06-18T10:00:00Z",
+        raw={"ne": "gNB-01"},
     )
     raw = msg.to_raw_alarm_event()
     assert raw.alarm_id == "AL-001"
@@ -68,8 +73,15 @@ def test_alarm_message_to_raw_alarm_event() -> None:
 
 def test_fake_consumer_poll_returns_queued_messages() -> None:
     consumer = FakeKafkaConsumer(topic="alarms")
-    consumer.enqueue({"alarm_id": "AL-1", "site_id": "S1", "alarm_code": "C",
-                      "severity": "major", "ts": "2026-06-18T10:00:00Z"})
+    consumer.enqueue(
+        {
+            "alarm_id": "AL-1",
+            "site_id": "S1",
+            "alarm_code": "C",
+            "severity": "major",
+            "ts": "2026-06-18T10:00:00Z",
+        }
+    )
     batch = consumer.poll(timeout_ms=100)
     assert len(batch) == 1
     assert batch[0]["alarm_id"] == "AL-1"
@@ -82,8 +94,15 @@ def test_fake_consumer_poll_empty_returns_empty() -> None:
 
 def test_fake_consumer_commit_advances_offset() -> None:
     consumer = FakeKafkaConsumer(topic="alarms")
-    consumer.enqueue({"alarm_id": "AL-1", "site_id": "S1", "alarm_code": "C",
-                      "severity": "major", "ts": "2026-06-18T10:00:00Z"})
+    consumer.enqueue(
+        {
+            "alarm_id": "AL-1",
+            "site_id": "S1",
+            "alarm_code": "C",
+            "severity": "major",
+            "ts": "2026-06-18T10:00:00Z",
+        }
+    )
     consumer.poll(timeout_ms=50)
     consumer.commit()
     # After commit, re-poll returns nothing (offset advanced).
@@ -110,12 +129,24 @@ def test_consumer_processes_one_batch_into_alarms() -> None:
     store = RcaStore()
     client = TestClient(create_app(store=store))
     # We need the in-process store the consumer writes to; use the app's.
-    consumer = _make_consumer([
-        {"alarm_id": "AL-1", "site_id": "BJ-001", "alarm_code": "RRC_FAIL",
-         "severity": "critical", "ts": "2026-06-18T10:00:00Z"},
-        {"alarm_id": "AL-2", "site_id": "BJ-001", "alarm_code": "PRB_HIGH",
-         "severity": "major", "ts": "2026-06-18T10:01:00Z"},
-    ])
+    consumer = _make_consumer(
+        [
+            {
+                "alarm_id": "AL-1",
+                "site_id": "BJ-001",
+                "alarm_code": "RRC_FAIL",
+                "severity": "critical",
+                "ts": "2026-06-18T10:00:00Z",
+            },
+            {
+                "alarm_id": "AL-2",
+                "site_id": "BJ-001",
+                "alarm_code": "PRB_HIGH",
+                "severity": "major",
+                "ts": "2026-06-18T10:01:00Z",
+            },
+        ]
+    )
     processed = consumer.process_batch(state=store, max_messages=10)
     assert len(processed) == 2
     assert processed[0].alarm_id == "AL-1"
@@ -128,13 +159,25 @@ def test_consumer_skips_malformed_message_continues() -> None:
     from ai_employee.rca_agent.runtime import RcaStore
 
     store = RcaStore()
-    consumer = _make_consumer([
-        {"alarm_id": "AL-1", "site_id": "BJ-001", "alarm_code": "C",
-         "severity": "major", "ts": "2026-06-18T10:00:00Z"},
-        {"alarm_id": "AL-2"},  # malformed: missing fields
-        {"alarm_id": "AL-3", "site_id": "BJ-001", "alarm_code": "C",
-         "severity": "major", "ts": "2026-06-18T10:02:00Z"},
-    ])
+    consumer = _make_consumer(
+        [
+            {
+                "alarm_id": "AL-1",
+                "site_id": "BJ-001",
+                "alarm_code": "C",
+                "severity": "major",
+                "ts": "2026-06-18T10:00:00Z",
+            },
+            {"alarm_id": "AL-2"},  # malformed: missing fields
+            {
+                "alarm_id": "AL-3",
+                "site_id": "BJ-001",
+                "alarm_code": "C",
+                "severity": "major",
+                "ts": "2026-06-18T10:02:00Z",
+            },
+        ]
+    )
     processed = consumer.process_batch(state=store, max_messages=10)
     assert len(processed) == 2  # AL-1 and AL-3; AL-2 skipped
     ids = {a.alarm_id for a in processed}
@@ -146,8 +189,13 @@ def test_consumer_max_messages_caps_batch() -> None:
 
     store = RcaStore()
     msgs = [
-        {"alarm_id": f"AL-{i}", "site_id": "S1", "alarm_code": "C",
-         "severity": "major", "ts": "2026-06-18T10:00:00Z"}
+        {
+            "alarm_id": f"AL-{i}",
+            "site_id": "S1",
+            "alarm_code": "C",
+            "severity": "major",
+            "ts": "2026-06-18T10:00:00Z",
+        }
         for i in range(5)
     ]
     consumer = _make_consumer(msgs)

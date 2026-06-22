@@ -33,6 +33,7 @@ Credentials come from ``OBJECT_STORE_ACCESS_KEY`` and
 ``OBJECT_STORE_SECRET_KEY``; ``OBJECT_STORE_BUCKET`` is the default
 bucket.  Tests can call :func:`build_object_store` with explicit args.
 """
+
 from __future__ import annotations
 
 import os
@@ -250,13 +251,21 @@ def build_object_store(
         )
 
         chosen_bucket = bucket or os.environ.get("OBJECT_STORE_BUCKET") or "ai-employee"
-        chosen_access = access_key if access_key is not None else os.environ.get(
-            "OBJECT_STORE_ACCESS_KEY",
-            "",
+        chosen_access = (
+            access_key
+            if access_key is not None
+            else os.environ.get(
+                "OBJECT_STORE_ACCESS_KEY",
+                "",
+            )
         )
-        chosen_secret = secret_key if secret_key is not None else os.environ.get(
-            "OBJECT_STORE_SECRET_KEY",
-            "",
+        chosen_secret = (
+            secret_key
+            if secret_key is not None
+            else os.environ.get(
+                "OBJECT_STORE_SECRET_KEY",
+                "",
+            )
         )
         # MinIO endpoints normally need path-style addressing; boto3
         # auto-detects from the URL, but we make it explicit so that
@@ -269,9 +278,13 @@ def build_object_store(
             endpoint_url=chosen_url,
         )
     chosen_root = local_root or os.environ.get("OBJECT_STORE_LOCAL_ROOT", "./var/objects")
-    chosen_base = base_url if base_url is not None else os.environ.get(
-        "OBJECT_STORE_BASE_URL",
-        "",
+    chosen_base = (
+        base_url
+        if base_url is not None
+        else os.environ.get(
+            "OBJECT_STORE_BASE_URL",
+            "",
+        )
     )
     return LocalFsObjectStore(root=chosen_root, base_url=chosen_base)
 

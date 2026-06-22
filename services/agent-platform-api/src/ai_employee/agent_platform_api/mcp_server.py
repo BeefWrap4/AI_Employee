@@ -11,6 +11,7 @@ endpoint now delegates to :meth:`MCPToolRegistry.to_list_tools_result`,
 so external clients see the same shape but it's now produced by the
 SDK (not a hand-rolled dict).
 """
+
 from __future__ import annotations
 
 import logging
@@ -126,6 +127,7 @@ class MCPToolRegistry:
 
 def _default_invoke(store: Any) -> InvokeFn:
     """Build a default invoke fn that delegates to ``store.invoke``."""
+
     def _invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         tool = store.tools.get(name)
         if tool is None:
@@ -137,6 +139,7 @@ def _default_invoke(store: Any) -> InvokeFn:
                 return store.invoke(name, arguments)
             raise RuntimeError(f"tool {name!r} has no invoke handler")
         return invoke(arguments)
+
     return _invoke
 
 
@@ -145,6 +148,7 @@ def _to_text(result: Any) -> str:
         return result
     try:
         import json
+
         return json.dumps(result, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return str(result)
@@ -181,7 +185,8 @@ def create_mcp_server() -> Server:
 
     @server.call_tool()
     async def _call_tool(
-        name: str, arguments: dict[str, Any],
+        name: str,
+        arguments: dict[str, Any],
     ) -> list[types.ContentBlock]:
         result = registry.call_tool(name, arguments)
         return result.content

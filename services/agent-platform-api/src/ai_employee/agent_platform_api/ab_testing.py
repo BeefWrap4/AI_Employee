@@ -14,6 +14,7 @@ Two pieces:
 :class:`ABExperimentStore` is the in-process registry that callers use
 to create experiments, record outcomes, and pull per-variant summaries.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -220,7 +221,10 @@ class ABExperimentStore:
             return [o for o in self._outcomes if o.experiment_id == experiment_id]
 
     def summarise(
-        self, experiment_id: str, *, metric_name: str,
+        self,
+        experiment_id: str,
+        *,
+        metric_name: str,
     ) -> dict[str, dict[str, float]] | None:
         if self.get(experiment_id) is None:
             return None
@@ -233,9 +237,7 @@ class ABExperimentStore:
         for variant, values in grouped.items():
             n = len(values)
             mean = sum(values) / n if n else 0.0
-            variance = (
-                sum((v - mean) ** 2 for v in values) / n if n > 1 else 0.0
-            )
+            variance = sum((v - mean) ** 2 for v in values) / n if n > 1 else 0.0
             out[variant] = {
                 "count": float(n),
                 "mean": mean,

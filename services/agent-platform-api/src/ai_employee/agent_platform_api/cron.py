@@ -9,6 +9,7 @@ Why hand-rolled instead of ``croniter``?  croniter has a non-trivial
 dependency footprint (pytz, python-dateutil) and pulls in features we
 don't need.  The parser here is ~80 lines and tested end-to-end.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
