@@ -239,7 +239,10 @@ def create_app(
                 obj_key,
                 content,
                 content_type=declared_mime,
-                metadata={"title": title},
+                # S3 user-metadata is sent as HTTP headers and must be ASCII;
+                # the Unicode title is preserved in the DB row below, this
+                # header is only a best-effort label for the object.
+                metadata={"title": title.encode("ascii", "replace").decode("ascii")},
             )
         except Exception as exc:  # pragma: no cover - storage is best-effort
             obj_key = None
