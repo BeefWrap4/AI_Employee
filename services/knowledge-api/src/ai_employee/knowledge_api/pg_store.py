@@ -11,9 +11,11 @@ SQLite-only fallback.  This store therefore exposes
 :meth:`search_chunks_bm25` as a thin callback hook so the app can wire
 in the OpenSearch provider without coupling this module to it.
 """
+
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from collections.abc import Callable
@@ -27,6 +29,9 @@ from ai_employee.common_schemas.security import (
     assert_safe_source_uri,
 )
 from fastapi import HTTPException, status
+
+_LOG = logging.getLogger(__name__)
+_WARNED_FALLBACK = False
 
 if TYPE_CHECKING:
     from ai_employee.knowledge_api.store import SQLiteStore
@@ -175,10 +180,15 @@ class PgKnowledgeStore:
                     parse_status, parse_error, chunk_count, version, created_at, updated_at)
                    VALUES (?,?,?,?,?,?, 'uploaded', NULL, 0, ?, ?, ?)""",
                 (
-                    doc_id, title, source_uri, mime_type,
+                    doc_id,
+                    title,
+                    source_uri,
+                    mime_type,
                     json.dumps(metadata, ensure_ascii=False),
                     json.dumps(acl_tags, ensure_ascii=False),
-                    version, now, now,
+                    version,
+                    now,
+                    now,
                 ),
             )
             self._db.commit()
@@ -186,7 +196,8 @@ class PgKnowledgeStore:
 
     def get_document(self, doc_id: str) -> dict[str, Any]:
         row = self._db.execute(
-            "SELECT * FROM documents WHERE doc_id = ?", (doc_id,),
+            "SELECT * FROM documents WHERE doc_id = ?",
+            (doc_id,),
         ).fetchone()
         if row is None:
             raise HTTPException(
@@ -195,6 +206,26 @@ class PgKnowledgeStore:
             )
         return _document_row_to_dict(row)
 
+    def set_source_uri(self, doc_id: str, source_uri: str) -> None:
+        """Update ``source_uri`` for an uploaded document (PG backend).
+
+        Mirrors :meth:`SQLiteStore.set_source_uri` so the upload flow
+        in ``app.create_document`` works unchanged on the PG path.
+        Validates the path is under ``data_dir`` before persisting.
+        """
+        try:
+            assert_safe_source_uri(source_uri, self.data_dir)
+        except UnsafeSourceUriError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error_code": "path_not_allowed", "message": str(exc)},
+            ) from exc
+        self._db.execute(
+            "UPDATE documents SET source_uri = ?, updated_at = ? WHERE doc_id = ?",
+            (source_uri, _now(), doc_id),
+        )
+        self._db.commit()
+
     def list_documents(self) -> list[dict[str, Any]]:
         rows = self._db.execute(
             "SELECT * FROM documents ORDER BY created_at",
@@ -202,10 +233,14 @@ class PgKnowledgeStore:
         return [_document_row_to_dict(r) for r in rows]
 
     def update_parse_status(
-        self, doc_id: str, target: str, chunk_count: int | None = None,
+        self,
+        doc_id: str,
+        target: str,
+        chunk_count: int | None = None,
     ) -> dict[str, Any]:
         row = self._db.execute(
-            "SELECT parse_status FROM documents WHERE doc_id = ?", (doc_id,),
+            "SELECT parse_status FROM documents WHERE doc_id = ?",
+            (doc_id,),
         ).fetchone()
         if row is None:
             raise HTTPException(
@@ -244,7 +279,8 @@ class PgKnowledgeStore:
     ) -> str:
         with self._lock:
             self._db.execute(
-                "SELECT COUNT(*) AS c FROM chunks WHERE doc_id = ?", (doc_id,),
+                "SELECT COUNT(*) AS c FROM chunks WHERE doc_id = ?",
+                (doc_id,),
             ).fetchone()
             chunk_id = f"{doc_id}_chunk_{chunk_no:03d}"
             acl_json = json.dumps(acl_tags or [], ensure_ascii=False)
@@ -256,9 +292,18 @@ class PgKnowledgeStore:
                     table_id, row_id, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?, ?, ?, ?)""",
                 (
-                    chunk_id, doc_id, chunk_no, content, section_path, page_no,
-                    emb_json, embedding_model, acl_json,
-                    table_id, row_id, _now(),
+                    chunk_id,
+                    doc_id,
+                    chunk_no,
+                    content,
+                    section_path,
+                    page_no,
+                    emb_json,
+                    embedding_model,
+                    acl_json,
+                    table_id,
+                    row_id,
+                    _now(),
                 ),
             )
             self._db.commit()
@@ -273,7 +318,8 @@ class PgKnowledgeStore:
 
     def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
         row = self._db.execute(
-            "SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,),
+            "SELECT * FROM chunks WHERE chunk_id = ?",
+            (chunk_id,),
         ).fetchone()
         return _chunk_row_to_dict(row) if row else None
 
@@ -371,6 +417,10 @@ def build_knowledge_store(
 
     Defaults to :class:`SQLiteStore` (the existing, unchanged path) so
     dev/test behaviour is identical when ``DATABASE_URL`` is unset.
+
+    R29-A: when ``DATABASE_URL`` is unset and the SQLite fallback is
+    chosen, emit a one-shot deprecation warning so operators running
+    the production chart can see they're on the legacy default.
     """
     from ai_employee.common_schemas.db import detect_backend
 
@@ -382,6 +432,13 @@ def build_knowledge_store(
         store.init_schema()
         return store
     # SQLite (default) — unchanged existing path.
+    global _WARNED_FALLBACK  # module-level throttle
+    if not _WARNED_FALLBACK:
+        _WARNED_FALLBACK = True
+        _LOG.warning(
+            "knowledge-api: DATABASE_URL is unset; falling back to local SQLite "
+            "store. Set DATABASE_URL=postgresql://... for production.",
+        )
     from ai_employee.knowledge_api.store import SQLiteStore
 
     return SQLiteStore(

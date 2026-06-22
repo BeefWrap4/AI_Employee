@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -53,6 +54,8 @@ from fastapi import Depends, FastAPI, HTTPException, status
 
 SERVICE_VERSION = "0.1.0"
 
+_LOG = logging.getLogger(__name__)
+
 
 def create_app(store: RcaStore | None = None) -> FastAPI:
     from contextlib import asynccontextmanager
@@ -103,6 +106,19 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
 
     install_rate_limiter(app)
     state = store or _default_store()
+    # R29-A: log which backend we actually wired so operators can
+    # confirm the runtime choice from ``kubectl logs``.
+    from ai_employee.common_schemas.db import detect_backend
+
+    backend_label = (
+        "postgresql"
+        if detect_backend(os.getenv("DATABASE_URL", "")).name.lower() == "postgres"
+        else "sqlite"
+    )
+    _LOG.info(
+        "rca-agent create_app: using %s:// storage backend",
+        backend_label,
+    )
     if state.writeback_adapter is None:
         state.writeback_adapter = build_writeback_adapter()
     if state.writebacks is None:

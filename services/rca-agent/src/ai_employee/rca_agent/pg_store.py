@@ -10,9 +10,11 @@ The ``rca_objects`` table is a generic (object_type, object_id) → JSON
 key-value store with ``ON CONFLICT ... DO UPDATE`` upserts, which is
 portable across SQLite and Postgres unchanged.
 """
+
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from datetime import datetime, timezone
@@ -29,6 +31,9 @@ from ai_employee.rca_agent.schemas import (
 
 if TYPE_CHECKING:
     from ai_employee.rca_agent.store import SQLiteRcaStore
+
+_LOG = logging.getLogger(__name__)
+_WARNED_FALLBACK = False
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS rca_objects (
@@ -153,7 +158,12 @@ def build_rca_store(
     db_path: str | None = None,
     database_url: str | None = None,
 ) -> SQLiteRcaStore | PgRcaStore:
-    """Pick SQLiteRcaStore (default) or PgRcaStore based on DATABASE_URL."""
+    """Pick SQLiteRcaStore (default) or PgRcaStore based on DATABASE_URL.
+
+    R29-A: when ``DATABASE_URL`` is unset and the SQLite fallback is
+    chosen, emit a one-shot deprecation warning so operators running
+    the production chart can see they're on the legacy default.
+    """
     from ai_employee.common_schemas.db import detect_backend
 
     url = database_url if database_url is not None else os.getenv("DATABASE_URL", "")
@@ -163,6 +173,13 @@ def build_rca_store(
         store = PgRcaStore(db=db)
         store.init_schema()
         return store
+    global _WARNED_FALLBACK  # module-level throttle
+    if not _WARNED_FALLBACK:
+        _WARNED_FALLBACK = True
+        _LOG.warning(
+            "rca-agent: DATABASE_URL is unset; falling back to local SQLite "
+            "store. Set DATABASE_URL=postgresql://... for production.",
+        )
     from ai_employee.rca_agent.store import SQLiteRcaStore
 
     return SQLiteRcaStore(db_path=db_path or "./var/data/rca.sqlite3")

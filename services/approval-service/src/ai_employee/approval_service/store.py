@@ -14,6 +14,7 @@ without dialect-specific JSON types.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -22,6 +23,9 @@ from typing import Any
 
 DEFAULT_DATA_DIR = "./var/data"
 DB_FILENAME = "approval.sqlite3"
+
+_LOG = logging.getLogger(__name__)
+_WARNED_FALLBACK = False
 
 
 def default_db_path() -> str:
@@ -309,6 +313,10 @@ def build_approval_store(
     The ``approval_tasks`` table is created idempotently by
     :meth:`ApprovalTaskStore.init_schema` (and by Alembic migration
     ``0002_approval_tasks``).
+
+    R29-A: when ``DATABASE_URL`` is unset and the SQLite fallback is
+    chosen, emit a one-shot deprecation warning so operators running
+    the production chart can see they're on the legacy default.
     """
     url = database_url if database_url is not None else os.getenv("DATABASE_URL", "")
     if url:
@@ -319,6 +327,13 @@ def build_approval_store(
 
             db = open_db(url, row_factory="dict")
             return ApprovalTaskStore(db=db)
+    global _WARNED_FALLBACK  # module-level throttle
+    if not _WARNED_FALLBACK:
+        _WARNED_FALLBACK = True
+        _LOG.warning(
+            "approval-service: DATABASE_URL is unset; falling back to local "
+            "SQLite store. Set DATABASE_URL=postgresql://... for production.",
+        )
     return ApprovalTaskStore(db_path=db_path or default_db_path())
 
 

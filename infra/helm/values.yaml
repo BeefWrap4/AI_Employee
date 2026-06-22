@@ -7,6 +7,17 @@ global:
   imagePullPolicy: IfNotPresent
   namespace: ai-employee
 
+  # R29-A: default DATABASE_URL points at the cluster-local Postgres
+  # Service so a stock ``helm install`` lands on PG without an extra
+  # values overlay.  The 4 PG-backed services (knowledge-api,
+  # rca-agent, agent-platform-api, approval-service) read this value
+  # in deployment.yaml and inject it as a container env var.
+  # Operators can override with ``--set global.databaseUrl=...`` for
+  # managed PG (RDS, Cloud SQL, ...) or to point at a different
+  # in-cluster Postgres instance.  When unset, services fall back to
+  # the legacy SQLite path (dev/test mode).
+  databaseUrl: "postgresql://ai-employee:ai-employee@postgres:5432/ai-employee"
+
   # Shared secrets. In production, set these via --set or a sealed-secret
   # rather than committing real values here.
   secrets:
