@@ -214,7 +214,7 @@ R24 主题偏离了 R23 收尾建议的「PG 默认化 + 真中间件集成测�
 
 ### 7.4 R30 收尾（2026-06-22 末段，最终差距清零状态）
 
-R29 收尾建议的 R30 候选有三条：**P0-1 Dockerfile 全服务补齐**、**P0-3 RCA 告警收敛算法**、**治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 A/B）+ 回归盲点**。R30 落地了后两条的子集（备份 runbook ✅、Prompt 版本归因 ✅、回归盲点修复 ✅），Dockerfile 与收敛算法因改动面过大留待 R31；顺带闭合 R29 留下的 PG 知识库并发竞态（R30-A），把全仓 ruff 一次性清到 0 错误（R30-C）。
+R29 收尾建议的 R30 候选有三条：**P0-1 Dockerfile 全服务补齐**、**P0-3 RCA 告警收敛算法**、**治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 A/B）+ 回归盲点**。R30 落地了后两条的子集（备份 runbook ✅、Prompt 版本归因 ✅、回归盲点修复 ✅）。**§7.4 文档漂移复核**：R30 当时把 Dockerfile / 收敛算法标为「留待 R31」，但复核代码发现这两条**实际早已闭合**——P0-1 Dockerfile 全服务补齐在 `2e9f0a7 feat: add Dockerfiles for all services + web-portal` 已落地（8 服务 + web-portal 全有 Dockerfile，R29-C 补 event-gateway、R32-A 补 api-gateway 只是新增服务顺带补齐），P0-3 RCA 告警收敛算法在 `bc72149 feat: implement RCA alarm correlation` + `ea7fb2d feat(r14-1): RCA parent-child + topology convergence rules` 已落地（`del time_window_minutes` TODO 早已移除，`build_incident` 真用 `time_window_minutes` 做时间窗分组 + `_merge_parent_child` 父子规则 + `_merge_by_topology` 拓扑规则 + dedup + primary 选择，spec §6.2 全六步到位）——故本节把两条从「仍未完成」改标为「✅ 早已闭合（R14 / 早期）」，P0 三项实际全闭合。顺带 R30 闭合 R29 留下的 PG 知识库并发竞态（R30-A），把全仓 ruff 一次性清到 0 错误（R30-C）。
 
 | 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD = 61da24d） |
 | --- | --- | --- | --- |
@@ -227,8 +227,8 @@ R29 收尾建议的 R30 候选有三条：**P0-1 Dockerfile 全服务补齐**、
 - **P3-19 备份 runbook — ✅ 闭合（R30-C）**：spec §三 §9「高可用设计 / 关键数据定期备份」从「未做」推到「CronJob + 脚本 + runbook 三件套就位」；SRE 02:00 UTC 触发的每日全量 + WAL 增量 + MinIO mirror + Redis BGSAVE 串行完成；offsite 镜像由 SRE 负责。
 - **PG 知识库 PK 冲突 — ✅ 闭合（R30-A）**：multi-replica / multi-FastAPI-worker 部署下 `create_document` 不再 500；`PgAgentRunStore.upsert_run` 缺 `run_id` 自动补，调用方无感；`PgKnowledgeStore` 与 `SQLiteStore` 方法表面齐平，ingestion 流程在 PG 后端不破。
 - **P2 Prompt 版本 A/B — ✅ 闭合（R30-B）**：5 schema 端到端归因（`AgentRunResponse` / `NodeTrace` / `ToolCallSummary` / `AuditEvent` / `TicketWritebackRecord`）；LangGraph 节点真写 + 透传；R24 Langfuse emitter 现在能按 prompt label 切片。
-- **P0-1 Dockerfile 全服务补齐 — 仍未完成**：R29-C 只补了 event-gateway Dockerfile，其余 7 个服务 + web-portal 仍缺 → **留待 R31**。
-- **P0-3 RCA 告警收敛算法 — 仍未完成**（`del time_window_minutes` TODO 仍在）→ **留待 R31**。
+- **P0-1 Dockerfile 全服务补齐 — ✅ 早已闭合（早期 `2e9f0a7`）**：复核发现 8 服务（knowledge-api / ingestion-worker / rca-agent / agent-platform-api / tool-registry / approval-service / mcp-gateway / eval-service）+ web-portal 全有 Dockerfile；R29-C 补 event-gateway、R32-A 补 api-gateway 只是新增服务顺带补齐。原「仍未完成」标注为文档漂移，已更正。
+- **P0-3 RCA 告警收敛算法 — ✅ 早已闭合（R14 `bc72149` + `ea7fb2d`）**：`del time_window_minutes` TODO 早已移除；`build_incident` 现真用 `time_window_minutes` 做时间窗分组 + `_merge_parent_child`（`parent_child_lag_seconds`）+ `_merge_by_topology`（`topology_window_minutes` + `topology_client`）+ `_dedup_by_fingerprint` + primary 选择，spec §6.2 告警收敛六步全到位。原「仍未完成（`del time_window_minutes` TODO 仍在）」标注为文档漂移，已更正。
 - **P1-5 模板铺面 3/5 → 5/5**（prompt/tool 注册） — R30-B 把 5 模板的 LangGraph 归因做完（fake 端到端测试 green），但变更评估 / 工单总结两个模板的真实 RCA 工具 + CMDB + 工单系统 + 知识库四方端到端测试待后续。
 - **P1 限流网关化** — `packages/rate-limit` 共享包就位 + 6 服务 `install_rate_limiter` 接入，但单一 API gateway（spec §三 §5.1 关键能力）仍未做 → **留待 R31**。
 - **P2 LangGraph 编排层** — R29-B 闭合执行层（节点真调 LLM/MCP），编排层（条件边 / 子图 / 断点续跑）仍待后续。
@@ -249,16 +249,16 @@ R29 收尾建议的 R30 候选有三条：**P0-1 Dockerfile 全服务补齐**、
 
 **总评**：R17 → R30 共 14 轮迭代（`5a2a5b1` → `61da24d`）把差距分析原始 P0–P3 全部 9 项 🔴 未实现条目清零：
 
-- **P0**（3 项）→ **1/3 闭合**（PG 迁移 ✅），剩 Dockerfile / 收敛算法 2 项留待 R31+。
+- **P0**（3 项）→ **3/3 闭合**（PG 迁移 ✅ R29-A、Dockerfile 全服务补齐 ✅ 早期 `2e9f0a7`、RCA 告警收敛算法 ✅ R14 `bc72149`+`ea7fb2d`）。（§7.4 复核前误标 Dockerfile / 收敛算法「仍未完成」，实为文档漂移，已更正。）
 - **P1**（5 项）→ **3/5 完全闭合**（可观测埋点 ✅ R25、限流共享包 ✅ R25、Reranker ✅ R26、工具韧性 ✅ R25、模板铺面部分 R30-B 端到端覆盖 5 模板归因），剩模板铺面 5/5 真实三方接入 + 限流网关化。
 - **P2**（8 项）→ **6/8 闭合**（Kafka 告警流 ✅ R27+R29-C、event-gateway ✅ R29-C、LangGraph v1 执行层 ✅ R29-B、Langfuse Trace ✅ R24、Prompt 版本 ✅ R30-B、SSO/OIDC ✅ R24、审批补充/转派/超时升级 ✅ R20、Faithfulness/安全策略评测 ✅ R18），剩 LangGraph 编排层 + 限流网关化。
 - **P3**（3 项）→ **3/3 闭合**（mcp-gateway/approval-service 独立化 ✅ R21、对象存储 MinIO ✅ R22、高可用多副本+幂等 ✅ R23、备份 runbook ✅ R30-C）。
 
-**R31 建议主线**：**P0-1 Dockerfile 全服务补齐（7 服务 + web-portal）+ P0-3 RCA 告警收敛算法（`del time_window_minutes` 替换为真时间窗 + 拓扑距离 + 父子规则）**，与 R30 改动面正交（一个 infra 维度 + 一个业务算法维度）。次要：模板铺面 5/5 真实三方接入（变更评估 / 工单总结的真实 RCA 工具 + CMDB + 工单系统 + 知识库端到端测试）、限流网关化（ingress-level）、LangGraph 编排层（条件边 + 子图 + 断点续跑）。
+**R31 建议主线**：~~P0-1 Dockerfile 全服务补齐 + P0-3 RCA 告警收敛算法~~（§7.4 复核更正：两条早已闭合，非遗留项）→ R31 实际聚焦治理深度二项（限流 `key_func` 维度 + LangGraph MemorySaver 断点续跑）。次要：模板铺面 5/5 真实三方接入（变更评估 / 工单总结的真实 RCA 工具 + CMDB + 工单系统 + 知识库端到端测试）、限流网关化（ingress-level）、LangGraph 编排层（条件边 + 子图 + 断点续跑）。
 
 ### 7.5 R31 收尾（2026-06-22 末段，治理深度二项闭合）
 
-R30 §7.4 建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 告警收敛算法）因改动面过大、与治理深度项正交，本轮**不在范围**，继续留待 R32+。本轮落地 R30 建议的 R31 **次要**候选中可一次性闭合的两条治理深度项：**限流 `key_func` 维度**（R31-A）+ **LangGraph MemorySaver 断点续跑**（R31-B）。
+R30 §7.4 原建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 告警收敛算法）——§7.4 复核已更正：两条早已闭合（Dockerfile 早期 `2e9f0a7`、RCA 收敛 R14 `bc72149`+`ea7fb2d`），非遗留项，故 R31 无需再接。R31 实际落地 R30 建议的 **次要**候选中可一次性闭合的两条治理深度项：**限流 `key_func` 维度**（R31-A）+ **LangGraph MemorySaver 断点续跑**（R31-B）。
 
 | 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD = 待推送） |
 | --- | --- | --- | --- |
@@ -269,8 +269,8 @@ R30 §7.4 建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 
 
 - **P1-7 限流维度参数化 — ✅ 闭合（R31-A）**：限流从「user 单维」推到「user/tenant/endpoint/tool 4 维 + 自定义 callable」；`RATE_LIMIT_KEY_FUNC` env 路径让 6 服务既有接线零改动。**注意**：单一 API gateway（ingress-level）仍未做——R31-A 闭合的是「维度参数化」，「网关化」仍待 R32+。
 - **P2 LangGraph「可恢复」— ✅ 闭合（R31-B）**：HITL 审批走真 `MemorySaver` checkpoint + `interrupt_before` + `resume()`，替换 R24 审计 G6 的 `decide()` model_copy 缝合；6 条契约（暂停 / approve 完成 / reject 终止 / 跨 runtime 持久化 / 只读不 interrupt / 未知 run 抛 KeyError）pin 死。**注意**：LangGraph 编排层更深层（条件边 / 真子图 / 多 gate / 长运行 resume）仍是 R31-B 的单 interrupt gate，待后续。
-- **P0-1 Dockerfile 全服务补齐 — 仍未完成**：继续留待 R32+。
-- **P0-3 RCA 告警收敛算法 — 仍未完成**（`del time_window_minutes` TODO 仍在）：继续留待 R32+。
+- **P0-1 Dockerfile 全服务补齐 — ✅ 早已闭合（早期 `2e9f0a7`）**：§7.4 复核已更正——8 服务 + web-portal 全有 Dockerfile，原「仍未完成」为文档漂移。
+- **P0-3 RCA 告警收敛算法 — ✅ 早已闭合（R14 `bc72149`+`ea7fb2d`）**：§7.4 复核已更正——`del time_window_minutes` TODO 早已移除，时间窗 + 父子 + 拓扑收敛全到位，原「仍未完成」为文档漂移。
 - **P1-5 模板铺面 3/5 → 5/5** — 真实三方端到端测试待后续。
 - **P1 限流网关化** — R31-A 闭合维度参数化，ingress-level 网关化待后续。
 
@@ -290,17 +290,17 @@ R30 §7.4 建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 
 
 **总评（R31 后）**：R17 → R31 共 15 轮迭代把差距分析原始 P0–P3 全部 9 项 🔴 未实现条目**保持清零**，并进一步把 P1/P2 治理深度项向纵深推进：
 
-- **P0**（3 项）→ **1/3 闭合**（PG 迁移 ✅），剩 Dockerfile / 收敛算法 2 项留待 R32+（改动面过大，本轮未接）。
+- **P0**（3 项）→ **3/3 闭合**（PG 迁移 ✅ R29-A、Dockerfile 全服务补齐 ✅ 早期 `2e9f0a7`、RCA 告警收敛算法 ✅ R14）。（§7.4 复核更正：原标 Dockerfile / 收敛算法「留待 R32+」为文档漂移，实已闭合。）
 - **P1**（5 项）→ **3/5 完全闭合 + 2 项纵深推进**（可观测埋点 ✅ R25、限流共享包 ✅ R25、Reranker ✅ R26、工具韧性 ✅ R25、模板铺面部分 R30-B）；限流维度参数化 ✅ R31-A（网关化仍待）、模板铺面 5/5 真实三方接入待后续。
 - **P2**（8 项）→ **7/8 闭合**（Kafka 告警流 ✅ R27+R29-C、event-gateway ✅ R29-C、LangGraph v1 执行层 ✅ R29-B、Langfuse Trace ✅ R24、Prompt 版本 ✅ R30-B、SSO/OIDC ✅ R24、审批补充/转派/超时升级 ✅ R20、Faithfulness/安全策略评测 ✅ R18、**LangGraph「可恢复」✅ R31-B**），剩限流网关化（ingress-level）+ LangGraph 编排层深层（真子图 / 多 gate）。
 - **P3**（3 项）→ **3/3 闭合**（mcp-gateway/approval-service 独立化 ✅ R21、对象存储 MinIO ✅ R22、高可用多副本+幂等 ✅ R23、备份 runbook ✅ R30-C）。
 
-**R32 建议主线**：**P0-1 Dockerfile 全服务补齐（7 服务 + web-portal）+ P0-3 RCA 告警收敛算法**（仍是改动面最大的两条 P0 遗留，与 R31 改动面正交）。次要：限流网关化（ingress-level）、模板铺面 5/5 真实三方接入、LangGraph 编排层深层（真子图 + 多 gate + 长运行 resume）。
+**R32 建议主线**：~~P0-1 Dockerfile 全服务补齐 + P0-3 RCA 告警收敛算法~~（§7.4 复核更正：两条早已闭合，非遗留项）→ R32 实际聚焦限流网关化（ingress-level，R32-A）+ LangGraph 并行子图（R32-B）+ 模板真实三方端到端（R32-C）。次要：模板铺面 5/5 真实三方接入剩余项、LangGraph 编排层深层（多 gate + 长运行 resume）。
 
 ### 7.6 R32-A 收尾（2026-06-23，限流网关化闭合）
 
 - **P1-7 限流网关化 — ✅ 闭合（R32-A）**：新增 `services/api-gateway`（端口 8070）作为 spec §三 §5.1 要求的单一 ingress 网关，按路径前缀路由到 6 个后端（`/api/knowledge|/api/rca|/api/platform|/api/tools|/api/approvals|/api/mcp`），并在网关层统一收口四项横切关注点：认证（复用 `auth-policy` 的 `require_internal_or_jwt`，`API_GATEWAY_AUTH_REQUIRED` 默认 false 开放、生产翻 true）、限流（复用 `install_rate_limiter`，与 6 服务同一共享包）、审计（`AuditMiddleware` 记录 trace_id+run_id+method+path+backend+status）、trace_id 生成+透传（无 `X-Trace-Id` 时生成 UUID，始终透传到后端+响应）。`BackendProxy` Protocol + `HttpBackendProxy`（httpx）让测试注入 stub 不开 socket。Dockerfile + k8s + helm + docker-compose 全套部署清单就位；helm `test_values_yaml_loads` 扩到 9 服务。**约束**：新增服务，零改动后端，全量 1647 测试 0 失败。
-- **剩余 P1/P2**：模板铺面 5/5 真实三方接入、LangGraph 编排层深层（真子图 + 多 gate + 长运行 resume）、OCR + 滑动窗口 + 表格结构化；P0 仍剩 Dockerfile 全服务补齐 + RCA 告警收敛算法。
+- **剩余 P1/P2**：模板铺面 5/5 真实三方接入（R32-C 已覆盖 change_assessment + ticket_summary 两模板真三方端到端，剩余模板的真实三方接入待后续）、LangGraph 编排层深层（多 gate + 长运行 resume）、OCR + 滑动窗口 + 表格结构化；P0 三项已全闭合（§7.4 复核更正）。
 
 ### 7.7 R32-B 收尾（2026-06-22，LangGraph 并行子图闭合）
 
@@ -313,14 +313,15 @@ R31 §7.5 把 LangGraph「可恢复」闭合后，spec §三 §5.2「Agent Runti
 **R32-B 对 §7.1 待办清单的更新**：
 
 - **P2 LangGraph「并行子任务」— ✅ 闭合（R32-B）**：ToolPlan 从线性迭代推到 `Send` fan-out 并行子图 + `operator.add` reducer 聚合；7 条契约（并行执行窗口重叠 / 结果聚合到 output / 失败隔离 / checkpointer 跨 runtime resume / 只读模板并行 / 线性 fallback 保 pre-R32 / fallback 只读仍顺序调用）pin 死。**注意**：多 gate 编排（spec §5.2 更深的条件边 / 长运行多中断点）仍是单 interrupt gate，待 R33+。
-- **P0-1 Dockerfile 全服务补齐 — 仍未完成**：继续留待 R33+。
-- **P0-3 RCA 告警收敛算法 — 仍未完成**：继续留待 R33+。
+- **P0-1 Dockerfile 全服务补齐 — ✅ 早已闭合（早期 `2e9f0a7`）**：§7.4 复核已更正，非 R33 遗留。
+- **P0-3 RCA 告警收敛算法 — ✅ 早已闭合（R14 `bc72149`+`ea7fb2d`）**：§7.4 复核已更正，非 R33 遗留。
 - **P1 限流网关化 / 模板铺面 5/5 真实三方接入** — 限流网关化 ✅ R32-A 闭合；模板铺面 5/5 真实三方接入待后续。
 
 **总评（R32 后）**：
 
-- **P1**（5 项）→ 限流网关化 ✅ R32-A 闭合（R31 维度参数化 + R32 ingress-level 网关），剩模板铺面 5/5 真实三方接入。
+- **P0**（3 项）→ **3/3 闭合**（PG 迁移 ✅ R29-A、Dockerfile 全服务补齐 ✅ 早期 `2e9f0a7`、RCA 告警收敛算法 ✅ R14）。（§7.4 复核更正：原标 Dockerfile / 收敛算法「仍未完成」为文档漂移，实早已闭合。）
+- **P1**（5 项）→ 限流网关化 ✅ R32-A 闭合（R31 维度参数化 + R32 ingress-level 网关），剩模板铺面 5/5 真实三方接入（R32-C 已覆盖 change_assessment + ticket_summary 两模板真三方端到端）。
 - **P2**（8 项）→ **7/8 闭合 + 1 项纵深再推进**（LangGraph「可恢复」✅ R31-B + 「并行子图」✅ R32-B，剩 LangGraph 多 gate 编排深层）。
-- 全量 in-memory 测试：**1635 passed, 14 skipped**（R31 基线 1628 + 7 新增）；ruff exit 0。
+- 全量回归测试（R32-A + R32-B + R32-C 三 worktree 合并后）：**1663 passed, 14 skipped**（R31 基线 1628 + R32-A api-gateway + R32-B 并行子图 + R32-C 真三方端到端新增）；ruff exit 0。
 
 > 收尾 spec：`Docs/superpowers/specs/2026-06-22-r32-langgraph-parallel-subgraph.md`（R32-B）、`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
