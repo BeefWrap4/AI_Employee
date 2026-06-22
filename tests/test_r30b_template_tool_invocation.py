@@ -110,8 +110,11 @@ def test_ticket_summary_run_invokes_ticket_fetch_and_knowledge_query(
     """ticket_summary (read-only) must invoke ticket.fetch and
     knowledge-api.chat.query through the MCP gateway client.
 
-    Each tool is invoked exactly once, in declared order, and the
-    resulting ``ToolCallSummary`` rows move to ``completed``.
+    R32-B: the ToolPlan step now fans the tools out to a parallel
+    subgraph (spec §5.2 "并行子任务"), so the invocation order is no
+    longer pinned — the two tools run concurrently.  Each tool is still
+    invoked exactly once, and the resulting ``ToolCallSummary`` rows
+    move to ``completed``.
     """
     mcp = FakeMcpGatewayClient(
         results={
@@ -131,10 +134,12 @@ def test_ticket_summary_run_invokes_ticket_fetch_and_knowledge_query(
         )
     )
     assert result.status == "completed"
-    # Each declared tool is invoked exactly once, in order.
+    # Each declared tool is invoked exactly once (order is unspecified
+    # under parallel subgraph execution).
     invoked_names = [name for name, _ in mcp.calls]
-    assert invoked_names == ["ticket.fetch", "knowledge-api.chat.query"]
-    # Every tool call in the response is completed.
+    assert sorted(invoked_names) == ["knowledge-api.chat.query", "ticket.fetch"]
+    # Every tool call in the response is completed, in declared order
+    # (the ToolAggregate node re-orders by the template's tool_names).
     assert [t.tool_name for t in result.tool_calls] == [
         "ticket.fetch",
         "knowledge-api.chat.query",

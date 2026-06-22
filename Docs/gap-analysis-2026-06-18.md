@@ -55,7 +55,7 @@
 | Spec 条目 | 状态 | 现状 / 差距 |
 |---|---|---|
 | §5.1 平台 API 网关（认证/限流/审计/路由/trace_id+run_id） | 🟡 | 认证(JWT) ✅、审计 ✅、trace_id+run_id ✅；**限流 🔴、统一网关聚合 🔴**（各服务独立暴露，无单一入口网关） |
-| §5.2 Agent Runtime 长运行/状态持久化/失败恢复/人工中断 | 🟡 | run 持久化(SQLite)+resume ✅、审批中断恢复 ✅；**LangGraph v1 🔴**（自研 runtime，spec 要求 v1）、并行子任务 🔴、失败重试策略 🔴 |
+| §5.2 Agent Runtime 长运行/状态持久化/失败恢复/人工中断 | 🟡 | run 持久化(SQLite)+resume ✅、审批中断恢复 ✅、LangGraph v1 执行层 ✅（R29-B）、LangGraph 可恢复 ✅（R31-B MemorySaver checkpoint+resume）、并行子任务 ✅（R32-B `Send` fan-out + reducer 聚合）；**失败重试策略 🔴**、多 gate 编排 🔴 |
 | §5.3 MCP 工具注册中心（Schema/权限/风险/健康检查/限流/熔断） | 🟡 | 注册+Schema+风险等级+鉴权+invoke ✅；**健康检查 🔴（health_status 永远 unknown）、限流 🔴、熔断 🔴、timeout_ms/retry_policy 🔴**（ToolSpec 无这些字段） |
 | §5.3 风险等级 readonly/suggest/approval_required/forbidden | 🟡 | 实现 read_only/approval_required/high_risk；**forbidden 🔴、suggest 🔴**（4 档只实现 2.5 档） |
 | §5.4 人机协同（审批/中断/补充信息/转派/超时升级） | 🟡 | 审批 approve/reject ✅、中断恢复 ✅；**补充信息 🔴、转派专家 🔴、超时升级 🔴** |
@@ -302,4 +302,25 @@ R30 §7.4 建议的 R31 **主线**（P0-1 Dockerfile 全服务补齐 + P0-3 RCA 
 - **P1-7 限流网关化 — ✅ 闭合（R32-A）**：新增 `services/api-gateway`（端口 8070）作为 spec §三 §5.1 要求的单一 ingress 网关，按路径前缀路由到 6 个后端（`/api/knowledge|/api/rca|/api/platform|/api/tools|/api/approvals|/api/mcp`），并在网关层统一收口四项横切关注点：认证（复用 `auth-policy` 的 `require_internal_or_jwt`，`API_GATEWAY_AUTH_REQUIRED` 默认 false 开放、生产翻 true）、限流（复用 `install_rate_limiter`，与 6 服务同一共享包）、审计（`AuditMiddleware` 记录 trace_id+run_id+method+path+backend+status）、trace_id 生成+透传（无 `X-Trace-Id` 时生成 UUID，始终透传到后端+响应）。`BackendProxy` Protocol + `HttpBackendProxy`（httpx）让测试注入 stub 不开 socket。Dockerfile + k8s + helm + docker-compose 全套部署清单就位；helm `test_values_yaml_loads` 扩到 9 服务。**约束**：新增服务，零改动后端，全量 1647 测试 0 失败。
 - **剩余 P1/P2**：模板铺面 5/5 真实三方接入、LangGraph 编排层深层（真子图 + 多 gate + 长运行 resume）、OCR + 滑动窗口 + 表格结构化；P0 仍剩 Dockerfile 全服务补齐 + RCA 告警收敛算法。
 
-> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
+### 7.7 R32-B 收尾（2026-06-22，LangGraph 并行子图闭合）
+
+R31 §7.5 把 LangGraph「可恢复」闭合后，spec §三 §5.2「Agent Runtime — 支持并行子任务和结果汇总」剩的**并行子图**缺口仍未做——ToolPlan 仍线性迭代 `template.tool_names` 逐个调 MCP。R32-B 用 LangGraph `Send` API 把 ToolPlan 改成并行子图。
+
+| 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD = 待推送） |
+| --- | --- | --- | --- |
+| **R32-B** | **LangGraph 并行子图编排** | §三 §5.2「并行子任务和结果汇总」+ R31 §7.5 遗留「真子图」：ToolPlan 改 plan-only，conditional edge `Send("ToolExec", ...)` fan-out 每个工具成并行 worker；`tool_results: Annotated[list, operator.add]` reducer 合并 worker 输出；`ToolAggregate` 节点按模板声明顺序 merge 回 `tool_calls` + 聚合到 `run.output`（`change_assessment` 蒸馏 `risk_factors`）；审批模板在 HITL gate 暂停、resume leg 经 `ApprovalApproved` 再次 fan-out 并行执行被 hold 的工具 → `ToolAggregate` → END（`approval_status=="approved"` 时直走 END 避免回 ApprovalRequired 死循环 / 避 `Completed` 覆盖审批结果）；失败隔离——单工具 raise 变 `failed` + `error_code`，其它 worker 照常完成；`LANGGRAPH_SUBGRAPH` env 门控（默认 true，`false` 走 pre-R32 线性 fallback）；R31-B checkpointer resume 契约保留；细节 + 测试矩阵见 `Docs/superpowers/specs/2026-06-22-r32-langgraph-parallel-subgraph.md` | `f0392bc` `3b78b1f` |
+
+**R32-B 对 §7.1 待办清单的更新**：
+
+- **P2 LangGraph「并行子任务」— ✅ 闭合（R32-B）**：ToolPlan 从线性迭代推到 `Send` fan-out 并行子图 + `operator.add` reducer 聚合；7 条契约（并行执行窗口重叠 / 结果聚合到 output / 失败隔离 / checkpointer 跨 runtime resume / 只读模板并行 / 线性 fallback 保 pre-R32 / fallback 只读仍顺序调用）pin 死。**注意**：多 gate 编排（spec §5.2 更深的条件边 / 长运行多中断点）仍是单 interrupt gate，待 R33+。
+- **P0-1 Dockerfile 全服务补齐 — 仍未完成**：继续留待 R33+。
+- **P0-3 RCA 告警收敛算法 — 仍未完成**：继续留待 R33+。
+- **P1 限流网关化 / 模板铺面 5/5 真实三方接入** — 限流网关化 ✅ R32-A 闭合；模板铺面 5/5 真实三方接入待后续。
+
+**总评（R32 后）**：
+
+- **P1**（5 项）→ 限流网关化 ✅ R32-A 闭合（R31 维度参数化 + R32 ingress-level 网关），剩模板铺面 5/5 真实三方接入。
+- **P2**（8 项）→ **7/8 闭合 + 1 项纵深再推进**（LangGraph「可恢复」✅ R31-B + 「并行子图」✅ R32-B，剩 LangGraph 多 gate 编排深层）。
+- 全量 in-memory 测试：**1635 passed, 14 skipped**（R31 基线 1628 + 7 新增）；ruff exit 0。
+
+> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r32-langgraph-parallel-subgraph.md`（R32-B）、`Docs/superpowers/specs/2026-06-22-r31-final-enhancements.md`（R31）、`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。

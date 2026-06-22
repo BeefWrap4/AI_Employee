@@ -51,8 +51,10 @@ wiring.  Tests inject fakes through the constructor — see
 
 from __future__ import annotations
 
+import operator
+import os
 import time
-from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
+from typing import Annotated, Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
@@ -91,6 +93,14 @@ class _RunState(TypedDict, total=False):
     # attributable to a specific prompt+model pair.
     model_name: str | None
     prompt_version: str | None
+    # R32-B (spec §5.2 "并行子任务和结果汇总"): per-tool results emitted
+    # by the parallel ``ToolExec`` subgraph workers.  The
+    # ``operator.add`` reducer merges the fan-out outputs back into the
+    # graph state so the ``ToolAggregate`` node sees every tool's result
+    # regardless of completion order.  Only the subgraph path populates
+    # this field; the linear fallback (``LANGGRAPH_SUBGRAPH=false``) does
+    # not, preserving the pre-R32 output contract.
+    tool_results: Annotated[list[dict[str, Any]], operator.add]
 
 
 @runtime_checkable
@@ -193,6 +203,21 @@ def _args_for_template(template_id: str, payload_input: dict[str, Any]) -> dict[
     return dict(payload_input or {})
 
 
+def _subgraph_enabled() -> bool:
+    """True when the R32-B parallel subgraph path is active.
+
+    Spec §5.2 requires parallel subtask execution with result
+    aggregation.  The subgraph (LangGraph ``Send`` fan-out → parallel
+    ``ToolExec`` workers → ``ToolAggregate`` reduce) is the default; set
+    ``LANGGRAPH_SUBGRAPH=false`` to fall back to the pre-R32 linear
+    ToolPlan (the escape hatch for environments that want the original
+    "tools stay planned, marked completed on approval" semantics for
+    approval-required templates, and the sequential per-tool loop for
+    read-only templates).
+    """
+    return os.getenv("LANGGRAPH_SUBGRAPH", "true").lower() not in ("false", "0", "no")
+
+
 class LangGraphRuntime:
     """Drives agent runs through a LangGraph StateGraph."""
 
@@ -271,6 +296,15 @@ class LangGraphRuntime:
         builder.add_node("TemplateLoaded", self._node_template_loaded)
         builder.add_node("RunStarted", self._node_run_started)
         builder.add_node("ToolPlan", self._node_tool_plan)
+        # R32-B (spec §5.2): the parallel subgraph workers + reducer.
+        # ``ToolExec`` runs once per tool (fanned out via ``Send`` from
+        # ToolPlan / ApprovalApproved); ``ToolAggregate`` runs once after
+        # all workers complete to curate ``tool_calls`` and aggregate the
+        # results into ``run.output``.  They are always registered so the
+        # graph topology is stable whether the subgraph path is taken or
+        # not — the linear fallback simply never routes into them.
+        builder.add_node("ToolExec", self._node_tool_exec)
+        builder.add_node("ToolAggregate", self._node_tool_aggregate)
         builder.add_node("ApprovalRequired", self._node_approval_required)
         builder.add_node("ApprovalApproved", self._node_approval_approved)
         builder.add_node("ApprovalRejected", self._node_approval_rejected)
@@ -279,6 +313,8 @@ class LangGraphRuntime:
             "TemplateLoaded",
             "RunStarted",
             "ToolPlan",
+            "ToolExec",
+            "ToolAggregate",
             "ApprovalRequired",
             "ApprovalApproved",
             "ApprovalRejected",
@@ -289,10 +325,29 @@ class LangGraphRuntime:
         builder.set_entry_point("TemplateLoaded")
         builder.add_edge("TemplateLoaded", "RunStarted")
         builder.add_edge("RunStarted", "ToolPlan")
+        # ToolPlan either fans out to the parallel ToolExec workers
+        # (read-only templates, subgraph path) or routes straight to the
+        # approval gate / completion (approval-required templates hold
+        # their tools ``planned`` until the resume leg executes them).
         builder.add_conditional_edges(
             "ToolPlan",
             self._route_after_tool_plan,
-            {"approval": "ApprovalRequired", "done": "Completed"},
+            {
+                "approval": "ApprovalRequired",
+                "done": "Completed",
+                "fanout": "ToolExec",
+            },
+        )
+        # The parallel ToolExec workers all reduce into ToolAggregate,
+        # which then routes to the approval gate (read-only leg),
+        # completion (read-only leg with no approval), or straight to
+        # END (post-approval leg — the run is already finalised by
+        # ApprovalApproved and must not be overwritten by Completed).
+        builder.add_edge("ToolExec", "ToolAggregate")
+        builder.add_conditional_edges(
+            "ToolAggregate",
+            self._route_after_tool_aggregate,
+            {"approval": "ApprovalRequired", "done": "Completed", "end": END},
         )
         # R31-B: after the ApprovalRequired node runs (during resume),
         # the conditional edge routes to ApprovalApproved or
@@ -303,7 +358,15 @@ class LangGraphRuntime:
             self._route_after_approval,
             {"approve": "ApprovalApproved", "reject": "ApprovalRejected"},
         )
-        builder.add_edge("ApprovalApproved", END)
+        # R32-B: ApprovalApproved may fan out the parallel subgraph to
+        # execute the held tools (subgraph path) or go straight to END
+        # (linear fallback marks the held tools completed without
+        # invoking them).
+        builder.add_conditional_edges(
+            "ApprovalApproved",
+            self._route_after_approval_approved,
+            {"fanout": "ToolExec", "end": END},
+        )
         builder.add_edge("ApprovalRejected", END)
         builder.add_edge("Completed", END)
         # R31-B (spec §3 / §4 "可恢复"): compile with a MemorySaver
@@ -332,8 +395,92 @@ class LangGraphRuntime:
         self._checkpointer = MemorySaver()
         return self._checkpointer
 
-    def _route_after_tool_plan(self, state: _RunState) -> Literal["approval", "done"]:
+    def _route_after_tool_plan(
+        self, state: _RunState
+    ) -> Literal["approval", "done", "fanout"] | list[Any]:
+        """Route out of ToolPlan.
+
+        * ``approval`` — approval-required template; tools are held
+          ``planned`` at the HITL gate (the resume leg executes them).
+        * ``fanout`` — read-only template on the subgraph path; fan out
+          one ``Send("ToolExec", ...)`` per tool so they execute in
+          parallel.
+        * ``done`` — read-only template on the linear fallback path
+          (``LANGGRAPH_SUBGRAPH=false``); the linear ToolPlan already
+          invoked each tool sequentially and there is nothing left to
+          aggregate, so go straight to ``Completed``.
+        """
+        if state.get("requires_approval"):
+            return "approval"
+        if not _subgraph_enabled():
+            return "done"
+        # Subgraph path: fan out one ToolExec Send per tool.  When the
+        # template declares no tools the fan-out is empty — route to
+        # ``done`` so the graph still terminates without invoking the
+        # aggregate node on an empty reducer.
+        template = TEMPLATES[state["template_id"]]
+        if not template.tool_names:
+            return "done"
+        from langgraph.types import Send
+
+        return [
+            Send(
+                "ToolExec",
+                {
+                    "tool_name": name,
+                    "template_id": state["template_id"],
+                    "input": state.get("input", {}),
+                    "run_id": state.get("run_id", ""),
+                    "model_name": state.get("model_name"),
+                    "prompt_version": state.get("prompt_version"),
+                },
+            )
+            for name in template.tool_names
+        ]
+
+    def _route_after_tool_aggregate(self, state: _RunState) -> Literal["approval", "done", "end"]:
+        """After the parallel subgraph aggregates, route to:
+
+        * ``end`` — post-approval leg (``approval_status == "approved"``):
+          the run is already finalised by ApprovalApproved; go straight
+          to END so the ``Completed`` node does not overwrite the
+          approval outcome.
+        * ``approval`` — read-only leg that somehow has
+          ``requires_approval`` (defensive; the read-only leg normally
+          has it false) — park at the HITL gate.
+        * ``done`` — read-only leg — finalise via ``Completed``.
+        """
+        if state.get("approval_status") == "approved":
+            return "end"
         return "approval" if state.get("requires_approval") else "done"
+
+    def _route_after_approval_approved(
+        self, state: _RunState
+    ) -> Literal["fanout", "end"] | list[Any]:
+        """After an approved run, either fan out the parallel subgraph
+        to execute the held tools (subgraph path) or go straight to END
+        (linear fallback marks them completed without invoking)."""
+        if not _subgraph_enabled():
+            return "end"
+        template = TEMPLATES[state["template_id"]]
+        if not template.tool_names:
+            return "end"
+        from langgraph.types import Send
+
+        return [
+            Send(
+                "ToolExec",
+                {
+                    "tool_name": name,
+                    "template_id": state["template_id"],
+                    "input": state.get("input", {}),
+                    "run_id": state.get("run_id", ""),
+                    "model_name": state.get("model_name"),
+                    "prompt_version": state.get("prompt_version"),
+                },
+            )
+            for name in template.tool_names
+        ]
 
     def _route_after_approval(self, state: _RunState) -> Literal["approve", "reject"]:
         """Route to the approval outcome node based on the decision.
@@ -426,14 +573,23 @@ class LangGraphRuntime:
         return state
 
     def _node_tool_plan(self, state: _RunState) -> _RunState:
-        """Plan and execute the template's tool calls.
+        """Plan the template's tool calls.
 
-        For approval-required templates we still record the plan but
-        do not invoke any tools — the HITL gate in
-        :func:`_node_approval_required` fires first.  For read-only
-        templates we invoke each tool via the MCP gateway client,
-        record a row in :class:`PlatformToolCallLogStore`, and mark
-        the tool call ``completed`` (or ``failed`` with an error code).
+        R32-B (spec §5.2): on the subgraph path this node *only* plans —
+        it seeds ``tool_calls`` with one ``planned`` entry per tool and
+        records the ToolPlan trace.  The actual execution is fanned out
+        to the parallel ``ToolExec`` workers (read-only templates here,
+        approval-required templates on the resume leg via
+        ApprovalApproved).  ``ToolAggregate`` curates the entries to
+        ``completed`` / ``failed`` once the workers finish.
+
+        On the linear fallback path (``LANGGRAPH_SUBGRAPH=false``) this
+        node keeps the pre-R32 R29-B behaviour: iterate ``tool_names``
+        sequentially, invoke each tool, record a tool_call_log row, and
+        mark the entry ``completed`` / ``failed`` in place.  Approval-
+        required templates still hold their tools ``planned`` (executed
+        neither here nor on resume — the linear fallback's
+        ApprovalApproved just marks them ``completed``).
 
         R30-B (spec §6.4): every ``ToolCallSummary`` and tool_call_log
         row inherits the run's ``model_name`` / ``prompt_version`` so
@@ -445,10 +601,41 @@ class LangGraphRuntime:
         run_model_name = state.get("model_name")
         run_prompt_version = state.get("prompt_version")
         tool_calls: list[dict[str, Any]] = []
+
+        if _subgraph_enabled():
+            # Subgraph path: plan only.  Execution is fanned out to the
+            # parallel ToolExec workers; ToolAggregate finalises the
+            # entries.  Approval-required templates hold ``planned``
+            # until the resume leg.
+            for name in template.tool_names:
+                entry: dict[str, Any] = {
+                    "tool_name": name,
+                    "risk_level": "approval_required" if requires_approval else "read_only",
+                    "status": "planned",
+                }
+                if run_model_name is not None:
+                    entry["model_name"] = run_model_name
+                if run_prompt_version is not None:
+                    entry["prompt_version"] = run_prompt_version
+                tool_calls.append(entry)
+            state["tool_calls"] = tool_calls
+            state["node_trace"].append(
+                {
+                    "node_name": "ToolPlan",
+                    "status": "completed",
+                    "detail": (
+                        f"Planned {len(template.tool_names)} tool calls for "
+                        f"parallel subgraph execution."
+                    ),
+                }
+            )
+            return state
+
+        # --- Linear fallback (pre-R32 R29-B behaviour) ----------------- #
         mcp = self._get_mcp()
         log = self._get_tool_call_log()
         for name in template.tool_names:
-            entry: dict[str, Any] = {
+            entry = {
                 "tool_name": name,
                 "risk_level": "approval_required" if requires_approval else "read_only",
                 "status": "planned" if requires_approval else "completed",
@@ -526,6 +713,181 @@ class LangGraphRuntime:
         )
         return state
 
+    # ------------------------------------------------------------------ #
+    # R32-B parallel subgraph workers + aggregator
+    # ------------------------------------------------------------------ #
+
+    def _node_tool_exec(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Execute a single tool (one parallel subgraph worker).
+
+        Invoked once per ``Send`` fanned out from ToolPlan (read-only)
+        or ApprovalApproved (approval-required, post-resume).  The
+        worker invokes the MCP gateway, records a tool_call_log row, and
+        returns a ``tool_results`` entry that the ``operator.add``
+        reducer merges back into the graph state.  Failures are isolated
+        — a raised exception becomes a ``failed`` entry with an
+        ``error_code`` so the other parallel tools still complete.
+        """
+        name = state["tool_name"]
+        template_id = state.get("template_id") or self._current_template_id(state.get("run_id", ""))
+        run_id = state.get("run_id", "")
+        run_model_name = state.get("model_name")
+        run_prompt_version = state.get("prompt_version")
+        payload_input = state.get("input", {})
+        mcp = self._get_mcp()
+        log = self._get_tool_call_log()
+        result_entry: dict[str, Any] = {
+            "tool_name": name,
+            "risk_level": "read_only",
+            "status": "completed",
+        }
+        if run_model_name is not None:
+            result_entry["model_name"] = run_model_name
+        if run_prompt_version is not None:
+            result_entry["prompt_version"] = run_prompt_version
+        if mcp is None or not hasattr(mcp, "invoke_tool"):
+            # No MCP client — mark completed (legacy offline shape).
+            result_entry["result"] = None
+            result_entry["summary"] = ""
+            return {"tool_results": [result_entry]}
+        args = _args_for_template(template_id, payload_input)
+        started = time.perf_counter()
+        try:
+            result = mcp.invoke_tool(name, args)
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            result_entry["status"] = "completed"
+            summary = (
+                (result.get("answer") if isinstance(result, dict) and "answer" in result else None)
+                or (
+                    result.get("summary")
+                    if isinstance(result, dict) and "summary" in result
+                    else None
+                )
+                or (str(result)[:200] if result is not None else "")
+            )
+            result_entry["result"] = result
+            result_entry["summary"] = summary
+            try:
+                log.record(
+                    run_id=run_id,
+                    tool_name=name,
+                    input_summary=str(args)[:200],
+                    output_summary=summary,
+                    status="success",
+                    latency_ms=latency_ms,
+                    error_code=None,
+                    model_name=run_model_name,
+                    prompt_version=run_prompt_version,
+                )
+            except Exception:  # pragma: no cover - log must not break the run
+                pass
+        except Exception:
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            result_entry["status"] = "failed"
+            result_entry["error_code"] = "tool_invocation_error"
+            result_entry["result"] = None
+            result_entry["summary"] = ""
+            try:
+                log.record(
+                    run_id=run_id,
+                    tool_name=name,
+                    input_summary=str(args)[:200],
+                    output_summary=None,
+                    status="failure",
+                    latency_ms=latency_ms,
+                    error_code="tool_invocation_error",
+                    model_name=run_model_name,
+                    prompt_version=run_prompt_version,
+                )
+            except Exception:  # pragma: no cover - log must not break the run
+                pass
+        return {"tool_results": [result_entry]}
+
+    def _current_template_id(self, run_id: str) -> str:
+        """Defensive fallback for the template_id when a ``Send`` payload
+        omits it.
+
+        The fanned-out ``ToolExec`` workers always carry ``template_id``
+        in their ``Send`` payload (see :func:`_route_after_tool_plan` /
+        :func:`_route_after_approval_approved`), so this is only reached
+        if a future caller constructs a worker by hand.  It resolves the
+        id from the persisted run response, falling back to
+        ``change_assessment`` (the canonical multi-tool template) so the
+        args builder never raises.
+        """
+        run = self._runs.get(run_id)
+        if run is not None:
+            return run.template_id
+        return "change_assessment"
+
+    def _node_tool_aggregate(self, state: _RunState) -> _RunState:
+        """Curate the parallel subgraph results into ``tool_calls`` and
+        aggregate them into ``run.output``.
+
+        Runs once after every ``ToolExec`` worker has reduced its result
+        into ``state["tool_results"]``.  The planned entries seeded by
+        ToolPlan are merged with the worker results (matched by
+        ``tool_name``) so the final ``tool_calls`` list carries the
+        executed status / error_code.  The raw results are also surfaced
+        on ``run.output["tool_results"]`` and, for ``change_assessment``,
+        distilled into ``risk_factors`` so downstream consumers see the
+        aggregated picture.
+        """
+        results = list(state.get("tool_results", []))
+        results_by_name = {r.get("tool_name"): r for r in results}
+        # Merge the worker results onto the planned entries, preserving
+        # the template's tool order.
+        merged: list[dict[str, Any]] = []
+        for entry in state.get("tool_calls", []):
+            name = entry.get("tool_name")
+            worker = results_by_name.get(name)
+            if worker is None:
+                merged.append(entry)
+                continue
+            merged_entry = dict(entry)
+            merged_entry["status"] = worker.get("status", entry.get("status"))
+            if worker.get("error_code"):
+                merged_entry["error_code"] = worker["error_code"]
+            merged.append(merged_entry)
+        state["tool_calls"] = merged
+        # Surface the aggregated raw results on the run output.
+        output = dict(state.get("output", {}))
+        output["tool_results"] = results
+        # Template-specific distillation: change_assessment derives
+        # ``risk_factors`` from the aggregated tool results so the run
+        # output carries an actionable risk signal, not just the LLM
+        # summary.
+        if state["template_id"] == "change_assessment":
+            risk_factors: list[str] = []
+            for r in results:
+                if r.get("status") == "failed":
+                    risk_factors.append(f"{r.get('tool_name')}: invocation failed")
+                    continue
+                res = r.get("result")
+                if isinstance(res, dict):
+                    if res.get("criticality") in ("high", "critical"):
+                        risk_factors.append(f"cmdb: high-criticality NE ({res.get('ne_id')})")
+                    if res.get("tickets"):
+                        risk_factors.append(f"tickets: {len(res['tickets'])} historical hits")
+                    if res.get("answer"):
+                        risk_factors.append(f"kb: {str(res['answer'])[:80]}")
+            if risk_factors:
+                output["risk_factors"] = risk_factors
+                output["risk_level"] = "elevated" if len(risk_factors) > 1 else "low"
+        state["output"] = output
+        state["node_trace"].append(
+            {
+                "node_name": "ToolAggregate",
+                "status": "completed",
+                "detail": (
+                    f"Aggregated {len(results)} parallel tool results; "
+                    f"{sum(1 for r in results if r.get('status') == 'completed')} "
+                    f"completed, {sum(1 for r in results if r.get('status') == 'failed')} failed."
+                ),
+            }
+        )
+        return state
+
     def _node_approval_required(self, state: _RunState) -> _RunState:
         """Record the HITL pause.
 
@@ -552,7 +914,16 @@ class LangGraphRuntime:
         return state
 
     def _node_approval_approved(self, state: _RunState) -> _RunState:
-        """Finalise an approved run (driven by the graph engine on resume)."""
+        """Finalise an approved run (driven by the graph engine on resume).
+
+        R32-B: on the subgraph path this node sets the approval outcome
+        but leaves the held tool calls ``planned`` — the conditional
+        edge fans them out to the parallel ``ToolExec`` workers, and
+        ``ToolAggregate`` finalises their status.  On the linear
+        fallback path (``LANGGRAPH_SUBGRAPH=false``) this node preserves
+        the pre-R32 behaviour: mark the held tools ``completed``
+        without invoking them.
+        """
         state["status"] = "completed"
         state["approval_status"] = "approved"
         state["final_node"] = "ApprovalApproved"
@@ -564,8 +935,18 @@ class LangGraphRuntime:
                 "detail": "Approval approved; run finalised.",
             }
         )
-        # Approval-required tool calls were held ``planned`` at the
-        # pause; on approval they move to ``completed``.
+        if _subgraph_enabled():
+            # Subgraph path: leave the held tools ``planned`` — the
+            # parallel ToolExec workers (fanned out by
+            # ``_route_after_approval_approved``) execute them and
+            # ``ToolAggregate`` finalises the status.  Reset the
+            # ``tool_results`` reducer so the resume leg aggregates a
+            # clean list (the planning leg never populated it).
+            state["tool_results"] = []
+            return state
+        # Linear fallback: approval-required tool calls were held
+        # ``planned`` at the pause; on approval they move to
+        # ``completed`` (pre-R32 semantics — not actually invoked).
         state["tool_calls"] = [
             {**t, "status": "completed"} if t.get("status") == "planned" else t
             for t in state.get("tool_calls", [])
@@ -630,6 +1011,7 @@ class LangGraphRuntime:
             "final_node": "",
             "model_name": None,
             "prompt_version": None,
+            "tool_results": [],
         }
         config = self._config(run_id)
         final_state = self.graph.invoke(initial, config=config)
