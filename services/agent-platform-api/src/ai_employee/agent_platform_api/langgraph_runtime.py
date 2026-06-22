@@ -16,10 +16,31 @@ The graph mirrors the DAG's node sequence:
 For approval-required templates the graph pauses at ``ApprovalRequired``
 (returns ``waiting_approval``); :meth:`decide` then appends the
 ``ApprovalApproved`` / ``ApprovalRejected`` node and finalises the run.
+
+Node bodies (spec §3 / §4)
+--------------------------
+
+* :func:`_node_run_started` invokes :class:`LlmClient.chat` with a
+  template-specific prompt and persists the model content into
+  ``run.output.summary``.  An LLM failure is captured in the trace and
+  the summary but does not abort read-only runs.
+* :func:`_node_tool_plan` iterates ``template.tool_names`` and invokes
+  ``mcp_client.invoke_tool(name, args)`` for each.  On success the
+  tool-call moves to ``status="completed"`` and a row is appended to
+  :class:`PlatformToolCallLogStore`; on failure the status becomes
+  ``"failed"`` and the row carries an ``error_code``.
+
+The LLM client and MCP gateway client are optional constructor
+arguments.  When omitted, sensible defaults are built from env so
+``RUNTIME_BACKEND=langgraph`` continues to work without explicit
+wiring.  Tests inject fakes through the constructor — see
+``tests/test_langgraph_runtime_node_execution.py``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+import time
+from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from ai_employee.agent_platform_api.runtime import (
     TEMPLATES,
@@ -53,16 +74,163 @@ class _RunState(TypedDict, total=False):
     final_node: str
 
 
+@runtime_checkable
+class _LlmClientProtocol(Protocol):
+    """Minimal surface the LangGraph nodes require from the LLM client."""
+
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+        *,
+        parent_trace_id: str | None = None,
+    ) -> Any: ...
+
+
+@runtime_checkable
+class _McpClientProtocol(Protocol):
+    """Minimal surface the LangGraph nodes require from the MCP gateway."""
+
+    def invoke_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]: ...
+
+
+def _build_default_llm_client() -> Any:
+    """Lazy default LLM client — reads env on first use.
+
+    Falls back to ``None`` when the LlmClient cannot be imported (test
+    envs with restricted deps).  In that case the runtime falls back to
+    the no-LLM path so legacy callers (the singleton factory in
+    particular) keep working.
+    """
+    try:
+        from ai_employee.llm_gateway.client import LlmClient
+    except Exception:  # pragma: no cover - defensive only
+        return None
+    try:
+        return LlmClient()
+    except Exception:  # pragma: no cover - missing creds / offline
+        return None
+
+
+def _build_default_mcp_client() -> Any:
+    """Lazy default MCP gateway client.
+
+    Reuses the platform's in-memory MCP client so singleton-constructed
+    runtimes inside the FastAPI process still hit a real tool handler
+    when one is registered.  Returns ``None`` when the client cannot be
+    built (e.g. outside an app context) — the ToolPlan node then logs a
+    no-op row rather than crashing the run.
+    """
+    try:
+        from ai_employee.agent_platform_api.clients import (
+            InMemoryMcpGatewayClient,
+        )
+        from ai_employee.agent_platform_api.runtime import (
+            AgentPlatformStore,
+        )
+    except Exception:  # pragma: no cover - defensive only
+        return None
+    try:
+        # The platform store is the canonical in-memory backing; the
+        # in-process mcp-gateway client binds against it on first use.
+        return InMemoryMcpGatewayClient(store=AgentPlatformStore())
+    except Exception:  # pragma: no cover - store init failure
+        return None
+
+
+def _prompt_for_template(template_id: str, payload_input: dict[str, Any]) -> list[dict[str, str]]:
+    """Build the chat-completions messages for the RunStarted node.
+
+    The prompt embeds the template id so the LLM can specialise the
+    answer; the user content is the template's primary input field
+    (``question`` for ``knowledge_qa``, ``incident_id`` for ``rca``,
+    etc.) so the model has ground-truth context.
+    """
+    system = (
+        f"You are the {template_id} agent inside the AI Employee "
+        "platform. Produce a concise, factual response that will be "
+        "shown verbatim as the run's summary."
+    )
+    user_bits = [f"{k}: {v}" for k, v in (payload_input or {}).items()]
+    user = "\n".join(user_bits) or "(no input)"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def _args_for_template(template_id: str, payload_input: dict[str, Any]) -> dict[str, Any]:
+    """Build the arguments dict for ``mcp_client.invoke_tool``.
+
+    The platform's MCP gateway only requires the tool's declared
+    arguments; we forward the payload verbatim for now (templates
+    declare ``input_schema`` but not per-tool sub-schemas).
+    """
+    return dict(payload_input or {})
+
+
 class LangGraphRuntime:
     """Drives agent runs through a LangGraph StateGraph."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        llm_client: Any | None = None,
+        mcp_client: Any | None = None,
+        tool_call_log: Any | None = None,
+    ) -> None:
+        """Construct the runtime with optional injected dependencies.
+
+        All three are keyword-only so the legacy zero-arg
+        ``LangGraphRuntime()`` shape (used by
+        ``tests/test_langgraph_runtime.py`` and the singleton factory)
+        keeps working.  When any dependency is omitted, a lazy default
+        is built on first use — see :func:`_build_default_llm_client`,
+        :func:`_build_default_mcp_client`.  Tests inject fakes through
+        these kwargs to verify the real node-execution path without
+        needing network access.
+        """
         self._runs: dict[str, AgentRunResponse] = {}
         self._tasks: dict[str, ApprovalTask] = {}
         self._count = 0
         self._task_count = 0
+        # Injected dependencies (None means "build lazily on first use").
+        self._llm_client = llm_client
+        self._mcp_client = mcp_client
+        self._tool_call_log = tool_call_log
         self.node_names: set[str] = set()
         self.graph = self._build_graph()
+
+    # ------------------------------------------------------------------ #
+    # Lazy dependency resolution
+    # ------------------------------------------------------------------ #
+
+    def _get_llm(self) -> Any:
+        if self._llm_client is not None:
+            return self._llm_client
+        self._llm_client = _build_default_llm_client()
+        return self._llm_client
+
+    def _get_mcp(self) -> Any:
+        if self._mcp_client is not None:
+            return self._mcp_client
+        self._mcp_client = _build_default_mcp_client()
+        return self._mcp_client
+
+    def _get_tool_call_log(self) -> Any:
+        if self._tool_call_log is not None:
+            return self._tool_call_log
+        from ai_employee.agent_platform_api.tool_call_log import (
+            PlatformToolCallLogStore,
+        )
+
+        self._tool_call_log = PlatformToolCallLogStore()
+        return self._tool_call_log
 
     # ------------------------------------------------------------------ #
     # Graph construction
@@ -79,8 +247,11 @@ class LangGraphRuntime:
         builder.add_node("ApprovalRequired", self._node_approval_required)
         builder.add_node("Completed", self._node_completed)
         for name in (
-            "TemplateLoaded", "RunStarted", "ToolPlan",
-            "ApprovalRequired", "Completed",
+            "TemplateLoaded",
+            "RunStarted",
+            "ToolPlan",
+            "ApprovalRequired",
+            "Completed",
         ):
             self.node_names.add(name)
 
@@ -107,58 +278,167 @@ class LangGraphRuntime:
         template = TEMPLATES[state["template_id"]]
         state["agent_name"] = template.agent_name
         state["requires_approval"] = template.requires_approval
-        state["node_trace"].append({
-            "node_name": "TemplateLoaded",
-            "status": "completed",
-            "detail": f"Loaded {template.template_id}@{template.version}.",
-        })
+        state["node_trace"].append(
+            {
+                "node_name": "TemplateLoaded",
+                "status": "completed",
+                "detail": f"Loaded {template.template_id}@{template.version}.",
+            }
+        )
         return state
 
     def _node_run_started(self, state: _RunState) -> _RunState:
-        state["node_trace"].append({
-            "node_name": "RunStarted",
-            "status": "completed",
-            "detail": f"Run requested by {state['requested_by']}.",
-        })
+        """Invoke the LLM and persist the response into ``output.summary``.
+
+        The LLM call is wrapped in a try/except so transient upstream
+        failures do not abort read-only runs — the trace records the
+        failure mode and the run output carries an explicit
+        ``[LLM error: ...]`` prefix so callers can surface it.
+        """
+        llm = self._get_llm()
+        template_id = state["template_id"]
+        model_label = "unknown"
+        if llm is not None and hasattr(llm, "chat"):
+            messages = _prompt_for_template(template_id, state["input"])
+            try:
+                response = llm.chat(
+                    messages,
+                    parent_trace_id=state.get("trace_id"),
+                )
+                content = getattr(response, "content", "") or ""
+                model_label = getattr(response, "model", model_label)
+                if content:
+                    state["output"] = {**state["output"], "summary": content}
+                detail = f"LLM {model_label} drafted {len(content)} chars."
+            except Exception as exc:
+                # Surface the failure without aborting the run.
+                state["output"] = {
+                    **state["output"],
+                    "summary": f"[LLM error: {exc}] {state['output'].get('summary', '')}".strip(),
+                }
+                detail = f"LLM call failed: {exc}"
+        else:
+            # No LLM client available — preserve legacy string-only trace.
+            detail = f"Run requested by {state['requested_by']}."
+        state["node_trace"].append(
+            {
+                "node_name": "RunStarted",
+                "status": "completed",
+                "detail": detail,
+            }
+        )
         return state
 
     def _node_tool_plan(self, state: _RunState) -> _RunState:
+        """Plan and execute the template's tool calls.
+
+        For approval-required templates we still record the plan but
+        do not invoke any tools — the HITL gate in
+        :func:`_node_approval_required` fires first.  For read-only
+        templates we invoke each tool via the MCP gateway client,
+        record a row in :class:`PlatformToolCallLogStore`, and mark
+        the tool call ``completed`` (or ``failed`` with an error code).
+        """
         template = TEMPLATES[state["template_id"]]
-        state["tool_calls"] = [
-            {
+        requires_approval = state["requires_approval"]
+        tool_calls: list[dict[str, str]] = []
+        mcp = self._get_mcp()
+        log = self._get_tool_call_log()
+        for name in template.tool_names:
+            entry: dict[str, str] = {
                 "tool_name": name,
-                "risk_level": "approval_required" if state["requires_approval"] else "read_only",
-                "status": "planned" if state["requires_approval"] else "completed",
+                "risk_level": "approval_required" if requires_approval else "read_only",
+                "status": "planned" if requires_approval else "completed",
             }
-            for name in template.tool_names
-        ]
-        state["node_trace"].append({
-            "node_name": "ToolPlan",
-            "status": "completed",
-            "detail": f"Planned {len(template.tool_names)} tool calls.",
-        })
+            if not requires_approval and mcp is not None and hasattr(mcp, "invoke_tool"):
+                args = _args_for_template(template.template_id, state["input"])
+                started = time.perf_counter()
+                try:
+                    result = mcp.invoke_tool(name, args)
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    entry["status"] = "completed"
+                    summary = (
+                        (
+                            result.get("answer")
+                            if isinstance(result, dict) and "answer" in result
+                            else None
+                        )
+                        or (
+                            result.get("summary")
+                            if isinstance(result, dict) and "summary" in result
+                            else None
+                        )
+                        or (str(result)[:200] if result is not None else "")
+                    )
+                    log.record(
+                        run_id=state["run_id"],
+                        tool_name=name,
+                        input_summary=str(args)[:200],
+                        output_summary=summary,
+                        status="success",
+                        latency_ms=latency_ms,
+                        error_code=None,
+                    )
+                except Exception:
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    entry["status"] = "failed"
+                    entry["error_code"] = "tool_invocation_error"
+                    try:
+                        log.record(
+                            run_id=state["run_id"],
+                            tool_name=name,
+                            input_summary=str(args)[:200],
+                            output_summary=None,
+                            status="failure",
+                            latency_ms=latency_ms,
+                            error_code="tool_invocation_error",
+                        )
+                    except Exception:  # pragma: no cover - log must not break the run
+                        pass
+            elif not requires_approval:
+                # No MCP client available (legacy / offline path) — mark
+                # the tool as completed so the run still terminates with
+                # a valid response shape; observability gets no row.
+                entry["status"] = "completed"
+            tool_calls.append(entry)
+        state["tool_calls"] = tool_calls
+        state["node_trace"].append(
+            {
+                "node_name": "ToolPlan",
+                "status": "completed",
+                "detail": (
+                    f"Planned {len(template.tool_names)} tool calls; "
+                    f"{sum(1 for t in tool_calls if t['status'] == 'completed')} "
+                    f"executed, {sum(1 for t in tool_calls if t['status'] == 'failed')} failed."
+                ),
+            }
+        )
         return state
 
     def _node_approval_required(self, state: _RunState) -> _RunState:
         state["status"] = "waiting_approval"
         state["approval_status"] = "pending"
         state["final_node"] = "ApprovalRequired"
-        state["node_trace"].append({
-            "node_name": "ApprovalRequired",
-            "status": "pending",
-            "detail": "Human approval required before final write-back.",
-        })
+        state["node_trace"].append(
+            {
+                "node_name": "ApprovalRequired",
+                "status": "pending",
+                "detail": "Human approval required before final write-back.",
+            }
+        )
         return state
 
     def _node_completed(self, state: _RunState) -> _RunState:
         state["status"] = "completed"
         state["approval_status"] = "not_required"
         state["final_node"] = "Completed"
-        state["node_trace"].append({
-            "node_name": "Completed",
-            "status": "completed",
-            "detail": "Run completed with read-only tools.",
-        })
+        state["node_trace"].append(
+            {
+                "node_name": "Completed",
+                "status": "completed",
+                "detail": "Run completed with read-only tools.",
+            }
+        )
         return state
 
     # ------------------------------------------------------------------ #
@@ -191,8 +471,11 @@ class LangGraphRuntime:
             self._task_count += 1
             task_id = f"lg_task_{self._task_count:03d}"
             task = ApprovalTask(
-                task_id=task_id, run_id=run_id, template_id=template.template_id,
-                requested_by=payload.requested_by, status="pending",
+                task_id=task_id,
+                run_id=run_id,
+                template_id=template.template_id,
+                requested_by=payload.requested_by,
+                status="pending",
                 risk_level="approval_required",
                 reason="Human approval required before final write-back.",
             )
@@ -206,7 +489,12 @@ class LangGraphRuntime:
         return None
 
     def decide(
-        self, run_id: str, *, decision: str, decided_by: str, comment: str | None,
+        self,
+        run_id: str,
+        *,
+        decision: str,
+        decided_by: str,
+        comment: str | None,
     ) -> AgentRunResponse:
         run = self._runs.get(run_id)
         if run is None:
@@ -214,31 +502,44 @@ class LangGraphRuntime:
         task = self.pending_approval_task(run_id)
         approved = decision == "approved"
         if task is not None:
-            self._tasks[task.task_id] = task.model_copy(update={
-                "status": decision, "decided_by": decided_by, "comment": comment,
-            })
+            self._tasks[task.task_id] = task.model_copy(
+                update={
+                    "status": decision,
+                    "decided_by": decided_by,
+                    "comment": comment,
+                }
+            )
         node_name = "ApprovalApproved" if approved else "ApprovalRejected"
-        new_trace = [*run.node_trace, NodeTrace(
-            node_name=node_name,
-            status="completed" if approved else "failed",
-            detail=comment or f"Approval {decision} by {decided_by}.",
-        )]
+        new_trace = [
+            *run.node_trace,
+            NodeTrace(
+                node_name=node_name,
+                status="completed" if approved else "failed",
+                detail=comment or f"Approval {decision} by {decided_by}.",
+            ),
+        ]
         new_tools = [
             t.model_copy(update={"status": "completed" if approved else "skipped"})
             for t in run.tool_calls
         ]
-        updated = run.model_copy(update={
-            "status": "completed" if approved else "failed",
-            "approval_status": decision,
-            "node_trace": new_trace,
-            "tool_calls": new_tools,
-            "output": _approved_output(run.output, approved),
-        })
+        updated = run.model_copy(
+            update={
+                "status": "completed" if approved else "failed",
+                "approval_status": decision,
+                "node_trace": new_trace,
+                "tool_calls": new_tools,
+                "output": _approved_output(run.output, approved),
+            }
+        )
         self._runs[run_id] = updated
         return updated
 
     def _to_response(self, run_id: str, state: _RunState) -> AgentRunResponse:
         TEMPLATES[state["template_id"]]
+        # ``ToolCallSummary`` only declares ``tool_name``/``risk_level``/
+        # ``status`` (legacy field set); ``error_code`` is preserved as an
+        # extra attribute on the response so callers can surface
+        # failure modes without changing the schema contract.
         return AgentRunResponse(
             run_id=run_id,
             template_id=state["template_id"],
