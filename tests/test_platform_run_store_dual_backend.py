@@ -8,10 +8,27 @@ from ai_employee.agent_platform_api.pg_run_store import PgAgentRunStore, build_r
 from ai_employee.common_schemas.db import Backend, open_db
 
 
+def _truncate_run_tables(db) -> None:
+    """Clear the shared live-PG run tables so each PG-leg test starts clean.
+
+    The SQLite leg always gets a fresh ``tmp_path`` DB per test; the live PG
+    connection is shared across the file, so without this the PG leg sees
+    rows left by earlier tests and count-based assertions (``total == 5``,
+    ``len(events) == 2``) drift.  SQLite legs are a no-op.
+    """
+    if db.backend != Backend.POSTGRES:
+        return
+    db.execute("DELETE FROM agent_run_events")
+    db.execute("DELETE FROM agent_runs")
+    db.commit()
+
+
 def _dbs(tmp_path):
     yield "sqlite", open_db(f"sqlite:///{tmp_path}/p.sqlite3", row_factory="dict")
     if os.getenv("TEST_POSTGRES_URL"):
-        yield "postgres", open_db(os.environ["TEST_POSTGRES_URL"], row_factory="dict")
+        pg = open_db(os.environ["TEST_POSTGRES_URL"], row_factory="dict")
+        _truncate_run_tables(pg)
+        yield "postgres", pg
 
 
 def _run(run_id: str = "run_001", **kw) -> dict:
@@ -141,5 +158,6 @@ def test_pg_run_store_runs_against_live_postgres() -> None:
     store = PgAgentRunStore(db=db)
     assert store.backend == Backend.POSTGRES
     store.init_schema()
+    _truncate_run_tables(db)
     store.upsert_run(_run("run_pg"))
     assert store.get_run("run_pg") is not None

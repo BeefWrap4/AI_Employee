@@ -27,10 +27,27 @@ from ai_employee.rca_agent.store import SQLiteRcaStore
 # --------------------------------------------------------------------------- #
 
 
+def _truncate_rca_objects(db) -> None:
+    """Clear the shared live-PG ``rca_objects`` table so each PG-leg test
+    starts from a clean slate, mirroring the fresh ``tmp_path`` SQLite DB
+    the SQLite leg gets.  SQLite legs are no-ops (each test already uses a
+    brand-new tmp file).  Only the live PG connection is shared across the
+    whole file, so without this the PG leg accumulates rows from earlier
+    tests and ``load_empty``-style assertions see stale data.
+    """
+    if db.backend != Backend.POSTGRES:
+        return
+    db.execute("DELETE FROM rca_objects")
+    db.execute("DELETE FROM candidate_knowledge")
+    db.commit()
+
+
 def _dbs(tmp_path):
     yield "sqlite", open_db(f"sqlite:///{tmp_path}/r.sqlite3", row_factory="dict")
     if os.getenv("TEST_POSTGRES_URL"):
-        yield "postgres", open_db(os.environ["TEST_POSTGRES_URL"], row_factory="dict")
+        pg = open_db(os.environ["TEST_POSTGRES_URL"], row_factory="dict")
+        _truncate_rca_objects(pg)
+        yield "postgres", pg
 
 
 def _raw_alarm(alarm_id: str = "a1") -> RawAlarmEvent:
@@ -175,5 +192,6 @@ def test_pg_rca_store_runs_against_live_postgres() -> None:
     store = PgRcaStore(db=db)
     assert store.backend == Backend.POSTGRES
     store.init_schema()
+    _truncate_rca_objects(db)
     store.save_alarm(_alarm_event("pg-alarm"))
-    assert any(a.alarm_id == "a1" for a in store.load_alarms().values())
+    assert any(a.alarm_id == "pg-alarm" for a in store.load_alarms().values())
