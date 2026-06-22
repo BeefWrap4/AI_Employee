@@ -30,6 +30,14 @@ def _auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
     the OIDC branch is off by default and the legacy internal-token
     path is exercised.  Tests that exercise OIDC explicitly re-enable
     the OIDC env vars via ``monkeypatch.setenv``.
+
+    R30-FIX: also clears ``DATABASE_URL`` so every test defaults to the
+    SQLite path that the per-service fixtures seed.  Tests that need
+    the live PG backend re-set the env via their own ``monkeypatch``.
+    Without this autouse, any pytest invocation with ``DATABASE_URL``
+    in env (e.g. PG-mode regression ``DATABASE_URL=postgresql://...``)
+    would route build_*_store into PgXxxStore, miss the SQLite seed,
+    and fail with "no such table".
     """
     monkeypatch.setenv("INTERNAL_TOKEN", INTERNAL_TOKEN)
     monkeypatch.setenv("JWT_SECRET", "test-secret-please-rotate-super-long-key-32b")
@@ -38,6 +46,7 @@ def _auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OIDC_CLIENT_ID", raising=False)
     monkeypatch.delenv("OIDC_AUDIENCE", raising=False)
     monkeypatch.delenv("OIDC_JWKS_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
 
 
 @pytest.fixture(autouse=True)
