@@ -54,6 +54,15 @@ spec:
               value: {{ $os.secretKey | default "" | quote }}
             - name: OBJECT_STORE_BUCKET
               value: {{ $os.bucket | default "ai-employee" | quote }}
+            {{- if or (eq $name "knowledge-api") (eq $name "rca-agent") (eq $name "agent-platform-api") (eq $name "approval-service") }}
+            # R29-A: inject the default PG DSN into the 4 PG-backed
+            # services.  The ``build_*_store()`` factories honour this
+            # env var; the env var is omitted for stateless services
+            # (ingestion-worker, tool-registry, mcp-gateway) which
+            # don't own persistent state.
+            - name: DATABASE_URL
+              value: {{ $global.databaseUrl | default "postgresql://ai-employee:ai-employee@postgres:5432/ai-employee" | quote }}
+            {{- end }}
             {{- if eq $name "agent-platform-api" }}
             {{- range $k, $v := $global.secrets }}
             - name: {{ $k | upper }}
