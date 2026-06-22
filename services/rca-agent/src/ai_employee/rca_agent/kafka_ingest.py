@@ -180,11 +180,16 @@ class KafkaAlarmConsumer:
 class _SyncAdapter:
     """Bridge AIOKafkaConsumer to a sync poll/commit/close interface.
 
-    aiokafka is async-only, so we run a dedicated background thread
-    with its own event loop and drive ``getmany``/``commit`` from
-    there.  ``poll()`` blocks up to ``timeout_ms`` then returns
-    whatever the background thread has buffered; ``commit()`` is a
-    fire-and-forget roundtrip; ``close()`` shuts the loop down.
+    aiokafka is async-only, so we run a dedicated background thread whose
+    event loop is driven by ``loop.run_forever()``.  The poll loop is an
+    ``asyncio`` task on that loop; ``poll()`` / ``commit()`` / ``close()``
+    are called from the caller's (sync) thread and schedule coroutines on
+    the loop via ``run_coroutine_threadsafe``.
+
+    ``poll()`` blocks up to ``timeout_ms`` then returns whatever the
+    background task has buffered; ``commit()`` is a fire-and-forget
+    roundtrip; ``close()`` stops the consumer, cancels the poll task,
+    stops the loop, and joins the thread.
     """
 
     _BATCH_QUEUE_MAX = 1000
@@ -196,45 +201,80 @@ class _SyncAdapter:
         self._consumer = async_consumer
         self._queue: _queue.Queue = _queue.Queue(maxsize=self._BATCH_QUEUE_MAX)
         self._stop = threading.Event()
+        self._closed = threading.Event()
         self._loop = asyncio.new_event_loop()
+        self._poll_task: asyncio.Task[None] | None = None
+        self._start_fut: Any = None
         self._thread = threading.Thread(
             target=self._run,
             name="aiokafka-poll",
             daemon=True,
         )
+        # Start the loop running in the background thread FIRST, so
+        # run_coroutine_threadsafe below actually has a live loop to
+        # schedule on (otherwise the coroutine is never awaited).
+        self._loop_ready = threading.Event()
         self._thread.start()
-        # Start the consumer (fire-and-forget).
-        asyncio.run_coroutine_threadsafe(self._consumer.start(), self._loop)
+        self._loop_ready.wait(timeout=2.0)
+        # Now schedule consumer.start() and the poll task on the live loop.
+        self._start_fut = asyncio.run_coroutine_threadsafe(
+            self._consumer.start(),
+            self._loop,
+        )
+        self._poll_task = asyncio.run_coroutine_threadsafe(
+            self._poll_loop(),
+            self._loop,
+        )
 
     def _run(self) -> None:
         asyncio.set_event_loop(self._loop)
+        self._loop_ready.set()
         try:
-            while not self._stop.is_set():
-                fut = asyncio.run_coroutine_threadsafe(
-                    self._consumer.getmany(timeout_ms=200, max_records=100),
-                    self._loop,
-                )
-                try:
-                    batches = fut.result(timeout=1.0)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning("kafka getmany failed: %s", exc)
-                    continue
-                if not batches:
-                    continue
-                for _tp, msgs in batches.items():
-                    for m in msgs:
-                        raw = m.value
-                        if isinstance(raw, (bytes, str)):
-                            try:
-                                raw = raw.decode() if isinstance(raw, bytes) else raw
-                            except Exception:
-                                continue
-                        try:
-                            self._queue.put_nowait({"value": raw, "offset": m.offset})
-                        except Exception:
-                            pass
+            self._loop.run_forever()
         finally:
-            self._loop.close()
+            # Cancel any tasks still on the loop so their coroutines
+            # don't leak as "never awaited".
+            try:
+                pending = asyncio.all_tasks(self._loop)
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:  # pragma: no cover - defensive
+                pass
+            try:
+                self._loop.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
+
+    async def _poll_loop(self) -> None:
+        """Background task: repeatedly getmany and buffer messages."""
+        while not self._stop.is_set():
+            try:
+                batches = await self._consumer.getmany(
+                    timeout_ms=200,
+                    max_records=100,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("kafka getmany failed: %s", exc)
+                await asyncio.sleep(0.1)
+                continue
+            if not batches:
+                continue
+            for _tp, msgs in batches.items():
+                for m in msgs:
+                    raw = m.value
+                    if isinstance(raw, (bytes, str)):
+                        try:
+                            raw = raw.decode() if isinstance(raw, bytes) else raw
+                        except Exception:
+                            continue
+                    try:
+                        self._queue.put_nowait({"value": raw, "offset": m.offset})
+                    except Exception:
+                        pass
 
     def poll(self, *, timeout_ms: int) -> list[dict[str, Any]]:
         import time as _time
@@ -249,6 +289,9 @@ class _SyncAdapter:
         return out
 
     def commit(self) -> None:
+        if self._closed.is_set() or not self._loop.is_running():
+            # Loop is gone — best-effort no-op (offset re-fetched on restart).
+            return
         try:
             asyncio.run_coroutine_threadsafe(
                 self._consumer.commit(),
@@ -258,7 +301,39 @@ class _SyncAdapter:
             logger.debug("kafka commit best-effort: %s", exc)
 
     def close(self) -> None:
+        """Stop the consumer, cancel the poll task, and stop the loop.
+
+        Order matters: with the loop still running, schedule
+        ``consumer.stop()`` (releases the broker session) and cancel the
+        poll task, wait for both, THEN stop the loop and join the thread.
+        """
+        if self._closed.is_set():
+            return
+        self._closed.set()
         self._stop.set()
+
+        # Schedule consumer.stop() + cancel the poll task on the live loop.
+        try:
+            stop_fut = asyncio.run_coroutine_threadsafe(
+                self._consumer.stop(),
+                self._loop,
+            )
+            stop_fut.result(timeout=2.0)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("kafka consumer.stop() best-effort: %s", exc)
+
+        if self._poll_task is not None:
+            try:
+                self._poll_task.cancel()
+                self._poll_task.result(timeout=1.0)
+            except Exception:  # pragma: no cover - defensive
+                pass
+
+        # Stop the loop and join the background thread.
+        try:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        except Exception:  # pragma: no cover - defensive
+            pass
         try:
             self._thread.join(timeout=3.0)
         except Exception:
