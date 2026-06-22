@@ -159,6 +159,24 @@ services:
     storage: 0
     env: {}
 
+  # R29-C: standalone event-gateway (spec §9 ``event-gateway``).
+  # Owns the Kafka alarm subscription (was in rca-agent's lifespan
+  # pre-R29-C); forwards each alarm via HTTP to rca-agent.  HA-safe
+  # because the Kafka consumer group rebalances partitions across
+  # replicas.
+  event-gateway:
+    enabled: true
+    pdb:
+      minAvailable: 1
+    port: 8060
+    replicas: 2
+    storage: 0
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_ALARM_TOPIC: "alarms"
+      KAFKA_GROUP_ID: "event-gateway"
+      EVENT_GATEWAY_RCA_URL: "http://rca-agent:8020"
+
 # Optional ingress for the platform API + web portal.
 ingress:
   enabled: false

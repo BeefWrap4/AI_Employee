@@ -234,6 +234,35 @@ services:
       timeout: 5s
       retries: 5
 
+  event-gateway:
+    # Independent Kafka→HTTP alarm forwarder (R29-C; spec §9
+    # ``event-gateway``).  Owns the alarm topic subscription that used
+    # to live in the rca-agent's lifespan.  Forwards each alarm to the
+    # rca-agent over HTTP (``EVENT_GATEWAY_RCA_URL``).  Without this
+    # service in the compose stack the rca-agent still serves its
+    # HTTP ``/api/v1/alarms/events`` endpoint (HTTP-only fallback).
+    build:
+      context: ../..
+      dockerfile: services/event-gateway/Dockerfile
+    environment:
+      APP_PORT: "8060"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_ALARM_TOPIC: alarms
+      KAFKA_GROUP_ID: event-gateway
+      EVENT_GATEWAY_RCA_URL: http://rca-agent:8020
+    depends_on:
+      - kafka
+      - rca-agent
+    ports:
+      - "8060:8060"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8060/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres-data:
   minio-data:

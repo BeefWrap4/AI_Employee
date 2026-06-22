@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: event-gateway-config
+  namespace: ai-employee
+data:
+  # The event-gateway forwards alarms to the rca-agent's HTTP endpoint
+  # (rca-agent has no Kafka consumer since R29-C).
+  EVENT_GATEWAY_RCA_URL: "http://rca-agent.ai-employee.svc.cluster.local:8020"
+  # The Kafka cluster brokered by the in-cluster kafka service (spec
+  # §3 告警接入: alarms topic).  Set to "" to disable Kafka (the HTTP
+  # ingest endpoint /api/v1/alarms/ingest remains available).
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.ai-employee.svc.cluster.local:9092"
+  KAFKA_ALARM_TOPIC: "alarms"
+  KAFKA_GROUP_ID: "event-gateway"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-gateway
+  namespace: ai-employee
+  labels:
+    app: event-gateway
+spec:
+  # R29-C: stateless (no PVC; the consumer state lives in the broker
+  # group offsets).  HA-safe at 2 replicas because Kafka rebalances
+  # partitions across consumers in the same group.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: event-gateway
+  template:
+    metadata:
+      labels:
+        app: event-gateway
+    spec:
+      containers:
+        - name: event-gateway
+          image: ai-employee/event-gateway:0.1.0
+          ports:
+            - containerPort: 8060
+          envFrom:
+            - configMapRef:
+                name: event-gateway-config
+            - secretRef:
+                name: ai-employee-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8060
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-gateway
+  namespace: ai-employee
+spec:
+  selector:
+    app: event-gateway
+  ports:
+    - port: 8060
+      targetPort: 8060
+  type: ClusterIP
