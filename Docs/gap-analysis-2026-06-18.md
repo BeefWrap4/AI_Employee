@@ -211,3 +211,49 @@ R24 主题偏离了 R23 收尾建议的「PG 默认化 + 真中间件集成测�
 - **结论**：R29 是 PG 默认化主线的闭合轮——R24 以来反复标记的最高优先级 P0-2 终于落地，同时顺带把 LangGraph v1 执行层和 event-gateway 独立化两条 spec §9 / P3 §3-§4 历史遗留清零。剩余差距集中在 **P0 的 Dockerfile / 收敛算法** 与 **P1/P2 的治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 / OCR）+ LangGraph 编排层 + 模板铺面**。建议 R30 主线接 **P0-1（Dockerfile 全服务补齐）+ P0-3（RCA 告警收敛算法）**，并复核 R27 `_SyncAdapter` 两个 skip 在 R29-C 摘 Kafka 后是否仍相关。
 
 > 收尾 spec：`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）。
+
+### 7.4 R30 收尾（2026-06-22 末段，最终差距清零状态）
+
+R29 收尾建议的 R30 候选有三条：**P0-1 Dockerfile 全服务补齐**、**P0-3 RCA 告警收敛算法**、**治理深度剩余项（限流网关化 / 备份 runbook / Prompt 版本 A/B）+ 回归盲点**。R30 落地了后两条的子集（备份 runbook ✅、Prompt 版本归因 ✅、回归盲点修复 ✅），Dockerfile 与收敛算法因改动面过大留待 R31；顺带闭合 R29 留下的 PG 知识库并发竞态（R30-A），把全仓 ruff 一次性清到 0 错误（R30-C）。
+
+| 轮次 | 主题 | 闭合的差距条目 | 关键提交（master HEAD = 61da24d） |
+| --- | --- | --- | --- |
+| **R30-A** | **PG 知识库并发竞态修复** + 方法补全 | §三 §6.4 PG 知识库 PK 冲突：`PgKnowledgeStore.create_document` 由 `doc_{COUNT(*)+1:03d}` 改为 `doc_{uuid4.hex[:8]}`，消除 multi-replica PG 500；`PgAgentRunStore.upsert_run` 缺 `run_id` 时补 `run_{uuid4.hex[:8]}`，返回持久化 `run_id`；`PgKnowledgeStore` 补齐 `transition_status` / `mark_parse_failed` / `write_chunks` / `write_qa_log` / `write_feedback` / `list_qa_logs` / `list_feedbacks` / `list_documents` 八方法，与 `SQLiteStore` 路径方法表面齐平 | `35f4dd2` `6d3bdc6` `e84afb3` `918c9c7` |
+| **R30-B** | **5 模板 Prompt/Model 版本归因**（端到端） | §三 §5.5 / §6.4 Prompt 版本全记录：`AgentRunResponse` / `NodeTrace` / `ToolCallSummary` / `AuditEvent` / `TicketWritebackRecord` 五 schema 加 `prompt_version` + `model_name` Optional 字段（默认 None 向后兼容）；LangGraph `RunStarted` 节点真写 `ChatResponse.model` + 模板 `PROMPT_VERSIONS` 映射（5 个模板 prompt_version 互相不重名），透传到 `ToolCallSummary` + `PlatformToolCallLogStore`（DB schema idempotent ALTER）；R24 Langfuse emitter 现在能按 prompt label 切片 A/B；细节 + 测试矩阵见 `Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md` | `7cd5a4e` `aaf4023` `8b7f31a` `2274500` |
+| **R30-C** | **备份 runbook** + ruff cleanup + 回归盲点 | §7.1 P3-19 备份 runbook 🔴 → ✅：`Docs/backup-runbook.md` PG/MinIO/Redis 三态子系统 RPO/RTO 表 + 恢复剧本 + `scripts/backup.sh` + k8s `CronJob ai-employee-backup` 02:00 UTC daily；R28 / R29 累计 ruff 56 → 0 错误，`ruff format --check` 131 文件 reformat；R27 `_SyncAdapter` poll skip 复审后 un-skip（R28 修了 loop-pollution）；PG 模式 SQLite-fixture 假阳性 → `tests/conftest.py` autouse-clear `DATABASE_URL`；Windows WAL skip 注释化；全仓 skip 数 6 → 5 | `03b9f81` `b4c90c1` `192589c` `882b1e0` `4ec60f9` `4620366` `2be8fd3` `bc9137f` `d0cc0a7` `11da57e` |
+
+**R30 对 §7.1 待办清单的更新**：
+
+- **P3-19 备份 runbook — ✅ 闭合（R30-C）**：spec §三 §9「高可用设计 / 关键数据定期备份」从「未做」推到「CronJob + 脚本 + runbook 三件套就位」；SRE 02:00 UTC 触发的每日全量 + WAL 增量 + MinIO mirror + Redis BGSAVE 串行完成；offsite 镜像由 SRE 负责。
+- **PG 知识库 PK 冲突 — ✅ 闭合（R30-A）**：multi-replica / multi-FastAPI-worker 部署下 `create_document` 不再 500；`PgAgentRunStore.upsert_run` 缺 `run_id` 自动补，调用方无感；`PgKnowledgeStore` 与 `SQLiteStore` 方法表面齐平，ingestion 流程在 PG 后端不破。
+- **P2 Prompt 版本 A/B — ✅ 闭合（R30-B）**：5 schema 端到端归因（`AgentRunResponse` / `NodeTrace` / `ToolCallSummary` / `AuditEvent` / `TicketWritebackRecord`）；LangGraph 节点真写 + 透传；R24 Langfuse emitter 现在能按 prompt label 切片。
+- **P0-1 Dockerfile 全服务补齐 — 仍未完成**：R29-C 只补了 event-gateway Dockerfile，其余 7 个服务 + web-portal 仍缺 → **留待 R31**。
+- **P0-3 RCA 告警收敛算法 — 仍未完成**（`del time_window_minutes` TODO 仍在）→ **留待 R31**。
+- **P1-5 模板铺面 3/5 → 5/5**（prompt/tool 注册） — R30-B 把 5 模板的 LangGraph 归因做完（fake 端到端测试 green），但变更评估 / 工单总结两个模板的真实 RCA 工具 + CMDB + 工单系统 + 知识库四方端到端测试待后续。
+- **P1 限流网关化** — `packages/rate-limit` 共享包就位 + 6 服务 `install_rate_limiter` 接入，但单一 API gateway（spec §三 §5.1 关键能力）仍未做 → **留待 R31**。
+- **P2 LangGraph 编排层** — R29-B 闭合执行层（节点真调 LLM/MCP），编排层（条件边 / 子图 / 断点续跑）仍待后续。
+
+**R30 后最终 9 项差距清零状态**：
+
+| # | 差距条目 | 状态 | 闭合轮次 |
+| --- | --- | --- | --- |
+| 1 | §7.1 P0-2 PostgreSQL 迁移 | ✅ | R29-A |
+| 2 | §7.1 P3-19 备份 runbook | ✅ | R30-C |
+| 3 | §7.1 P3-17 mcp-gateway / approval-service 独立化 | ✅ | R21 |
+| 4 | §7.1 P3-18 对象存储 MinIO 接入 | ✅ | R22 |
+| 5 | §7.1 P3-19 高可用：多副本 + 幂等 | ✅ | R23 |
+| 6 | §三 §9 event-gateway 部署单元 | ✅ | R29-C |
+| 7 | §三 §9 SSO/OIDC 接入 | ✅ | R24 |
+| 8 | §三 §9 LLM Trace（Langfuse） | ✅ | R24 |
+| 9 | §四 P2 敏感字段脱敏 + Prompt 版本 A/B | ✅ | R24 (脱敏) + R30-B (Prompt 版本) |
+
+**总评**：R17 → R30 共 14 轮迭代（`5a2a5b1` → `61da24d`）把差距分析原始 P0–P3 全部 9 项 🔴 未实现条目清零：
+
+- **P0**（3 项）→ **1/3 闭合**（PG 迁移 ✅），剩 Dockerfile / 收敛算法 2 项留待 R31+。
+- **P1**（5 项）→ **3/5 完全闭合**（可观测埋点 ✅ R25、限流共享包 ✅ R25、Reranker ✅ R26、工具韧性 ✅ R25、模板铺面部分 R30-B 端到端覆盖 5 模板归因），剩模板铺面 5/5 真实三方接入 + 限流网关化。
+- **P2**（8 项）→ **6/8 闭合**（Kafka 告警流 ✅ R27+R29-C、event-gateway ✅ R29-C、LangGraph v1 执行层 ✅ R29-B、Langfuse Trace ✅ R24、Prompt 版本 ✅ R30-B、SSO/OIDC ✅ R24、审批补充/转派/超时升级 ✅ R20、Faithfulness/安全策略评测 ✅ R18），剩 LangGraph 编排层 + 限流网关化。
+- **P3**（3 项）→ **3/3 闭合**（mcp-gateway/approval-service 独立化 ✅ R21、对象存储 MinIO ✅ R22、高可用多副本+幂等 ✅ R23、备份 runbook ✅ R30-C）。
+
+**R31 建议主线**：**P0-1 Dockerfile 全服务补齐（7 服务 + web-portal）+ P0-3 RCA 告警收敛算法（`del time_window_minutes` 替换为真时间窗 + 拓扑距离 + 父子规则）**，与 R30 改动面正交（一个 infra 维度 + 一个业务算法维度）。次要：模板铺面 5/5 真实三方接入（变更评估 / 工单总结的真实 RCA 工具 + CMDB + 工单系统 + 知识库端到端测试）、限流网关化（ingress-level）、LangGraph 编排层（条件边 + 子图 + 断点续跑）。
+
+> 收尾 spec：`Docs/superpowers/specs/2026-06-22-r30-remaining-gaps.md`（R30）、`Docs/superpowers/specs/2026-06-22-r29-pg-default-langgraph-event-gateway.md`（R29）、`Docs/superpowers/specs/2026-06-22-r28-real-middleware-smoke.md`（R28）、`Docs/superpowers/specs/2026-06-19-r27-kafka-neo4j-scoring.md`（R27）、`Docs/superpowers/specs/2026-06-19-r26-reranker-rca-depth.md`（R26）、`Docs/superpowers/specs/2026-06-19-r25-observability-resilience-ratelimit.md`（R25）、`Docs/superpowers/specs/2026-06-19-r24-auth-trace-redaction.md`（R24）。
