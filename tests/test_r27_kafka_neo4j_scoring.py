@@ -251,12 +251,15 @@ def test_merge_by_topology_no_neo4j_no_op_when_no_upstream_field() -> None:
 
 # --------------------------------------------------------------------------- #
 # R27-C: Kafka real wiring (poll returns buffered messages)
+#
+# R30-C: the original skip is no longer relevant — R28 rewrote _SyncAdapter
+# to drive its own event loop via ``run_forever()`` in a dedicated thread
+# (no global-loop pollution), so the end-to-end poll() path is now safe
+# to run. We unsipped it; ``test_sync_adapter_inner_class_poll_returns_queued_items``
+# below remains as the unit-level pin.
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.skip(
-    reason="_SyncAdapter test runs a background asyncio thread that pollutes global loop state; covered by test_sync_adapter_inner_class_poll_returns_queued_items"
-)
 def test_kafka_sync_adapter_poll_returns_buffered_messages() -> None:
     """The R27 _SyncAdapter now runs a background thread that drives
     ``aiokafka.getmany()``; ``poll()`` returns the buffered messages
