@@ -109,6 +109,8 @@ export const platformApi = {
   listRuns: (query) => request('/api/platform', '/api/v1/agent-runs', { query }),
   getRunTrace: (runId) => request('/api/platform', `/api/v1/agent-runs/${runId}/trace`),
   listEvalRuns: (query) => request('/api/platform', '/api/v1/evaluations/runs', { query }),
+  createEvalRun: (body) =>
+    request('/api/platform', '/api/v1/evaluations/runs', { method: 'POST', body }),
   compareEvals: (runA, runB) =>
     request('/api/platform', '/api/v1/evaluations/compare', { query: { run_a: runA, run_b: runB } }),
   inspect: (serviceName, checkItems) =>
