@@ -298,6 +298,49 @@ class XlsxParser(_BaseParser):
         return sections
 
 
+class ImageParser(_BaseParser):
+    """图片（PNG/JPEG）：走 OCR backend 提取文本，section_path 固定 ``ocr``。
+
+    与 :class:`OcrParser` 的区别：当 OCR backend 不可用（``OCR_BACKEND=disabled``
+    默认）时，本 parser 不返回空列表，而是返回一个带占位文本的 section，
+    使图片文档不会因 OCR 缺失而抛错——上层仍可入库（占位 chunk），后续可补 OCR。
+    """
+
+    _DISABLED_PLACEHOLDER = "[ocr unavailable: image not OCRed]"
+
+    def __init__(self, ocr_backend: object | None = None) -> None:
+        if ocr_backend is None:
+            # Local import avoids a circular import at module load time
+            # (ocr.py imports ParsedSection from parsers.py).
+            from ai_employee.ingestion_worker.ocr import build_ocr_backend
+
+            ocr_backend = build_ocr_backend()
+        self._ocr_backend = ocr_backend
+
+    def parse(self, source: str | bytes) -> list[ParsedSection]:
+        if isinstance(source, str):
+            data = source.encode("utf-8")
+        else:
+            data = source
+
+        available = bool(getattr(self._ocr_backend, "available", True))
+        if not available:
+            # Graceful degradation: placeholder section, never crash.
+            return [ParsedSection(section_path="ocr", blocks=[self._DISABLED_PLACEHOLDER])]
+
+        try:
+            result = self._ocr_backend.ocr(data)  # type: ignore[attr-defined]
+        except Exception:
+            return [ParsedSection(section_path="ocr", blocks=[self._DISABLED_PLACEHOLDER])]
+
+        text = getattr(result, "text", "") or ""
+        blocks = [line.strip() for line in text.splitlines() if line.strip()]
+        if not blocks:
+            # Backend available but produced no text → placeholder, not empty.
+            return [ParsedSection(section_path="ocr", blocks=[self._DISABLED_PLACEHOLDER])]
+        return [ParsedSection(section_path="ocr", blocks=blocks)]
+
+
 class NotImplementedParser(_BaseParser):
     """占位解析器：明确返回不支持，不静默失败。"""
 
@@ -315,6 +358,8 @@ _PARSER_MAP = {
     "application/pdf": PdfParser,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": DocxParser,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": XlsxParser,
+    "image/png": ImageParser,
+    "image/jpeg": ImageParser,
 }
 
 
