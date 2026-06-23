@@ -129,15 +129,25 @@ def test_kind_smoke_loads_ai_employee_images() -> None:
 
 
 def test_kind_smoke_creates_namespace() -> None:
-    """Step 3 — must `kubectl create namespace` (and tolerate existing)."""
+    """Step 3 — must ensure the smoke namespace exists (idempotent)."""
     text = _read()
+    # The script may use either `kubectl create namespace <ns>` with
+    # `|| true` (idempotent re-runs) or a guarded `if ! get ns; then
+    # create; fi`.  Either pattern is acceptable; the script must
+    # call `kubectl create namespace` somewhere before applying
+    # manifests.
     assert "create namespace" in text, (
         "script must `kubectl create namespace` before applying manifests"
     )
-    # The `|| true` pattern keeps re-runs from failing.
-    assert re.search(r"create\s+namespace\s+\S+\s*.*\|\|\s*true", text), (
-        "namespace creation should swallow 'already exists' so the script is idempotent"
-    )
+    # At least one of the two idempotency patterns is in use.
+    assert (
+        re.search(r"create\s+namespace\s+\S+\s*.*\|\|\s*true", text)
+        or re.search(
+            r"if\s+!\s+\"\$\{KUBECTL_BIN\}\"\s+get\s+namespace\s+\"\$\{SMOKE_NS\}\".*?\n.*?create\s+namespace",
+            text,
+            re.DOTALL,
+        )
+    ), "namespace creation must be idempotent (|| true or guarded if-then-create)"
 
 
 def test_kind_smoke_pulls_and_loads_postgres() -> None:
