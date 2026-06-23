@@ -321,11 +321,15 @@ def build_checkpointer() -> Any:
     value is supplied — the factory degrades to ``MemorySaver`` with a
     warning so the runtime always stays resumable out of the box.
 
-    The redis/postgres savers require an async connection at
-    construction; to keep the factory synchronous and dependency-light we
-    build them lazily via their ``.from_conn_string``-style constructor
-    when available, otherwise fall back to ``MemorySaver``.  The memory
-    path is always available and is the backward-compatible default.
+    The redis/postgres savers are built via their ``from_conn_string``
+    ``@contextmanager`` factory (see :func:`_construct_remote_saver`).
+    The factory enters the context manager to obtain the saver instance
+    and keeps it entered for the runtime's lifetime; ``.setup()`` /
+    connection use is deferred to the first ``graph.invoke`` (Redis is
+    fully lazy — the pooled client connects on first command; Postgres
+    opens its connection at build time, so the postgres backend needs a
+    reachable broker at startup).  The memory path is always available
+    and is the backward-compatible default.
     """
     import warnings
 
@@ -377,13 +381,41 @@ def build_checkpointer() -> Any:
 def _construct_remote_saver(saver_cls: Any, label: str) -> Any:
     """Construct a remote (redis/postgres) saver from its env DSN.
 
-    The langgraph redis/postgres savers ship several constructor shapes
-    across versions (``RedisSaver.from_conn_string(...)``,
-    ``PostgresSaver(conn)``).  We try the lightweight
-    ``from_conn_string`` factory first (passing the conventional DSN env
-    var), then a zero-arg construction, and finally fall back to
-    ``MemorySaver`` if neither works — a misconfigured DSN must never
-    make the runtime non-resumable.
+    The redis/postgres savers ship several constructor shapes across
+    versions.  In the installed versions
+    (``langgraph-checkpoint-redis`` 0.4.1 and
+    ``langgraph-checkpoint-postgres`` 3.1.0) ``RedisSaver.from_conn_string``
+    and ``PostgresSaver.from_conn_string`` are ``@contextmanager``
+    factories: calling them returns a context manager that, on entry,
+    yields the saver instance (and tears down the connection on exit).
+
+    R34-K: the factory must return the *saver instance*, not the
+    context-manager object (the pre-R34 code returned the un-entered
+    context manager, so ``isinstance(cp, RedisSaver)`` was always
+    ``False``).  We enter the context manager manually
+    (``cm.__enter__()``) and keep it entered for the saver's lifetime —
+    the saver is a process-wide singleton that lives as long as the
+    runtime, so we intentionally skip the teardown ``__exit__`` (the OS
+    reclaims the socket on process exit).  This mirrors the documented
+    long-lived-saver usage pattern.
+
+    Laziness (spec: "from_conn_string should be called but
+    .setup()/connect deferred to first use"): entering the Redis context
+    manager only constructs the saver — the Redis client is
+    connection-pooled and opens no socket until the first checkpoint
+    command.  Entering the Postgres context manager *does* open a
+    psycopg connection eagerly (PostgresSaver.__init__ requires a live
+    ``Connection``); production deployments that select the postgres
+    backend therefore need a reachable broker at build time.  In CI the
+    ``from_conn_string`` factory is monkeypatched (see
+    ``tests/test_r33a_checkpointer_factory.py``) so no socket is ever
+    opened.  ``.setup()`` (DDL / key creation) is never called here —
+    LangGraph invokes the saver's ``aput`` / ``aget`` methods on the
+    first ``graph.invoke``, which is the deferred first-use point.
+
+    If the DSN is missing, ``from_conn_string`` is absent, or entering
+    it raises, the factory falls back to ``MemorySaver`` — a
+    misconfigured DSN must never make the runtime non-resumable.
     """
     import warnings
 
@@ -395,7 +427,13 @@ def _construct_remote_saver(saver_cls: Any, label: str) -> Any:
     from_factory = getattr(saver_cls, "from_conn_string", None)
     if callable(from_factory) and dsn:
         try:
-            return from_factory(dsn)
+            context_manager = from_factory(dsn)
+            # Enter the context manager so we get the actual saver
+            # instance (``from_conn_string`` is a @contextmanager that
+            # yields the saver on entry).  We do NOT call ``__exit__`` —
+            # the saver outlives the build call as the runtime's
+            # process-wide checkpointer.
+            return context_manager.__enter__()
         except Exception as exc:  # pragma: no cover - dsn / version specific
             warnings.warn(
                 f"{saver_cls.__name__}.from_conn_string failed ({exc!r}); "
