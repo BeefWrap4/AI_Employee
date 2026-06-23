@@ -93,7 +93,7 @@ from ai_employee.common_schemas.idempotency import (
 )
 from ai_employee.observability import render_prometheus_text
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, status
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 _LOG = logging.getLogger(__name__)
 
@@ -1130,6 +1130,28 @@ def create_app(
         finally:
             platform_bus.unsubscribe(run_id=run_id, queue_id=queue_id)
 
+    @app.get("/api/v1/agent-runs/{run_id}/stream")
+    async def stream_agent_run(run_id: str) -> StreamingResponse:
+        """SSE stream of run events (R33-D).
+
+        Replays the in-process event-bus history (last 50 events) first,
+        then streams new events as ``data: {json}\\n\\n`` frames.  Each
+        frame is a serialized :class:`RunEvent`.  Closes cleanly on
+        client disconnect — the generator catches
+        :class:`asyncio.CancelledError` and unsubscribes in ``finally``.
+
+        ``Cache-Control: no-cache`` + ``X-Accel-Buffering: no`` keep
+        intermediate proxies (nginx, CDNs) from buffering the stream.
+        """
+        return StreamingResponse(
+            _sse_run_stream_generator(run_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     # ------------------------------------------------------------------ #
     # MCP-compatible tool registry (spec §3.3 / MCP tools/list)
     # ------------------------------------------------------------------ #
@@ -1221,6 +1243,29 @@ def create_app(
         )
 
     return app
+
+
+async def _sse_run_stream_generator(run_id: str):  # type: ignore[no-untyped-def]
+    """Yield SSE ``data: {json}\\n\\n`` frames for ``run_id``.
+
+    Subscribes to the platform event bus, which replays the last 50
+    historical events into the queue first, then yields new events as
+    they are published.  On client disconnect Starlette cancels the
+    generator; we catch :class:`asyncio.CancelledError`, re-raise it
+    (so the cancellation propagates), and always unsubscribe in the
+    ``finally`` block so the queue is removed from the bus registry.
+    """
+    import asyncio
+
+    queue_id, queue = platform_bus.subscribe(run_id)
+    try:
+        while True:
+            ev = await queue.get()
+            yield f"data: {json.dumps(ev.to_dict(), ensure_ascii=False)}\n\n"
+    except asyncio.CancelledError:
+        raise
+    finally:
+        platform_bus.unsubscribe(run_id=run_id, queue_id=queue_id)
 
 
 def _page_bounds(page: int, page_size: int) -> tuple[int, int, int, int]:
