@@ -71,7 +71,7 @@ export default function App() {
           </h3>
         </Header>
         <Content className="portal-content">
-          <ViewComponent />
+          <ViewComponent onNavigate={setActive} />
         </Content>
       </Layout>
     </Layout>

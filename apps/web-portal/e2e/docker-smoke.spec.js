@@ -4,6 +4,7 @@ const internalToken = process.env.INTERNAL_TOKEN || 'change-me'
 const ragQuestion = '某 5G 小区出现 RRC 建立失败率升高，应该先查什么？'
 
 let rcaRun
+let platformRun
 
 test.describe.configure({ mode: 'serial' })
 
@@ -44,13 +45,38 @@ test.beforeAll(async ({ request }) => {
   })
   expect(run.ok()).toBeTruthy()
   rcaRun = await run.json()
+
+  const platform = await request.post('/api/platform/api/v1/agent-runs', {
+    headers: {
+      'X-Internal-Token': internalToken,
+      'Idempotency-Key': `web-e2e-agent-run-${Date.now()}`,
+    },
+    data: {
+      template_id: 'knowledge_qa',
+      requested_by: 'web-e2e',
+      input: {
+        question: ragQuestion,
+        source: 'web-e2e',
+      },
+    },
+  })
+  expect(platform.ok()).toBeTruthy()
+  platformRun = await platform.json()
+
+  const trace = await request.get(
+    `/api/platform/api/v1/agent-runs/${platformRun.run_id}/trace`,
+  )
+  expect(trace.ok()).toBeTruthy()
 })
 
 test('平台总览 renders with operations widgets', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('平台总览')).toBeVisible()
+  await expect(page.getByText('演示流程')).toBeVisible()
   await expect(page.getByText('工具调用成功率')).toBeVisible()
   await expect(page.getByText('Prometheus 指标')).toBeVisible()
+  await page.getByRole('button', { name: /查看运行记录/ }).click()
+  await expect(page.getByText('最近运行记录')).toBeVisible()
 })
 
 test('知识库 query returns answer and 引用证据', async ({ page }) => {
@@ -73,4 +99,16 @@ test('RCA 诊断 lists a run and opens 查看报告', async ({ page }) => {
   await runRow.getByText('查看报告', { exact: true }).click()
   await expect(page.getByText(`RCA 报告 ${rcaRun.report_id}`)).toBeVisible()
   await expect(page.getByText('Top-N 根因候选')).toBeVisible()
+})
+
+test('运行实况 lists platform run and opens trace detail', async ({ page }) => {
+  await page.goto('/')
+  await page.getByText('运行实况', { exact: true }).click()
+  await expect(page.getByText('最近运行记录')).toBeVisible()
+  const runRow = page.locator('tr', { hasText: platformRun.run_id })
+  await expect(runRow).toBeVisible()
+  await runRow.getByRole('button', { name: '查看详情' }).click()
+  await expect(page.getByText(`运行详情 ${platformRun.run_id}`)).toBeVisible()
+  await expect(page.getByText('节点轨迹')).toBeVisible()
+  await expect(page.getByText('工具调用')).toBeVisible()
 })

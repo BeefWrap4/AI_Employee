@@ -54,6 +54,9 @@ describe('DashboardView', () => {
     expect(screen.getByText('工具调用成功率')).toBeInTheDocument()
     expect(screen.getByText('人工采纳率')).toBeInTheDocument()
     expect(screen.getByText('告警压缩比')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('95')).toBeInTheDocument()
+    })
   })
 
   it('populates metric values once data resolves', async () => {

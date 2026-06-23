@@ -88,6 +88,7 @@ export const rcaApi = {
 export const platformApi = {
   listTemplates: () => request('/api/platform', '/api/v1/agent-templates'),
   listRuns: (query) => request('/api/platform', '/api/v1/agent-runs', { query }),
+  getRunTrace: (runId) => request('/api/platform', `/api/v1/agent-runs/${runId}/trace`),
   listEvalRuns: (query) => request('/api/platform', '/api/v1/evaluations/runs', { query }),
   compareEvals: (runA, runB) =>
     request('/api/platform', '/api/v1/evaluations/compare', { query: { run_a: runA, run_b: runB } }),

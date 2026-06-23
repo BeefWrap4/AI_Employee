@@ -9,6 +9,7 @@ React + Vite + Ant Design SPA for the AI Employee telecom operations platform.
 - **知识库** — list documents and run natural-language queries with cited evidence.
 - **评测中心** — list eval runs and compare two runs side-by-side (per-metric delta).
 - **工具注册** — list registered tools (MCP `tools/list` shape) and invoke read-only tools.
+- **运行实况** — list recent Agent runs, open trace details, and subscribe to the live SSE event stream.
 
 ## Dev proxy
 
@@ -36,6 +37,16 @@ npm run build   # outputs to dist/
 ```
 
 The static `dist/` bundle is served by the platform's ingress / API gateway in production (see `infra/k8s`).
+
+## Docker E2E
+
+With the Compose stack running at `http://127.0.0.1:5173`:
+
+```bash
+npm run e2e:docker
+```
+
+The smoke suite seeds one RAG document, one RCA run, and one platform Agent run, then verifies dashboard navigation, cited knowledge Q&A, RCA report drill-down, and Agent run trace details.
 
 ## Auth
 

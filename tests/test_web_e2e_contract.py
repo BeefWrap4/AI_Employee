@@ -23,12 +23,17 @@ def test_web_portal_e2e_spec_covers_dashboard_knowledge_and_rca() -> None:
     text = SPEC.read_text(encoding="utf-8")
     for token in (
         "平台总览",
+        "演示流程",
         "知识库",
         "检索问答",
         "引用证据",
         "RCA 诊断",
         "查看报告",
         "RCA 报告",
+        "查看运行记录",
+        "最近运行记录",
+        "/api/platform/api/v1/agent-runs",
+        "/trace",
     ):
         assert token in text
 

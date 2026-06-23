@@ -31,3 +31,16 @@ def test_demo_seed_script_is_repeatable_and_emits_json_summary() -> None:
     assert "Idempotency-Key" in text
     assert "ConvertTo-Json" in text
     assert "-Json" in text
+
+
+def test_demo_seed_script_uses_realistic_telecom_case_document() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    for token in (
+        "BS-310042",
+        "RRC 建立失败率",
+        "PRB 利用率",
+        "驻波比告警",
+        "回传链路误码",
+        "变更窗口",
+    ):
+        assert token in text

@@ -25,6 +25,32 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
+if (typeof window !== 'undefined') {
+  window.getComputedStyle = () => ({
+    getPropertyValue: () => '',
+    width: '800px',
+    height: '320px',
+    overflow: 'visible',
+    overflowX: 'visible',
+    overflowY: 'visible',
+  })
+}
+
+if (typeof HTMLElement !== 'undefined') {
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get() {
+      return 800
+    },
+  })
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get() {
+      return 320
+    },
+  })
+}
+
 // ResizeObserver polyfill (ECharts-for-react may query it).
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = class {

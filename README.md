@@ -1,85 +1,84 @@
 # AI Employee
 
-本仓库用于存放与 AI Agent 工程师工作相关的项目材料与设计文档。
+面向电信运维场景的 AI Agent monorepo。项目按三阶段递进：RAG 知识库、基站告警 RCA Agent、智能运维 Agent 平台。当前目标是可运行 MVP，默认技术栈为 Python + FastAPI + React + Docker Compose。
 
-## 项目背景
+## 项目结构
 
-围绕基站运维场景，从内部知识库智能问答，到告警根因分析 Agent，再到智能运维 Agent 平台，递进建设三个内部 AI 项目。
+- `services/knowledge-api`：知识问答、文档索引与引用回答 API。
+- `services/ingestion-worker`：文档解析、分段、向量化与索引构建。
+- `services/rca-agent`：告警标准化、incident 聚合、根因候选与 RCA 报告。
+- `services/agent-platform-api`：Agent 模板、运行记录、审批、评测与审计。
+- `services/tool-registry`：工具注册、Schema、权限与健康检查。
+- `apps/web-portal`：React + Ant Design 运维门户。
+- `packages/`：共享 schema、鉴权、对象存储、网关等库。
+- `tests/`：单元、集成、回放、评测和端到端测试。
+- `Docs/`：设计规格、实施计划和验收文档。
+- `infra/docker-compose`：本地 Docker 依赖与服务编排。
 
-## 文档结构
+## Docker Compose 一键演示
 
-`Docs/` 目录包含项目的设计与规划文档：
+启动并验证完整本地栈：
 
-- **ai-agent-telecom-projects-development-timeline.md** — 三项目总体开发时间线与简历叙事
-- **project-1-rag-knowledge-base-design-spec.md** — 项目一：基于 RAG 的内部知识库智能问答系统设计规格
-- **project-2-base-station-alarm-rca-agent-design-spec.md** — 项目二：基站告警根因分析 Agent 设计规格
-- **project-3-intelligent-ops-agent-platform-design-spec.md** — 项目三：智能运维 Agent 平台设计规格
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\docker-smoke.ps1 -Json
+```
 
-## 目录约定
+已有栈运行时只做验证：
 
-- `Docs/` — 项目设计文档与规划材料
-- 后续业务代码、脚本、配置等将按需新增子目录
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\docker-smoke.ps1 -NoStart -Json
+```
 
-## 工具链
+写入演示数据：
 
-- 版本控制：Git
-- 文档：Markdown
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\seed-demo.ps1 -Json
+```
 
-## 本地开发环境
+打开前端：[http://127.0.0.1:5173](http://127.0.0.1:5173)
 
-推荐使用 Miniconda 创建独立 Python 环境：
+前端端到端验证：
+
+```powershell
+cd apps\web-portal
+npm run e2e:docker
+```
+
+## 本地 Python 开发
+
+推荐使用 Miniconda：
 
 ```powershell
 conda env create -f environment.yml
 conda activate ai-employee
 python -m pip install -e ".[dev]"
-python -m pytest
+pytest tests --ignore=tests/test_local_ci.py -q
 ```
 
-启动知识库 M1 双服务（需两个进程）：
+常用服务启动：
 
 ```powershell
-conda activate ai-employee
-# 终端 1：ingestion-worker
-uvicorn ai_employee.ingestion_worker.app:app --port 8001 --app-dir services/ingestion-worker/src
-# 终端 2：knowledge-api
 uvicorn ai_employee.knowledge_api.app:app --port 8010 --app-dir services/knowledge-api/src
-```
-
-环境变量样例见 `.env.example`。M1 用 SQLite + Stub Embedding 零外部依赖即可运行；`EMBEDDING_PROVIDER=openai_compat` 可切换到真实 OpenAI-compatible 接口。
-
-知识检索使用 `knowledge_scopes` 做 MVP 级权限过滤：`acl_tags` 为空的文档视为 public；`acl_tags` 非空的文档必须与请求中的 scope 或文档 metadata 值命中后才会进入召回和引用。
-
-运行本地 M1 冒烟流程（上传、解析、发布、问答、反馈、审计查询）：
-
-```powershell
-conda activate ai-employee
-python scripts/m1_smoke.py --json
-```
-
-启动 M3 RCA Agent 原型服务：
-
-```powershell
-conda activate ai-employee
 uvicorn ai_employee.rca_agent.app:app --port 8020 --app-dir services/rca-agent/src
-```
-
-如需持久化 RCA run、报告和审核结果，可设置：
-
-```powershell
-$env:RCA_SQLITE_PATH="./var/data/rca.sqlite3"
-```
-
-运行 RCA 回放评测：
-
-```powershell
-conda activate ai-employee
-python -m ai_employee.rca_agent.replay tests/rca-replay/sample_cases.jsonl --json
-```
-
-启动 M5 Agent Platform API 原型服务：
-
-```powershell
-conda activate ai-employee
 uvicorn ai_employee.agent_platform_api.app:app --port 8030 --app-dir services/agent-platform-api/src
 ```
+
+## 前端开发
+
+```powershell
+cd apps\web-portal
+npm install
+npm run dev
+npm run build
+```
+
+Vite 开发代理将 `/api/knowledge`、`/api/rca`、`/api/platform`、`/api/tools` 分别转发到本地后端服务。
+
+## API 与验证入口
+
+- Knowledge API：`/api/knowledge/api/v1/documents`、`/api/knowledge/api/v1/chat/query`
+- RCA API：`/api/rca/api/v1/rca/runs`、`/api/rca/api/v1/rca/reports/{report_id}`
+- Platform API：`/api/platform/api/v1/agent-runs`、`/api/platform/api/v1/agent-runs/{run_id}/trace`
+- Tool Registry：`/api/tools/api/v1/tools`
+
+更多验收步骤见 `Docs/mvp-acceptance-checklist.md`。

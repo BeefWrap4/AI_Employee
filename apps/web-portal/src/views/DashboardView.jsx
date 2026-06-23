@@ -1,13 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import { Card, Col, Row, Statistic, Alert, Typography, Space } from 'antd'
+import { Button, Card, Col, Row, Statistic, Alert, Typography, Space } from 'antd'
+import {
+  ApartmentOutlined,
+  FileSearchOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import { rcaApi, platformApi } from '../api.js'
 
 // Top-level operations dashboard. Surfaces the RCA operational metrics
 // (tool success, acceptance, compression, gen time) plus a raw
 // Prometheus metrics dump from the platform API, plus ECharts trend
 // charts from the rolling platform metrics timeseries feed.
-export default function DashboardView() {
+export default function DashboardView({ onNavigate }) {
   const [metrics, setMetrics] = useState(null)
   const [promText, setPromText] = useState('')
   const [timeseries, setTimeseries] = useState(null)
@@ -175,6 +180,55 @@ export default function DashboardView() {
       </Row>
 
       <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 16 }}>
+        <Card title="演示流程">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={8}>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Typography.Text strong>1. 知识问答</Typography.Text>
+                <Typography.Text type="secondary">
+                  基站排障手册入库后，返回带引用证据的运维问答。
+                </Typography.Text>
+                <Button
+                  icon={<FileSearchOutlined />}
+                  onClick={() => onNavigate?.('knowledge')}
+                  block
+                >
+                  进入知识问答
+                </Button>
+              </Space>
+            </Col>
+            <Col xs={24} md={8}>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Typography.Text strong>2. RCA 报告</Typography.Text>
+                <Typography.Text type="secondary">
+                  告警回放收敛为 incident，生成 Top-N 根因候选和证据链。
+                </Typography.Text>
+                <Button
+                  icon={<ApartmentOutlined />}
+                  onClick={() => onNavigate?.('rca')}
+                  block
+                >
+                  查看 RCA 报告
+                </Button>
+              </Space>
+            </Col>
+            <Col xs={24} md={8}>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Typography.Text strong>3. Agent 运行</Typography.Text>
+                <Typography.Text type="secondary">
+                  平台侧保留 run、trace、工具调用和审批状态用于审计。
+                </Typography.Text>
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  onClick={() => onNavigate?.('run')}
+                  block
+                >
+                  查看运行记录
+                </Button>
+              </Space>
+            </Col>
+          </Row>
+        </Card>
         <Card title="运行成功率趋势 (ECharts)">
           <ReactECharts
             option={lineOption}
