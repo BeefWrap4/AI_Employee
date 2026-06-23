@@ -10,7 +10,11 @@ vi.mock('../api.js', async () => {
   return {
     ...actual,
     approvalApi: {
-      listTasks: actual.approvalApi.listTasks,
+      // Spy on listTasks so the refresh test can assert call count
+      // without depending on fetch draining timing.  The real impl
+      // (which calls fetch) is wrapped so list queries still work
+      // for the other tests that render the table.
+      listTasks: vi.fn(actual.approvalApi.listTasks),
       decide: vi.fn().mockResolvedValue({ task_id: 't1', status: 'approved' }),
       transfer: vi.fn().mockResolvedValue({ task_id: 't1', status: 'transferred' }),
       escalate: vi.fn().mockResolvedValue({ task_id: 't1', status: 'escalated' }),
@@ -97,20 +101,12 @@ describe('ApprovalView', () => {
     render(<ApprovalView />)
     await screen.findByText('t1')
 
-    // Wait for the initial load's fetch to fully drain so the next
-    // click starts a clean request cycle.
-    const initialCalls = fetchMock.mock.calls.length
-    expect(initialCalls).toBeGreaterThanOrEqual(1)
-
-    const refreshBtn = screen.getByRole('button', { name: /刷\s*新|Refresh/i })
-    fireEvent.click(refreshBtn)
-
-    // loadTasks is async; wait for the second fetch to land.
-    await waitFor(
-      () => {
-        expect(fetchMock.mock.calls.length).toBeGreaterThan(initialCalls)
-      },
-      { timeout: 3000 },
-    )
+    // listTasks is a spy wrapping the real impl; assert the Refresh
+    // click triggers a second call (independent of fetch drain timing).
+    expect(approvalApi.listTasks).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /刷\s*新|Refresh/i }))
+    await waitFor(() => {
+      expect(approvalApi.listTasks).toHaveBeenCalledTimes(2)
+    })
   })
 })
