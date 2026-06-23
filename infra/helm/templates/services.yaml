@@ -14,7 +14,7 @@ data:
   {{- range $k, $v := $svc.env }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}
-{{- if gt (int $svc.storage) 0 }}
+{{- if include "ai-employee.hasStorage" $svc.storage }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

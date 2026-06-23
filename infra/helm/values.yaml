@@ -151,7 +151,7 @@ services:
     enabled: true
     pdb:
       minAvailable: 1
-    port: 8060
+    port: 8040
     # Owns approval task state machine + persistence.  HA-safe when
     # backed by Postgres (PLATFORM_DB_BACKEND=postgres); with the
     # default SQLite keep at 1.

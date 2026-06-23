@@ -145,7 +145,13 @@ def test_template_renders_service_accounts(rendered: str) -> None:
 
 def test_deployment_uses_separated_health_probes(rendered: str) -> None:
     """Each Deployment has both readiness and liveness probes
-    pointing at different paths (R11-7 work)."""
+    pointing at different paths (R11-7 work, R34-D refinement).
+
+    R34-D: only ``agent-platform-api`` exposes ``/health/ready``; the
+    other eight services have just ``/health``.  The deployment
+    template picks the right path per service so all pods become
+    Ready in real clusters.
+    """
     docs = list(yaml.safe_load_all(rendered))
     deployments = [d for d in docs if d and d.get("kind") == "Deployment"]
     assert deployments
@@ -156,8 +162,14 @@ def test_deployment_uses_separated_health_probes(rendered: str) -> None:
         probes = c.get("readinessProbe", {}), c.get("livenessProbe", {})
         ready_path = probes[0].get("httpGet", {}).get("path")
         live_path = probes[1].get("httpGet", {}).get("path")
-        assert ready_path == "/health/ready"
-        assert live_path == "/health"
+        # Liveness always points at /health (cheap, always live).
+        assert live_path == "/health", f"{d['metadata']['name']} liveness={live_path}"
+        # Readiness is /health/ready only for agent-platform-api; the
+        # others use /health (the only endpoint they expose).
+        if d["metadata"]["name"] == "agent-platform-api":
+            assert ready_path == "/health/ready", f"platform readiness={ready_path}"
+        else:
+            assert ready_path == "/health", f"{d['metadata']['name']} readiness={ready_path}"
 
 
 def test_deployment_uses_nonroot_security_context(rendered: str) -> None:

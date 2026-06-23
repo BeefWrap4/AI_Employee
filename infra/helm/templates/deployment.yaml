@@ -26,9 +26,12 @@ spec:
     spec:
       serviceAccountName: {{ $name }}
       securityContext:
+        # Match the Dockerfile ``appuser`` UID so the container can
+        # write /app.  Using uid=1000 here (the previous default) broke
+        # writes to /app because the image's appuser is uid=10001.
         runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
+        runAsUser: 10001
+        fsGroup: 10001
       containers:
         - name: {{ $name }}
           image: "{{ $global.imageRegistry }}/{{ $name }}:{{ $global.imageTag }}"
@@ -55,22 +58,57 @@ spec:
             - name: OBJECT_STORE_BUCKET
               value: {{ $os.bucket | default "ai-employee" | quote }}
             {{- if or (eq $name "knowledge-api") (eq $name "rca-agent") (eq $name "agent-platform-api") (eq $name "approval-service") }}
-            # R29-A: inject the default PG DSN into the 4 PG-backed
-            # services.  The ``build_*_store()`` factories honour this
-            # env var; the env var is omitted for stateless services
-            # (ingestion-worker, tool-registry, mcp-gateway) which
-            # don't own persistent state.
+            # R29-A: inject the PG DSN into the 4 PG-backed services only
+            # when an operator actually set one.  An empty databaseUrl
+            # (dev / smoke) omits the var so build_*_store() falls back
+            # to the in-process SQLite path — no crash when no Postgres
+            # is deployed.
+            {{- with $global.databaseUrl }}
             - name: DATABASE_URL
-              value: {{ $global.databaseUrl | default "postgresql://ai-employee:ai-employee@postgres:5432/ai-employee" | quote }}
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- if eq $name "agent-platform-api" }}
-            {{- range $k, $v := $global.secrets }}
-            - name: {{ $k | upper }}
+            # Secrets come from the single ai-employee-secrets Secret
+            # (see secret.yaml).  Key names are the UPPER_SNAKE forms
+            # matching that Secret — not derived from the values dict
+            # keys (which are camelCase), so ``upper`` alone would drop
+            # the underscore and miss the key.
+            - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ $name }}-secrets
-                  key: {{ $k }}
-            {{- end }}
+                  name: ai-employee-secrets
+                  key: JWT_SECRET
+            - name: QWEN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-employee-secrets
+                  key: QWEN_API_KEY
+            - name: INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-employee-secrets
+                  key: INTERNAL_TOKEN
+            - name: OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-employee-secrets
+                  key: OIDC_ISSUER
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ai-employee-secrets
+                  key: OIDC_CLIENT_ID
+            - name: OIDC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: ai-employee-secrets
+                  key: OIDC_AUDIENCE
+            - name: OIDC_JWKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-employee-secrets
+                  key: OIDC_JWKS_URL
             {{- end }}
           resources:
             requests:
@@ -81,7 +119,11 @@ spec:
               memory: 1Gi
           readinessProbe:
             httpGet:
+              {{- if eq $name "agent-platform-api" }}
               path: /health/ready
+              {{- else }}
+              path: /health
+              {{- end }}
               port: {{ $svc.port }}
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -95,16 +137,25 @@ spec:
             failureThreshold: 3
           securityContext:
             allowPrivilegeEscalation: false
+            {{- if include "ai-employee.hasStorage" $svc.storage }}
+            # Stateful services write a SQLite file (or parse artefacts)
+            # under their PVC; a read-only root fs would block that.
+            readOnlyRootFilesystem: false
+            {{- else }}
+            # Stateless services still need to write __pycache__ /
+            # uvicorn socket dirs; mount an emptyDir writable /tmp via
+            # the deployment's tmpfs volume rather than loosening here.
             readOnlyRootFilesystem: true
+            {{- end }}
             capabilities:
               drop:
                 - ALL
-          {{- if gt (int $svc.storage) 0 }}
+          {{- if include "ai-employee.hasStorage" $svc.storage }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/ai-employee/data
           {{- end }}
-      {{- if gt (int $svc.storage) 0 }}
+      {{- if include "ai-employee.hasStorage" $svc.storage }}
       volumes:
         - name: data
           persistentVolumeClaim:

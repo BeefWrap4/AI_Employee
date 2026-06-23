@@ -1,0 +1,50 @@
+# Minimal smoke overlay for kind cluster (R34-D).
+# 3 services, SQLite fallback on PVC, no PG/Redis/MinIO, auth open.
+global:
+  databaseUrl: ""          # force SQLite fallback (no postgres deployed in kind)
+  jwtAuthStrict: false
+  storageClassName: ""
+
+objectStore:
+  url: ""                  # LocalFs
+
+services:
+  knowledge-api:
+    enabled: true
+    replicas: 1
+    storage: 1Gi
+    env:
+      KNOWLEDGE_SQLITE_PATH: "/var/lib/ai-employee/data/knowledge.db"
+      EMBEDDING_PROVIDER: qwen
+      MILVUS_ENABLED: "false"
+      OPENSEARCH_ENABLED: "false"
+  ingestion-worker:
+    enabled: false
+  rca-agent:
+    enabled: false
+  agent-platform-api:
+    enabled: true
+    replicas: 1
+    storage: 1Gi
+    env:
+      EVENT_BUS_BACKEND: memory
+      PLATFORM_SQLITE_PATH: "/var/lib/ai-employee/data/platform.db"
+    hpa:
+      enabled: false
+  tool-registry:
+    enabled: false
+  approval-service:
+    enabled: false
+  mcp-gateway:
+    enabled: false
+  event-gateway:
+    enabled: false
+  api-gateway:
+    enabled: true
+    replicas: 1
+    storage: 0
+    env:
+      API_GATEWAY_AUTH_REQUIRED: "false"
+
+networkPolicy:
+  enabled: false
