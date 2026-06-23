@@ -31,5 +31,31 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // antd and echarts are inherently large singletons; after manualChunks
+    // splits them into cacheable vendor chunks the largest is echarts-vendor
+    // (~1 MB). Raise the warning limit so the build does not cry wolf over
+    // intentional, cacheable vendor chunks — the app code chunk itself is
+    // ~23 kB.
+    chunkSizeWarningLimit: 1100,
+    rollupOptions: {
+      output: {
+        // Code-split the vendor libs so the main app bundle stays under the
+        // 500 kB warning limit. react/react-dom, antd/@ant-design, and echarts
+        // each land in their own cacheable chunk.
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || /node_modules\/react\//.test(id)) {
+              return 'react-vendor'
+            }
+            if (id.includes('@ant-design') || id.includes('/antd/')) {
+              return 'antd-vendor'
+            }
+            if (id.includes('echarts') || id.includes('zrender')) {
+              return 'echarts-vendor'
+            }
+          }
+        },
+      },
+    },
   },
 })
