@@ -100,6 +100,35 @@ export const platformApi = {
   metrics: () => fetch('/api/platform/metrics').then((r) => r.text()),
 }
 
+// --- approval tasks (agent-platform-api) -------------------------------- //
+export const approvalApi = {
+  listTasks: (query) => request('/api/platform', '/api/v1/approval-tasks', { query }),
+  decide: (taskId, body) =>
+    request('/api/platform', `/api/v1/approval-tasks/${taskId}/decision`, {
+      method: 'POST',
+      body,
+    }),
+  requestSupplement: (taskId, body) =>
+    request('/api/platform', `/api/v1/approval-tasks/${taskId}/supplement-request`, {
+      method: 'POST',
+      body,
+    }),
+  resolveSupplement: (taskId, body) =>
+    request('/api/platform', `/api/v1/approval-tasks/${taskId}/supplement-answer`, {
+      method: 'POST',
+      body,
+    }),
+  transfer: (taskId, body) =>
+    request('/api/platform', `/api/v1/approvals/${taskId}/transfer`, { method: 'POST', body }),
+  escalate: (taskId, body) =>
+    request('/api/platform', `/api/v1/approvals/${taskId}/escalate`, { method: 'POST', body }),
+  delegate: (taskId, body) =>
+    request('/api/platform', `/api/v1/approval-tasks/${taskId}/delegate`, {
+      method: 'POST',
+      body,
+    }),
+}
+
 // --- tool-registry ------------------------------------------------------- //
 export const toolsApi = {
   list: (query) => request('/api/tools', '/api/v1/tools', { query }),

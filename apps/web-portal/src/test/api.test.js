@@ -6,6 +6,7 @@ import {
   rcaApi,
   platformApi,
   toolsApi,
+  approvalApi,
 } from '../api.js'
 
 // --- token helpers -------------------------------------------------------- //
@@ -115,6 +116,73 @@ describe('toolsApi.invoke', () => {
     const [, init] = fetchMock.mock.calls[0]
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body).arguments).toEqual({ ne_id: 'BJ-001' })
+  })
+})
+
+describe('approvalApi', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('listTasks GETs /api/v1/approval-tasks with query params', async () => {
+    const fetchMock = mockFetch({ items: [], total: 0 })
+    await approvalApi.listTasks({ status: 'pending', page: 1, page_size: 20 })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approval-tasks')
+    expect(String(url)).toContain('status=pending')
+    expect(init.method).toBe('GET')
+  })
+
+  it('decide POSTs to /api/v1/approval-tasks/{id}/decision with body', async () => {
+    const fetchMock = mockFetch({ task_id: 't1', status: 'approved' })
+    await approvalApi.decide('t1', { decision: 'approved', decided_by: 'alice', comment: 'ok' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approval-tasks/t1/decision')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ decision: 'approved', decided_by: 'alice', comment: 'ok' })
+  })
+
+  it('requestSupplement POSTs to /api/v1/approval-tasks/{id}/supplement-request', async () => {
+    const fetchMock = mockFetch({ ok: true })
+    await approvalApi.requestSupplement('t2', { requested_by: 'bob', reason: 'need logs' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approval-tasks/t2/supplement-request')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ requested_by: 'bob', reason: 'need logs' })
+  })
+
+  it('resolveSupplement POSTs to /api/v1/approval-tasks/{id}/supplement-answer', async () => {
+    const fetchMock = mockFetch({ ok: true })
+    await approvalApi.resolveSupplement('t3', { answered_by: 'carol', answer: 'logs attached' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approval-tasks/t3/supplement-answer')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ answered_by: 'carol', answer: 'logs attached' })
+  })
+
+  it('transfer POSTs to /api/v1/approvals/{id}/transfer', async () => {
+    const fetchMock = mockFetch({ ok: true })
+    await approvalApi.transfer('t4', { new_approver: 'dave', reason: 'on leave' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approvals/t4/transfer')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ new_approver: 'dave', reason: 'on leave' })
+  })
+
+  it('escalate POSTs to /api/v1/approvals/{id}/escalate', async () => {
+    const fetchMock = mockFetch({ ok: true })
+    await approvalApi.escalate('t5', { escalated_to: 'manager', reason: 'high risk' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approvals/t5/escalate')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ escalated_to: 'manager', reason: 'high risk' })
+  })
+
+  it('delegate POSTs to /api/v1/approval-tasks/{id}/delegate', async () => {
+    const fetchMock = mockFetch({ ok: true })
+    await approvalApi.delegate('t6', { delegate_to: 'erin', reason: 'delegation' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/approval-tasks/t6/delegate')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ delegate_to: 'erin', reason: 'delegation' })
   })
 })
 
