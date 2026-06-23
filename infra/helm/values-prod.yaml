@@ -1,0 +1,174 @@
+# Production values overlay for the ai-employee Helm chart.
+#
+# Apply on top of the dev ``values.yaml`` with:
+#
+#     helm install ai-employee . -f values.yaml -f values-prod.yaml
+#
+# Helm coalesces the two files: this overlay wins on scalars and nested
+# maps merge recursively, so a service's ``env``/``pdb`` blocks from
+# ``values.yaml`` are preserved while the production knobs below
+# override replicas / resources / HPA / ingress / auth.
+#
+# What this overlay flips vs dev:
+#   * ``global.jwtAuthStrict: true``          — drop legacy internal-token (JWT only).
+#   * ``global.storageClassName`` placeholder — bind PVCs to a real StorageClass.
+#   * OIDC placeholders (``oidcIssuer`` etc.) — wire an IdP (Keycloak/Auth0/Okta).
+#   * ``knowledge-api`` replicas 1 -> 2       — safe once PG is the default backend.
+#   * resources.requests/limits on every service (agent-platform-api / rca-agent scaled higher).
+#   * HPA enabled on rca-agent + api-gateway + mcp-gateway (plus agent-platform-api from dev).
+#   * ``ingress.enabled: true`` with TLS      — terminate TLS at the edge.
+#   * ``API_GATEWAY_AUTH_REQUIRED: "true"``   — enforce JWT/X-Internal-Token at the gateway.
+#   * ``RATE_LIMIT_ENABLED: "true"``          — engage the sliding-window limiter.
+#
+# The code default of AUTH / RATE_LIMIT stays ``false`` (dev/test).  Production
+# enforcement is opt-in via this overlay only — do NOT edit ``values.yaml``.
+
+global:
+  # Drop the legacy internal-token path in production: JWT (HS256 or OIDC)
+  # becomes the only accepted credential.
+  jwtAuthStrict: true
+
+  # Bind PVCs to a real StorageClass.  Operators override with
+  # ``--set global.storageClassName=<class>`` (e.g. ``gp3``, ``standard-rwo``).
+  storageClassName: "REPLACE_WITH_STORAGE_CLASS"
+
+  secrets:
+    # OIDC / SSO placeholders.  Leave the placeholder text in place until
+    # an IdP (Keycloak, Auth0, Okta, ...) is wired; the ``require_oidc_or_internal``
+    # dep auto-enables the OIDC branch once OIDC_ISSUER + OIDC_CLIENT_ID are
+    # set to real values via ``--set`` or a sealed-secret overlay.
+    oidcIssuer: "REPLACE_WITH_OIDC_ISSUER"
+    oidcClientId: "REPLACE_WITH_OIDC_CLIENT_ID"
+    oidcAudience: "REPLACE_WITH_OIDC_AUDIENCE"
+    oidcJwksUrl: "REPLACE_WITH_OIDC_JWKS_URL"
+
+# Per-service production sizing.  ``env`` / ``pdb`` / ``port`` / ``storage``
+# are inherited from ``values.yaml`` via the recursive merge; only the
+# production knobs (replicas, resources, HPA) are stated here.
+services:
+  knowledge-api:
+    # PG-backed in prod (global.databaseUrl points at the cluster Postgres),
+    # so 2 replicas are HA-safe.
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  ingestion-worker:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  rca-agent:
+    # Scaled above baseline: RCA pipeline runs LangGraph + LLM calls.
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpu: 70
+      memory: 75
+
+  agent-platform-api:
+    # Busiest service: scheduler + approvals + tool runtime.  Scaled highest.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 1500m
+        memory: 1Gi
+    # HPA block already present in dev values; restated for clarity so the
+    # prod overlay is self-describing.  minReplicas/maxReplicas unchanged.
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpu: 70
+      memory: 75
+
+  tool-registry:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  approval-service:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  mcp-gateway:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      cpu: 70
+      memory: 75
+
+  event-gateway:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  api-gateway:
+    # The single ingress front door (R32-A).  Enforce auth + rate-limit
+    # in production; the code default stays open (false) for dev/test.
+    resources:
+      requests:
+        cpu: 150m
+        memory: 128Mi
+      limits:
+        cpu: 750m
+        memory: 512Mi
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpu: 70
+      memory: 75
+    env:
+      API_GATEWAY_AUTH_REQUIRED: "true"
+      RATE_LIMIT_ENABLED: "true"
+
+# Production ingress: enable + terminate TLS at the edge.
+ingress:
+  enabled: true
+  className: nginx
+  host: ai-employee.example.com
+  tls:
+    - hosts:
+        - ai-employee.example.com
+      secretName: ai-employee-tls
