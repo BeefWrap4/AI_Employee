@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Layout, Menu, theme as antdTheme } from 'antd'
 import {
   ApartmentOutlined,
+  AuditOutlined,
   ExperimentOutlined,
   FileSearchOutlined,
   ToolOutlined,
@@ -14,6 +15,7 @@ import EvalView from './views/EvalView.jsx'
 import ToolsView from './views/ToolsView.jsx'
 import DashboardView from './views/DashboardView.jsx'
 import RunView from './views/RunView.jsx'
+import ApprovalView from './views/ApprovalView.jsx'
 
 const { Header, Sider, Content } = Layout
 
@@ -24,6 +26,7 @@ const MENU_ITEMS = [
   { key: 'eval', icon: <ExperimentOutlined />, label: '评测中心' },
   { key: 'tools', icon: <ToolOutlined />, label: '工具注册' },
   { key: 'run', icon: <ThunderboltOutlined />, label: '运行实况' },
+  { key: 'approval', icon: <AuditOutlined />, label: '审批管理' },
 ]
 
 const VIEWS = {
@@ -33,6 +36,7 @@ const VIEWS = {
   eval: EvalView,
   tools: ToolsView,
   run: RunView,
+  approval: ApprovalView,
 }
 
 export default function App() {
