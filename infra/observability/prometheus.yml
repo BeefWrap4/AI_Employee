@@ -1,0 +1,114 @@
+# Prometheus scrape configuration (R33-G1a; spec §6.4 可观测).
+#
+# Scrapes all nine HTTP services (ports 8010-8070 per CLAUDE.md) plus a
+# self-scrape job.  Each service exposes its metrics at /metrics in the
+# Prometheus text exposition format produced by
+# packages/common-schemas/metrics_bridge.to_prometheus_text (the seven
+# platform_* headline indicators) and packages/observability's
+# Prometheus text renderer.
+#
+# In a real deployment the static_config targets are the in-cluster
+# service DNS names (service-name:port).  For local docker-compose the
+# same names resolve on the compose network.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: ai-employee
+
+# Alerting rules + Alertmanager wiring (files ship alongside this one).
+rule_files:
+  - "prometheus_rules.yaml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"
+
+scrape_configs:
+  # ----------------------------------------------------------------- #
+  # Self-scrape — Prometheus' own internal metrics.
+  # ----------------------------------------------------------------- #
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+          - "localhost:9090"
+        labels:
+          service: prometheus
+
+  # ----------------------------------------------------------------- #
+  # App services (CLAUDE.md service list, ports 8010-8070).
+  # ----------------------------------------------------------------- #
+  - job_name: "knowledge-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "knowledge-api:8010"
+        labels:
+          service: knowledge-api
+
+  - job_name: "ingestion-worker"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "ingestion-worker:8011"
+        labels:
+          service: ingestion-worker
+
+  - job_name: "rca-agent"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "rca-agent:8020"
+        labels:
+          service: rca-agent
+
+  - job_name: "agent-platform-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "agent-platform-api:8030"
+        labels:
+          service: agent-platform-api
+
+  - job_name: "tool-registry"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "tool-registry:8040"
+        labels:
+          service: tool-registry
+
+  - job_name: "approval-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "approval-service:8040"
+        labels:
+          service: approval-service
+
+  - job_name: "mcp-gateway"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "mcp-gateway:8050"
+        labels:
+          service: mcp-gateway
+
+  - job_name: "event-gateway"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "event-gateway:8060"
+        labels:
+          service: event-gateway
+
+  - job_name: "api-gateway"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "api-gateway:8070"
+        labels:
+          service: api-gateway
