@@ -18,6 +18,12 @@ class ParsedSection:
     # ``blocks[i]``).
     table_id: str | None = None
     row_ids: list[str] = field(default_factory=list)
+    # Structured table fields (R33-C2).  ``columns`` is the header row;
+    # ``values`` is the list of data rows, each a list[str] parallel to
+    # ``columns``.  ``values[i]`` corresponds to ``blocks[i]`` /
+    # ``row_ids[i]``.  None for prose sections.
+    columns: list[str] | None = None
+    values: list[list[str]] | None = None
 
 
 class _BaseParser:
@@ -272,16 +278,22 @@ class XlsxParser(_BaseParser):
 
                 blocks: list[str] = []
                 row_ids: list[str] = []
+                # Structured values: one list[str] per emitted data-row block,
+                # parallel to ``blocks`` / ``row_ids`` (R33-C2).
+                section_values: list[list[str]] = []
                 for row_idx, row in enumerate(data_rows, start=1):
                     parts: list[str] = []
+                    row_vals: list[str] = []
                     for j, val in enumerate(row):
                         col_name = headers[j] if j < len(headers) else f"Col{j}"
                         val_str = str(val) if val is not None else ""
                         parts.append(f"{col_name}: {val_str}")
+                        row_vals.append(val_str)
                     block = " | ".join(parts)
                     if block.strip():
                         blocks.append(block)
                         row_ids.append(f"row_{row_idx:03d}")
+                        section_values.append(row_vals)
 
                 if blocks:
                     sections.append(
@@ -290,6 +302,8 @@ class XlsxParser(_BaseParser):
                             blocks=blocks,
                             table_id=sheet_name,
                             row_ids=row_ids,
+                            columns=headers,
+                            values=section_values,
                         )
                     )
         finally:

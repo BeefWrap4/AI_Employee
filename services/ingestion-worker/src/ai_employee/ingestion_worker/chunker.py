@@ -146,21 +146,34 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
     for section in sections:
         table_id = section.table_id
         row_ids = section.row_ids or []
-        # Merge buffer now tracks (block_text, row_id) pairs so table
-        # provenance carries through to each emitted chunk.
-        buffer: list[tuple[str, str | None]] = []
+        # Structured table fields (R33-C2): when a table section carries
+        # columns + values, propagate them to per-row chunks.  ``values[i]``
+        # is parallel to ``blocks`` / ``row_ids``.
+        section_columns = section.columns
+        section_values = section.values or []
+        # Merge buffer now tracks (block_text, row_id, row_values) tuples so
+        # table provenance + structured values carry through to each chunk.
+        buffer: list[tuple[str, str | None, list[str] | None]] = []
         buffer_len = 0
 
-        def flush(path: str, tbl_id: str | None) -> None:
+        def flush(path: str, tbl_id: str | None, columns: list[str] | None) -> None:
             nonlocal seq, buffer, buffer_len
             if not buffer:
                 return
-            merged = " ".join(b for b, _ in buffer)
-            # When the buffer holds a single table row, propagate its row_id;
-            # merged rows lose per-row identity (table_id still carries).
+            merged = " ".join(b for b, _, _ in buffer)
+            # When the buffer holds a single table row, propagate its row_id
+            # and (if present) that row's structured values; merged rows lose
+            # per-row identity (table_id still carries).
             row_id: str | None = None
+            row_values: list[str] | None = None
             if len(buffer) == 1:
                 row_id = buffer[0][1]
+                row_values = buffer[0][2]
+            # columns propagate for any table chunk (same for every row).
+            chunk_columns = columns if tbl_id is not None else None
+            # Only attach per-row values when this is a single-row chunk
+            # (merged rows cannot be attributed to one value list).
+            chunk_values = row_values if (tbl_id is not None and len(buffer) == 1) else None
             for piece in _split_merged(merged):
                 seq += 1
                 chunks.append(
@@ -171,6 +184,8 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
                         section_path=path,
                         table_id=tbl_id,
                         row_id=row_id,
+                        columns=chunk_columns,
+                        values=chunk_values,
                     )
                 )
             buffer = []
@@ -181,6 +196,7 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
             if not block:
                 continue
             row_id = row_ids[idx] if idx < len(row_ids) else None
+            row_vals = section_values[idx] if idx < len(section_values) else None
             prospective_len = buffer_len + len(block) + 1
             # Table rows keep their per-row identity (one chunk per row) so
             # row_id stays meaningful; only prose blocks merge together.
@@ -191,12 +207,12 @@ def chunk_sections(doc_id: str, sections: list) -> list[ParsedChunk]:
                 and len(buffer) < _MERGE_MAX_BLOCKS
             )
             if can_merge:
-                buffer.append((block, row_id))
+                buffer.append((block, row_id, row_vals))
                 buffer_len = prospective_len
             else:
-                flush(section.section_path, table_id)
-                buffer = [(block, row_id)]
+                flush(section.section_path, table_id, section_columns)
+                buffer = [(block, row_id, row_vals)]
                 buffer_len = len(block)
-        flush(section.section_path, table_id)
+        flush(section.section_path, table_id, section_columns)
 
     return chunks

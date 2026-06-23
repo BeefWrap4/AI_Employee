@@ -27,6 +27,12 @@ class ParsedChunk(BaseModel):
     # Table structure provenance (spec §5.2).  None for plain prose.
     table_id: str | None = None
     row_id: str | None = None
+    # Structured table fields (R33-C2).  ``columns`` is the header list;
+    # ``values`` is the single row's cell values parallel to ``columns``
+    # (one chunk per row when ``chunk_sections`` splits a table section).
+    # Both default ``None`` for backward compat with prose chunks.
+    columns: list[str] | None = None
+    values: list[str] | None = None
 
 
 class ChunkRecord(BaseModel):
@@ -43,6 +49,9 @@ class ChunkRecord(BaseModel):
     # Table structure provenance (spec §5.2).  None for plain prose.
     table_id: str | None = None
     row_id: str | None = None
+    # Structured table fields (R33-C2).  Parallel to ParsedChunk.
+    columns: list[str] | None = None
+    values: list[str] | None = None
 
 
 class Citation(BaseModel):
