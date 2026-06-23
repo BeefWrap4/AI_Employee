@@ -320,11 +320,21 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, str]:
+        # R35-A: report the real agent runtime backend.  Pre-R35 the
+        # response hardcoded ``"in_memory"`` even when
+        # ``RUNTIME_BACKEND=langgraph`` was set.  ``select_runtime()``
+        # is the single source of truth: it reads ``RUNTIME_BACKEND``
+        # and either returns a LangGraphRuntime (when langgraph) or
+        # ``None`` (sentinel: caller uses the self-built DAG).
+        from ai_employee.agent_platform_api.runtime import select_runtime
+
+        runtime_obj = select_runtime()
+        runtime_label = "langgraph" if runtime_obj is not None else "dag"
         return {
             "service": "agent-platform-api",
             "status": "ok",
             "version": SERVICE_VERSION,
-            "runtime": "in_memory",
+            "runtime": runtime_label,
         }
 
     from ai_employee.agent_platform_api.audit_api import mount_audit_endpoints

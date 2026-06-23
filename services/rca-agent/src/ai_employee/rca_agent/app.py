@@ -106,11 +106,23 @@ def create_app(store: RcaStore | None = None) -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, str]:
+        # R35-A: report the real runtime+store backend.  Pre-R35 the
+        # response only knew about two branches (in_memory / sqlite),
+        # silently mis-reporting PgRcaStore as in_memory_dag.  Three
+        # backends exist; map each to a label dashboards can pivot on.
+        from ai_employee.rca_agent.pg_store import PgRcaStore
+
+        if isinstance(state, PgRcaStore):
+            runtime_label = "postgres_dag"
+        elif isinstance(state, SQLiteRcaStore):
+            runtime_label = "sqlite_dag"
+        else:
+            runtime_label = "in_memory_dag"
         return {
             "service": "rca-agent",
             "status": "ok",
             "version": SERVICE_VERSION,
-            "runtime": "sqlite_dag" if isinstance(state, SQLiteRcaStore) else "in_memory_dag",
+            "runtime": runtime_label,
         }
 
     @app.post(

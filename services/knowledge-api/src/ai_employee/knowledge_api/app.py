@@ -176,11 +176,19 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, Any]:
+        # R35-A: report the real store backend, not a hardcoded label.
+        # build_knowledge_store() returns either SQLiteStore or
+        # PgKnowledgeStore depending on DATABASE_URL; the health
+        # response must mirror that so dashboards / on-call can see
+        # the truth (R34-D3 verified PG is in fact wired up).
+        from ai_employee.knowledge_api.pg_store import PgKnowledgeStore
+
+        storage_label = "postgres" if isinstance(store, PgKnowledgeStore) else "sqlite"
         return {
             "service": "knowledge-api",
             "status": "ok",
             "version": SERVICE_VERSION,
-            "storage": "sqlite",
+            "storage": storage_label,
             "ingestion_worker_reachable": worker_client.health(),
             "embedding_provider": query_provider.name,
             "embedding_provider_degraded": query_degraded,
