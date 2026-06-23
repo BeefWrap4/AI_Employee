@@ -1,7 +1,10 @@
-# Minimal smoke overlay for kind cluster (R34-D).
-# 3 services, SQLite fallback on PVC, no PG/Redis/MinIO, auth open.
+# Smoke overlay for kind cluster (R34-D expansion).
+# All 9 services enabled (event-gateway disabled: needs Kafka broker not
+# in kind smoke). Stateful services get PVC + SQLite path; stateless
+# services stay read-only root fs. DATABASE_URL unset → all 4 PG-backed
+# services fall back to in-process SQLite (per build_*_store() design).
 global:
-  databaseUrl: ""          # force SQLite fallback (no postgres deployed in kind)
+  databaseUrl: ""          # force SQLite fallback (no postgres in kind)
   jwtAuthStrict: false
   storageClassName: ""
 
@@ -19,9 +22,23 @@ services:
       MILVUS_ENABLED: "false"
       OPENSEARCH_ENABLED: "false"
   ingestion-worker:
-    enabled: false
+    enabled: true
+    replicas: 1
+    storage: 0
+    env:
+      EMBEDDING_PROVIDER: qwen
+      MILVUS_ENABLED: "false"
+      OPENSEARCH_ENABLED: "false"
   rca-agent:
-    enabled: false
+    enabled: true
+    replicas: 1
+    storage: 1Gi
+    env:
+      KNOWLEDGE_API_URL: "http://knowledge-api:8010"
+      PROMETHEUS_ENABLED: "false"
+      ELASTICSEARCH_ENABLED: "false"
+      NEO4J_ENABLED: "false"
+      TICKET_API_ENABLED: "false"
   agent-platform-api:
     enabled: true
     replicas: 1
@@ -32,12 +49,25 @@ services:
     hpa:
       enabled: false
   tool-registry:
-    enabled: false
+    enabled: true
+    replicas: 1
+    # Stateful: owns ToolRegistryStore (SQLite under ./var).  Needs
+    # a PVC + readOnlyRootFilesystem: false in the deployment template.
+    storage: 1Gi
+    env: {}
   approval-service:
-    enabled: false
+    enabled: true
+    replicas: 1
+    storage: 1Gi
+    env: {}
   mcp-gateway:
-    enabled: false
+    enabled: true
+    replicas: 1
+    storage: 0
+    env: {}
   event-gateway:
+    # R29-C: requires Kafka broker (KAFKA_BOOTSTRAP_SERVERS).  Not
+    # available in kind smoke; left disabled.
     enabled: false
   api-gateway:
     enabled: true
