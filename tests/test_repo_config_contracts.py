@@ -20,6 +20,7 @@ PYTEST_INI_PATH = ROOT / "pytest.ini"
 LOCAL_CI_PATH = ROOT / "tests" / "test_local_ci.py"
 WEB_NGINX_PATH = ROOT / "apps" / "web-portal" / "nginx.conf"
 WEB_DOCKERIGNORE_PATH = ROOT / "apps" / "web-portal" / ".dockerignore"
+PY_DEPS_SCRIPT_PATH = ROOT / "scripts" / "docker" / "requirements_from_pyproject.py"
 
 CANONICAL_COMPOSE_APP_SERVICES = {
     "web-portal",
@@ -121,6 +122,24 @@ def test_compose_bind_mounted_app_services_can_write_local_data_dirs() -> None:
 def test_approval_service_uses_postgres_in_compose() -> None:
     env = _compose()["services"]["approval-service"]["environment"]
     assert env["DATABASE_URL"].startswith("postgresql://")
+
+
+def test_python_service_dockerfiles_cache_dependency_install_before_source_copy() -> None:
+    assert PY_DEPS_SCRIPT_PATH.exists()
+    for dockerfile in (ROOT / "services").glob("*/Dockerfile"):
+        text = dockerfile.read_text(encoding="utf-8")
+        if "pip install -e" not in text:
+            continue
+        assert "requirements_from_pyproject.py" in text, dockerfile
+        assert "pip install -r /tmp/requirements.txt" in text, dockerfile
+        assert "pip install -e . --no-deps" in text, dockerfile
+        assert 'pip install -e ".[dev]" PyJWT' not in text, dockerfile
+        deps_install = text.index("pip install -r /tmp/requirements.txt")
+        services_copy = text.index("COPY services/")
+        packages_copy = text.index("COPY packages/")
+        editable_install = text.index("pip install -e . --no-deps")
+        assert deps_install < services_copy < editable_install, dockerfile
+        assert deps_install < packages_copy < editable_install, dockerfile
 
 
 def _pyproject_source_roots() -> list[str]:

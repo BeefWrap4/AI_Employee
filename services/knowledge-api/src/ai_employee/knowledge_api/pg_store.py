@@ -439,6 +439,17 @@ class PgKnowledgeStore:
         ).fetchall()
         return [_qa_log_summary_row(r) for r in rows], total
 
+    def get_qa_log(self, trace_id: str) -> dict[str, Any] | None:
+        row = self._db.execute(
+            "SELECT * FROM qa_logs WHERE trace_id = ?",
+            (trace_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        item = _qa_log_summary_row(row)
+        item["retrieved_chunks"] = json.loads(row["retrieved_chunks_json"])
+        return item
+
     def list_feedbacks(
         self,
         *,

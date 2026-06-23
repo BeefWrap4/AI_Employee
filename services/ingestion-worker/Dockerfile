@@ -1,4 +1,4 @@
-# Service Dockerfile.  Build context = repo root:
+﻿# Service Dockerfile.  Build context = repo root:
 #   docker build -f services/ingestion-worker/Dockerfile -t ai-employee/ingestion-worker .
 #
 # All Python services share the same install step (editable monorepo so
@@ -14,9 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends         libffi8
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY scripts/docker/requirements_from_pyproject.py /tmp/requirements_from_pyproject.py
+RUN python /tmp/requirements_from_pyproject.py pyproject.toml /tmp/requirements.txt --extra dev \
+    && pip install --upgrade pip \
+    && pip install -r /tmp/requirements.txt
 COPY services/ ./services/
 COPY packages/ ./packages/
-RUN pip install --upgrade pip && pip install -e ".[dev]" PyJWT
+RUN pip install -e . --no-deps
 
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
 USER appuser

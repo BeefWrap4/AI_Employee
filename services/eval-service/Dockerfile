@@ -1,4 +1,4 @@
-# eval-service: CLI/runner image (no HTTP server).  Used to run offline
+﻿# eval-service: CLI/runner image (no HTTP server).  Used to run offline
 # RAG/RCA evaluations and emit JSON/Markdown reports.
 #   docker build -f services/eval-service/Dockerfile -t ai-employee/eval-service .
 #   docker run --rm ai-employee/eval-service python -m ai_employee.eval --help
@@ -18,9 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY scripts/docker/requirements_from_pyproject.py /tmp/requirements_from_pyproject.py
+RUN python /tmp/requirements_from_pyproject.py pyproject.toml /tmp/requirements.txt --extra dev \
+    && pip install --upgrade pip \
+    && pip install -r /tmp/requirements.txt
 COPY services/ ./services/
 COPY packages/ ./packages/
-RUN pip install --upgrade pip && pip install -e ".[dev]" PyJWT
+RUN pip install -e . --no-deps
 
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
 USER appuser

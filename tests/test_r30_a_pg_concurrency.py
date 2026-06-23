@@ -347,6 +347,10 @@ def test_write_qa_log_and_list(tmp_path) -> None:
         assert total == 1
         assert items[0]["qa_log_id"] == "qa_001"
         assert items[0]["knowledge_scopes"] == ["ops-team"]
+        full = store.get_qa_log("trace-1")
+        assert full is not None
+        assert full["qa_log_id"] == "qa_001"
+        assert full["retrieved_chunks"] == [{"chunk_id": "c1", "score": 0.9}]
 
 
 def test_write_feedback_and_list(tmp_path) -> None:
