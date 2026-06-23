@@ -7,8 +7,10 @@ import {
   Space,
   Tag,
   Typography,
+  Upload,
   message,
 } from 'antd'
+import { UploadOutlined } from '@ant-design/icons'
 import { knowledgeApi } from '../api.js'
 
 // Knowledge base view: list documents and run a query against the
@@ -18,6 +20,8 @@ export default function KnowledgeView() {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [uploadTitle, setUploadTitle] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   const loadDocs = async () => {
     try {
@@ -44,6 +48,28 @@ export default function KnowledgeView() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // antd Upload hands us the selected file via beforeUpload; returning
+  // false prevents its own XHR so we can POST the multipart body through
+  // knowledgeApi.uploadDocument (which sets auth + proxy prefix).
+  const handleUpload = async (file) => {
+    if (!uploadTitle.trim()) {
+      message.warning('请输入文档标题')
+      return false
+    }
+    setUploading(true)
+    try {
+      await knowledgeApi.uploadDocument(file, uploadTitle.trim(), {}, [])
+      message.success(`文档已上传: ${uploadTitle.trim()}`)
+      setUploadTitle('')
+      await loadDocs()
+    } catch (e) {
+      message.error(`上传失败: ${e.message}`)
+    } finally {
+      setUploading(false)
+    }
+    return false
   }
 
   return (
@@ -80,6 +106,27 @@ export default function KnowledgeView() {
           )}
         </Card>
       )}
+
+      <Card title="上传文档" size="small" style={{ marginBottom: 16 }}>
+        <Space.Compact style={{ width: '100%' }}>
+          <Input
+            placeholder="文档标题"
+            value={uploadTitle}
+            onChange={(e) => setUploadTitle(e.target.value)}
+            style={{ maxWidth: 320 }}
+          />
+          <Upload
+            beforeUpload={handleUpload}
+            showUploadList={false}
+            accept=".pdf,.docx,.xlsx,.md,.txt"
+            disabled={uploading}
+          >
+            <Button icon={<UploadOutlined />} loading={uploading}>
+              上传文档
+            </Button>
+          </Upload>
+        </Space.Compact>
+      </Card>
 
       <Card title="文档列表" size="small">
         <List

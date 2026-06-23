@@ -36,17 +36,21 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function request(baseUrl, path, { method = 'GET', body, query } = {}) {
+// When `isForm` is true the caller passes a FormData instance as `body`;
+// the browser sets the multipart Content-Type (with boundary) itself, so
+// we must NOT pin application/json or JSON.stringify the body.
+async function request(baseUrl, path, { method = 'GET', body, query, isForm = false } = {}) {
   const url = new URL(`${baseUrl}${path}`, window.location.origin)
   if (query) {
     Object.entries(query).forEach(([k, v]) => {
       if (v !== undefined && v !== null) url.searchParams.set(k, v)
     })
   }
+  const headers = isForm ? { ...authHeaders() } : { 'Content-Type': 'application/json', ...authHeaders() }
   const resp = await fetch(url, {
     method,
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: body ? JSON.stringify(body) : undefined,
+    headers,
+    body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
   })
   const text = await resp.text()
   const data = text ? JSON.parse(text) : {}
@@ -67,6 +71,21 @@ export const knowledgeApi = {
       method: 'POST',
       body: { session_id: getSessionId(), question, knowledge_scopes: scopes },
     }),
+  // Multipart upload: the backend POST /api/v1/documents expects file +
+  // title + metadata_json + acl_tags_json + version fields.
+  uploadDocument: (file, title, metadata = {}, aclTags = []) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('title', title)
+    form.append('metadata_json', JSON.stringify(metadata))
+    form.append('acl_tags_json', JSON.stringify(aclTags))
+    form.append('version', 'v1')
+    return request('/api/knowledge', '/api/v1/documents', {
+      method: 'POST',
+      body: form,
+      isForm: true,
+    })
+  },
 }
 
 // --- rca-agent ----------------------------------------------------------- //
