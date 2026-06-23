@@ -87,6 +87,14 @@ class _RunState(TypedDict, total=False):
     tool_calls: list[dict[str, str]]
     requires_approval: bool
     final_node: str
+    # R33-A2 (spec §4 multi-gate HITL): a second interrupt gate.  When the
+    # supplement route is enabled (``LANGGRAPH_SUPPLEMENT_GATE=true``) the
+    # run pauses at ``SupplementRequired`` to request supplemental info
+    # from the operator; ``resume_from_supplement`` injects the response
+    # here and drives the graph forward.  Default-off keeps existing
+    # templates on their pre-R33 path.
+    requires_supplement: bool
+    supplement_response: str | None
     # R30-B (spec §6.4): the model_name + prompt_version resolved by the
     # RunStarted node, propagated onto NodeTrace / ToolCallSummary /
     # tool_call_log rows / the AgentRunResponse so every artefact is
@@ -101,6 +109,15 @@ class _RunState(TypedDict, total=False):
     # this field; the linear fallback (``LANGGRAPH_SUBGRAPH=false``) does
     # not, preserving the pre-R32 output contract.
     tool_results: Annotated[list[dict[str, Any]], operator.add]
+    # R33-A3 (spec §4 parallel multi-source retrieval): per-source results
+    # emitted by the parallel ``KnowledgeRetrieve`` workers.  When the
+    # parallel retrieval path is active (``LANGGRAPH_PARALLEL_RETRIEVAL``)
+    # a knowledge_qa run fans out one worker per declared knowledge scope;
+    # the ``operator.add`` reducer merges them back so
+    # ``KnowledgeAggregate`` sees every source's result.  Only the
+    # parallel path populates this field; the default-off single-call
+    # path does not, preserving the pre-R33 output contract.
+    retrieval_results: Annotated[list[dict[str, Any]], operator.add]
 
 
 @runtime_checkable
@@ -218,6 +235,188 @@ def _subgraph_enabled() -> bool:
     return os.getenv("LANGGRAPH_SUBGRAPH", "true").lower() not in ("false", "0", "no")
 
 
+def _supplement_gate_enabled() -> bool:
+    """True when the R33-A2 supplement interrupt gate is active.
+
+    Spec §4 calls for a richer HITL surface where a run can pause to
+    request supplemental information from the operator, then resume with
+    the response.  The route into ``SupplementRequired`` is gated behind
+    ``LANGGRAPH_SUPPLEMENT_GATE`` (default ``false``) so existing
+    templates keep their pre-R33 single-gate path.  Turning it on makes
+    ``RunStarted`` route a knowledge_qa run to ``SupplementRequired``
+    before ToolPlan; the run parks there (when ``SupplementRequired`` is
+    in ``LANGGRAPH_INTERRUPT_NODES``) and :meth:`resume_from_supplement`
+    drives it forward.
+    """
+    return os.getenv("LANGGRAPH_SUPPLEMENT_GATE", "false").lower() in ("true", "1", "yes")
+
+
+def _interrupt_nodes() -> list[str]:
+    """The list of node names the graph interrupts *before*.
+
+    R33-A2 (spec §4 multi-gate): ``LANGGRAPH_INTERRUPT_NODES`` (default
+    ``"ApprovalRequired"``) is a comma-separated list.  Production
+    deployments add ``SupplementRequired`` to enable the second HITL
+    gate; the default keeps the pre-R33 single-gate behaviour so every
+    existing test that asserts ``interrupt_before`` only contains
+    ApprovalRequired continues to pass.
+    """
+    raw = os.getenv("LANGGRAPH_INTERRUPT_NODES", "ApprovalRequired")
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    # Preserve registration order; unknown names are dropped at compile
+    # time (the graph only knows the nodes it registered).
+    return names or ["ApprovalRequired"]
+
+
+def _parallel_retrieval_enabled() -> bool:
+    """True when the R33-A3 parallel multi-source retrieval path is active.
+
+    Spec §4 calls for parallel multi-source retrieval: a knowledge_qa run
+    that declares multiple knowledge scopes fans out one
+    ``KnowledgeRetrieve`` worker per source via the LangGraph ``Send``
+    API, merges the results via the ``retrieval_results`` reducer, and
+    aggregates them in ``KnowledgeAggregate``.  The path is gated behind
+    ``LANGGRAPH_PARALLEL_RETRIEVAL`` (default ``false``) so the pre-R33
+    single-call knowledge_qa behaviour is preserved.
+    """
+    return os.getenv("LANGGRAPH_PARALLEL_RETRIEVAL", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
+
+def _knowledge_sources(payload_input: dict[str, Any]) -> list[str]:
+    """Resolve the knowledge scopes a knowledge_qa run retrieves from.
+
+    The knowledge_qa template declares ``knowledge_scopes`` (an array of
+    strings) on its input schema.  When the operator supplies one or more
+    scopes, each becomes a parallel retrieval worker; when none are
+    supplied we fall back to a single ``"default"`` scope so the fan-out
+    still has one worker (the parallel path is the same shape for N=1).
+    """
+    raw = (payload_input or {}).get("knowledge_scopes")
+    if isinstance(raw, list) and raw:
+        return [str(s) for s in raw if s]
+    return ["default"]
+
+
+def build_checkpointer() -> Any:
+    """Build a LangGraph checkpointer from the ``CHECKPOINTER_BACKEND`` env.
+
+    R33-A1 (spec P3 §4 LangGraph v1 depth): production deployments need
+    to swap the R31-B in-process ``MemorySaver`` for a durable backend
+    (``RedisSaver`` / ``PostgresSaver``) so a run parked at the HITL gate
+    survives a replica restart and can be resumed by another replica.
+    This factory reads ``CHECKPOINTER_BACKEND`` and constructs the right
+    saver:
+
+      * ``memory`` (default) → :class:`langgraph.checkpoint.memory.MemorySaver`
+      * ``redis``  → ``langgraph.checkpoint.redis.RedisSaver``
+      * ``postgres`` → ``langgraph.checkpoint.postgres.PostgresSaver``
+
+    The redis / postgres backends live in optional extras
+    (``langgraph-checkpoint-redis`` / ``langgraph-checkpoint-postgres``).
+    When the requested extra is not installed — or an unknown backend
+    value is supplied — the factory degrades to ``MemorySaver`` with a
+    warning so the runtime always stays resumable out of the box.
+
+    The redis/postgres savers require an async connection at
+    construction; to keep the factory synchronous and dependency-light we
+    build them lazily via their ``.from_conn_string``-style constructor
+    when available, otherwise fall back to ``MemorySaver``.  The memory
+    path is always available and is the backward-compatible default.
+    """
+    import warnings
+
+    backend = os.getenv("CHECKPOINTER_BACKEND", "memory").strip().lower()
+
+    if backend == "memory":
+        from langgraph.checkpoint.memory import MemorySaver
+
+        return MemorySaver()
+
+    if backend == "redis":
+        try:
+            from langgraph.checkpoint.redis import RedisSaver
+        except Exception as exc:  # pragma: no cover - extra not installed
+            warnings.warn(
+                "CHECKPOINTER_BACKEND=redis but langgraph-checkpoint-redis is "
+                f"not importable ({exc!r}); falling back to MemorySaver.",
+                stacklevel=2,
+            )
+            from langgraph.checkpoint.memory import MemorySaver
+
+            return MemorySaver()
+        return _construct_remote_saver(RedisSaver, "redis")
+
+    if backend == "postgres":
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+        except Exception as exc:  # pragma: no cover - extra not installed
+            warnings.warn(
+                "CHECKPOINTER_BACKEND=postgres but langgraph-checkpoint-postgres "
+                f"is not importable ({exc!r}); falling back to MemorySaver.",
+                stacklevel=2,
+            )
+            from langgraph.checkpoint.memory import MemorySaver
+
+            return MemorySaver()
+        return _construct_remote_saver(PostgresSaver, "postgres")
+
+    # Unknown backend — degrade to MemorySaver rather than crash.
+    warnings.warn(
+        f"Unknown CHECKPOINTER_BACKEND={backend!r}; falling back to MemorySaver.",
+        stacklevel=2,
+    )
+    from langgraph.checkpoint.memory import MemorySaver
+
+    return MemorySaver()
+
+
+def _construct_remote_saver(saver_cls: Any, label: str) -> Any:
+    """Construct a remote (redis/postgres) saver from its env DSN.
+
+    The langgraph redis/postgres savers ship several constructor shapes
+    across versions (``RedisSaver.from_conn_string(...)``,
+    ``PostgresSaver(conn)``).  We try the lightweight
+    ``from_conn_string`` factory first (passing the conventional DSN env
+    var), then a zero-arg construction, and finally fall back to
+    ``MemorySaver`` if neither works — a misconfigured DSN must never
+    make the runtime non-resumable.
+    """
+    import warnings
+
+    dsn_env = {
+        "redis": "REDIS_CHECKPOINT_URL",
+        "postgres": "POSTGRES_CHECKPOINT_URL",
+    }.get(label, "")
+    dsn = os.getenv(dsn_env) if dsn_env else None
+    from_factory = getattr(saver_cls, "from_conn_string", None)
+    if callable(from_factory) and dsn:
+        try:
+            return from_factory(dsn)
+        except Exception as exc:  # pragma: no cover - dsn / version specific
+            warnings.warn(
+                f"{saver_cls.__name__}.from_conn_string failed ({exc!r}); "
+                "falling back to MemorySaver.",
+                stacklevel=2,
+            )
+            from langgraph.checkpoint.memory import MemorySaver
+
+            return MemorySaver()
+    # No DSN / no factory: fall back to MemorySaver.  We do not attempt a
+    # bare ``saver_cls()`` because the remote savers require a live
+    # connection object at construction time.
+    warnings.warn(
+        f"CHECKPOINTER_BACKEND={label} but no {dsn_env} configured; falling back to MemorySaver.",
+        stacklevel=2,
+    )
+    from langgraph.checkpoint.memory import MemorySaver
+
+    return MemorySaver()
+
+
 class LangGraphRuntime:
     """Drives agent runs through a LangGraph StateGraph."""
 
@@ -308,6 +507,20 @@ class LangGraphRuntime:
         builder.add_node("ApprovalRequired", self._node_approval_required)
         builder.add_node("ApprovalApproved", self._node_approval_approved)
         builder.add_node("ApprovalRejected", self._node_approval_rejected)
+        # R33-A2 (spec §4 multi-gate HITL): a second interrupt gate.  The
+        # node is always registered so the graph topology is stable; the
+        # route into it is gated behind ``LANGGRAPH_SUPPLEMENT_GATE``
+        # (default off) so existing templates never see it.
+        builder.add_node("SupplementRequired", self._node_supplement_required)
+        # R33-A3 (spec §4 parallel multi-source retrieval): the parallel
+        # retrieval workers + aggregator.  ``KnowledgeRetrieve`` runs once
+        # per declared knowledge scope (fanned out via ``Send`` from
+        # RunStarted); ``KnowledgeAggregate`` runs once after all workers
+        # complete to distil the per-source results into ``run.output``.
+        # Always registered so the topology is stable; the route in is
+        # gated behind ``LANGGRAPH_PARALLEL_RETRIEVAL`` (default off).
+        builder.add_node("KnowledgeRetrieve", self._node_knowledge_retrieve)
+        builder.add_node("KnowledgeAggregate", self._node_knowledge_aggregate)
         builder.add_node("Completed", self._node_completed)
         for name in (
             "TemplateLoaded",
@@ -318,13 +531,39 @@ class LangGraphRuntime:
             "ApprovalRequired",
             "ApprovalApproved",
             "ApprovalRejected",
+            "SupplementRequired",
+            "KnowledgeRetrieve",
+            "KnowledgeAggregate",
             "Completed",
         ):
             self.node_names.add(name)
 
         builder.set_entry_point("TemplateLoaded")
         builder.add_edge("TemplateLoaded", "RunStarted")
-        builder.add_edge("RunStarted", "ToolPlan")
+        # R33-A2/A3: RunStarted routes to the supplement gate (when
+        # enabled and flagged), the parallel retrieval fan-out (when
+        # ``LANGGRAPH_PARALLEL_RETRIEVAL`` is on for knowledge_qa), or
+        # straight to ToolPlan (the pre-R33 path).  Default-off means the
+        # conditional always returns ``toolplan`` unless an env is on.
+        builder.add_conditional_edges(
+            "RunStarted",
+            self._route_after_run_started,
+            {
+                "supplement": "SupplementRequired",
+                "toolplan": "ToolPlan",
+                "parallel_retrieval": "KnowledgeRetrieve",
+            },
+        )
+        # After the operator supplies the supplement response the run
+        # continues into ToolPlan (then the normal read-only / approval
+        # path).
+        builder.add_edge("SupplementRequired", "ToolPlan")
+        # R33-A3: the parallel retrieval workers all reduce into
+        # KnowledgeAggregate, which finalises the run (the retrieval IS
+        # the work for knowledge_qa on the parallel path — no separate
+        # ToolPlan leg).
+        builder.add_edge("KnowledgeRetrieve", "KnowledgeAggregate")
+        builder.add_edge("KnowledgeAggregate", "Completed")
         # ToolPlan either fans out to the parallel ToolExec workers
         # (read-only templates, subgraph path) or routes straight to the
         # approval gate / completion (approval-required templates hold
@@ -375,25 +614,76 @@ class LangGraphRuntime:
         # the thread under ``thread_id = run_id``; production deployments
         # swap in RedisSaver / PostgresSaver for cross-replica durability.
         checkpointer = self._get_checkpointer()
+        # R33-A2: the interrupt-before list is configurable via
+        # ``LANGGRAPH_INTERRUPT_NODES`` (default ``ApprovalRequired``).
+        # Filter to only the nodes this graph registered so an unknown
+        # name in the env never crashes compilation.
+        interrupt_before = [n for n in _interrupt_nodes() if n in self.node_names] or [
+            "ApprovalRequired"
+        ]
         return builder.compile(
             checkpointer=checkpointer,
-            interrupt_before=["ApprovalRequired"],
+            interrupt_before=interrupt_before,
         )
 
     def _get_checkpointer(self) -> Any:
         """Return the checkpointer for this runtime.
 
-        Defaults to a fresh :class:`MemorySaver` when none was injected
-        so every runtime is resumable out of the box.  Tests that need
+        Defaults to a factory-built saver (see :func:`build_checkpointer`)
+        when none was injected so every runtime is resumable out of the
+        box and production deployments can swap in ``RedisSaver`` /
+        ``PostgresSaver`` via ``CHECKPOINTER_BACKEND``.  Tests that need
         cross-runtime durability pass a shared ``MemorySaver`` via the
-        ``checkpointer`` constructor kwarg.
+        ``checkpointer`` constructor kwarg (the injected instance always
+        wins over the env).
         """
         if self._checkpointer is not None:
             return self._checkpointer
-        from langgraph.checkpoint.memory import MemorySaver
-
-        self._checkpointer = MemorySaver()
+        self._checkpointer = build_checkpointer()
         return self._checkpointer
+
+    def _route_after_run_started(
+        self, state: _RunState
+    ) -> Literal["supplement", "toolplan", "parallel_retrieval"] | list[Any]:
+        """Route out of RunStarted.
+
+        R33-A2 (spec §4 multi-gate HITL): when the supplement gate is
+        enabled (``LANGGRAPH_SUPPLEMENT_GATE=true``) and the run is
+        flagged ``requires_supplement``, route to ``SupplementRequired``
+        so the run parks to request supplemental info from the operator.
+
+        R33-A3 (spec §4 parallel multi-source retrieval): when the
+        parallel retrieval path is enabled
+        (``LANGGRAPH_PARALLEL_RETRIEVAL=true``) for a knowledge_qa run,
+        fan out one ``Send("KnowledgeRetrieve", {scope})`` per declared
+        knowledge scope so each source is retrieved in parallel.
+
+        Otherwise (the default) route straight to ``ToolPlan`` — the
+        pre-R33 single-gate, single-call path every existing test
+        assumes.  The supplement gate takes priority over parallel
+        retrieval (an operator may supplement before retrieval runs).
+        """
+        if _supplement_gate_enabled() and state.get("requires_supplement"):
+            return "supplement"
+        if _parallel_retrieval_enabled() and state["template_id"] == "knowledge_qa":
+            scopes = _knowledge_sources(state.get("input", {}))
+            from langgraph.types import Send
+
+            return [
+                Send(
+                    "KnowledgeRetrieve",
+                    {
+                        "scope": scope,
+                        "template_id": state["template_id"],
+                        "input": state.get("input", {}),
+                        "run_id": state.get("run_id", ""),
+                        "model_name": state.get("model_name"),
+                        "prompt_version": state.get("prompt_version"),
+                    },
+                )
+                for scope in scopes
+            ]
+        return "toolplan"
 
     def _route_after_tool_plan(
         self, state: _RunState
@@ -888,6 +1178,163 @@ class LangGraphRuntime:
         )
         return state
 
+    # ------------------------------------------------------------------ #
+    # R33-A3 parallel multi-source retrieval workers + aggregator
+    # ------------------------------------------------------------------ #
+
+    def _node_knowledge_retrieve(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Retrieve from a single knowledge source (one parallel worker).
+
+        Invoked once per ``Send`` fanned out from RunStarted when the
+        parallel retrieval path is active.  The worker invokes the
+        ``knowledge-api.chat.query`` MCP tool scoped to its declared
+        ``scope`` (forwarded as ``knowledge_scope`` so the gateway can
+        filter the knowledge base), records a tool_call_log row, and
+        returns a ``retrieval_results`` entry that the ``operator.add``
+        reducer merges back into the graph state.  Failures are isolated
+        — a raised exception becomes a ``failed`` entry so the other
+        parallel sources still complete.
+        """
+        scope = state.get("scope", "default")
+        run_id = state.get("run_id", "")
+        run_model_name = state.get("model_name")
+        run_prompt_version = state.get("prompt_version")
+        payload_input = state.get("input", {})
+        tool_name = "knowledge-api.chat.query"
+        # Forward the scope to the gateway so the knowledge base can be
+        # filtered per source; the question is the template's primary
+        # input field.
+        question = payload_input.get("question", "") if isinstance(payload_input, dict) else ""
+        args = {"question": question, "knowledge_scope": scope}
+        mcp = self._get_mcp()
+        log = self._get_tool_call_log()
+        entry: dict[str, Any] = {
+            "scope": scope,
+            "tool_name": tool_name,
+            "status": "completed",
+        }
+        if run_model_name is not None:
+            entry["model_name"] = run_model_name
+        if run_prompt_version is not None:
+            entry["prompt_version"] = run_prompt_version
+        if mcp is None or not hasattr(mcp, "invoke_tool"):
+            entry["answer"] = None
+            entry["summary"] = ""
+            return {"retrieval_results": [entry]}
+        started = time.perf_counter()
+        try:
+            result = mcp.invoke_tool(tool_name, args)
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            entry["status"] = "completed"
+            answer = (
+                (result.get("answer") if isinstance(result, dict) and "answer" in result else None)
+                or (
+                    result.get("summary")
+                    if isinstance(result, dict) and "summary" in result
+                    else None
+                )
+                or (str(result)[:200] if result is not None else "")
+            )
+            entry["answer"] = answer
+            entry["summary"] = answer
+            try:
+                log.record(
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    input_summary=str(args)[:200],
+                    output_summary=answer,
+                    status="success",
+                    latency_ms=latency_ms,
+                    error_code=None,
+                    model_name=run_model_name,
+                    prompt_version=run_prompt_version,
+                )
+            except Exception:  # pragma: no cover - log must not break the run
+                pass
+        except Exception:
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            entry["status"] = "failed"
+            entry["error_code"] = "tool_invocation_error"
+            entry["answer"] = None
+            entry["summary"] = ""
+            try:
+                log.record(
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    input_summary=str(args)[:200],
+                    output_summary=None,
+                    status="failure",
+                    latency_ms=latency_ms,
+                    error_code="tool_invocation_error",
+                    model_name=run_model_name,
+                    prompt_version=run_prompt_version,
+                )
+            except Exception:  # pragma: no cover - log must not break the run
+                pass
+        return {"retrieval_results": [entry]}
+
+    def _node_knowledge_aggregate(self, state: _RunState) -> _RunState:
+        """Aggregate the parallel multi-source retrieval results.
+
+        Runs once after every ``KnowledgeRetrieve`` worker has reduced
+        its result into ``state["retrieval_results"]``.  Distils the
+        per-source answers into a ``sources`` list on ``run.output`` so
+        downstream consumers see the multi-source picture, and seeds a
+        ``tool_calls`` summary entry per source so the public response
+        shape still carries the tool-call ledger.
+        """
+        results = list(state.get("retrieval_results", []))
+        sources: list[dict[str, Any]] = []
+        tool_calls: list[dict[str, Any]] = []
+        run_model_name = state.get("model_name")
+        run_prompt_version = state.get("prompt_version")
+        for r in results:
+            scope = r.get("scope", "default")
+            sources.append(
+                {
+                    "scope": scope,
+                    "answer": r.get("answer"),
+                    "status": r.get("status", "completed"),
+                }
+            )
+            entry: dict[str, Any] = {
+                "tool_name": r.get("tool_name", "knowledge-api.chat.query"),
+                "risk_level": "read_only",
+                "status": r.get("status", "completed"),
+            }
+            if run_model_name is not None:
+                entry["model_name"] = run_model_name
+            if run_prompt_version is not None:
+                entry["prompt_version"] = run_prompt_version
+            if r.get("error_code"):
+                entry["error_code"] = r["error_code"]
+            tool_calls.append(entry)
+        state["tool_calls"] = tool_calls
+        output = dict(state.get("output", {}))
+        output["sources"] = sources
+        # If a summary was not yet drafted by the LLM, synthesise one
+        # from the aggregated answers so the run output always carries a
+        # top-level summary.
+        if not output.get("summary"):
+            joined = "; ".join(
+                f"{s['scope']}: {s.get('answer')}" for s in sources if s.get("answer")
+            )
+            if joined:
+                output["summary"] = joined
+        state["output"] = output
+        state["node_trace"].append(
+            {
+                "node_name": "KnowledgeAggregate",
+                "status": "completed",
+                "detail": (
+                    f"Aggregated {len(results)} parallel retrieval results; "
+                    f"{sum(1 for r in results if r.get('status') == 'completed')} "
+                    f"completed, {sum(1 for r in results if r.get('status') == 'failed')} failed."
+                ),
+            }
+        )
+        return state
+
     def _node_approval_required(self, state: _RunState) -> _RunState:
         """Record the HITL pause.
 
@@ -909,6 +1356,28 @@ class LangGraphRuntime:
                 "node_name": "ApprovalRequired",
                 "status": "pending",
                 "detail": "Human approval required before final write-back.",
+            }
+        )
+        return state
+
+    def _node_supplement_required(self, state: _RunState) -> _RunState:
+        """Park the run to request supplemental information from the operator.
+
+        R33-A2 (spec §4 multi-gate HITL): this is the second interrupt
+        gate.  The node runs during the *initial* invoke (the run is
+        parked at ``interrupt_before=["SupplementRequired"]``); it sets a
+        ``supplement_pending`` status and records the HITL trace entry so
+        the public contract surfaces that the run is waiting on the
+        operator.  :meth:`resume_from_supplement` injects the operator's
+        response and drives the graph forward into ToolPlan.
+        """
+        state["status"] = "supplement_pending"
+        state["final_node"] = "SupplementRequired"
+        state["node_trace"].append(
+            {
+                "node_name": "SupplementRequired",
+                "status": "pending",
+                "detail": "Supplemental information requested from operator.",
             }
         )
         return state
@@ -995,6 +1464,13 @@ class LangGraphRuntime:
         template = TEMPLATES[payload.template_id]
         self._count += 1
         run_id = f"lg_run_{self._count:03d}"
+        # R33-A2: a run is flagged ``requires_supplement`` only when the
+        # supplement gate is enabled.  The gate is default-off so every
+        # existing template keeps its pre-R33 path.  ``knowledge_qa`` is
+        # the canonical supplement template (read-only, the operator may
+        # supply extra context); when the gate is on it parks at
+        # ``SupplementRequired`` before ToolPlan.
+        requires_supplement = _supplement_gate_enabled() and payload.template_id == "knowledge_qa"
         initial: _RunState = {
             "run_id": run_id,
             "trace_id": f"trace_{run_id}",
@@ -1008,10 +1484,13 @@ class LangGraphRuntime:
             "node_trace": [],
             "tool_calls": [],
             "requires_approval": template.requires_approval,
+            "requires_supplement": requires_supplement,
+            "supplement_response": None,
             "final_node": "",
             "model_name": None,
             "prompt_version": None,
             "tool_results": [],
+            "retrieval_results": [],
         }
         config = self._config(run_id)
         final_state = self.graph.invoke(initial, config=config)
@@ -1024,6 +1503,12 @@ class LangGraphRuntime:
         # ("ApprovalRequired",)``) for :meth:`resume` to drive forward.
         if self._is_parked_at_approval(config):
             final_state = self._paused_state(final_state)
+        # R33-A2: the supplement gate parks a run *before* the
+        # SupplementRequired node runs, so the post-invoke state still
+        # says ``running`` — synthesise the ``supplement_pending`` view
+        # the public contract expects.
+        elif self._is_parked_at_supplement(config):
+            final_state = self._supplement_paused_state(final_state)
         run = self._to_response(run_id, final_state)
         self._runs[run_id] = run
         if template.requires_approval:
@@ -1079,6 +1564,47 @@ class LangGraphRuntime:
                     "node_name": "ApprovalRequired",
                     "status": "pending",
                     "detail": "Human approval required before final write-back.",
+                }
+            )
+        state["node_trace"] = trace
+        return state
+
+    def _is_parked_at_supplement(self, config: dict[str, Any]) -> bool:
+        """True when the checkpoint is paused before SupplementRequired.
+
+        R33-A2: the second HITL gate.  Mirrors :meth:`_is_parked_at_approval`
+        so the supplement pause view can be synthesised without mutating the
+        checkpoint.
+        """
+        try:
+            snapshot = self.graph.get_state(config)
+        except Exception:  # pragma: no cover - defensive
+            return False
+        nxt = getattr(snapshot, "next", None)
+        return bool(nxt) and "SupplementRequired" in tuple(nxt)
+
+    @staticmethod
+    def _supplement_paused_state(final_state: _RunState) -> _RunState:
+        """Synthesise the paused-view state for a parked supplement run.
+
+        The SupplementRequired node has NOT executed (the run is parked at
+        ``interrupt_before``), so we project the ``supplement_pending``
+        status and the HITL trace entry the public contract expects —
+        without mutating the checkpoint.  The real SupplementRequired node
+        runs during :meth:`resume_from_supplement`.
+        """
+        state: _RunState = dict(final_state)  # shallow copy
+        state["status"] = "supplement_pending"
+        state["final_node"] = "SupplementRequired"
+        trace = list(state.get("node_trace", []))
+        if not any(
+            isinstance(t, dict) and t.get("node_name") == "SupplementRequired" for t in trace
+        ):
+            trace.append(
+                {
+                    "node_name": "SupplementRequired",
+                    "status": "pending",
+                    "detail": "Supplemental information requested from operator.",
                 }
             )
         state["node_trace"] = trace
@@ -1164,6 +1690,53 @@ class LangGraphRuntime:
                     "comment": comment,
                 }
             )
+        return run
+
+    def resume_from_supplement(
+        self,
+        run_id: str,
+        *,
+        supplement_response: str,
+    ) -> AgentRunResponse:
+        """Resume a run parked at the SupplementRequired interrupt.
+
+        R33-A2 (spec §4 multi-gate HITL): the operator's supplemental
+        response is injected onto the checkpoint state via
+        ``graph.update_state`` and the graph engine is then driven
+        forward with ``graph.invoke(None, config)``.  The
+        SupplementRequired node runs, the edge routes to ToolPlan, and
+        the run continues down its normal read-only / approval path —
+        all through the graph engine, mirroring :meth:`resume`.
+
+        The injected response is also surfaced on ``run.output["supplement_response"]``
+        so downstream consumers (the LLM prompt, the response contract)
+        can join the operator's context to the run.
+
+        Raises :class:`KeyError` when no persisted thread exists for
+        ``run_id`` or the thread is not parked at SupplementRequired.
+        """
+        config = self._config(run_id)
+        if not self.has_checkpoint(run_id):
+            raise KeyError(run_id)
+        if not self._is_parked_at_supplement(config):
+            # The run already completed or was already resumed — nothing
+            # to drive forward.
+            raise KeyError(run_id)
+        # Inject the operator's supplement response so the
+        # SupplementRequired node + ToolPlan see it, and surface it on the
+        # run output so the public contract carries the operator context.
+        self.graph.update_state(
+            config,
+            {"supplement_response": supplement_response},
+        )
+        final_state = self.graph.invoke(None, config=config)
+        # Surface the supplement response on the run output (the graph
+        # state holds it but the output dict may not carry it yet).
+        output = dict(final_state.get("output", {}))
+        output.setdefault("supplement_response", supplement_response)
+        final_state["output"] = output
+        run = self._to_response(run_id, final_state)
+        self._runs[run_id] = run
         return run
 
     def pending_approval_task(self, run_id: str) -> ApprovalTask | None:
@@ -1257,5 +1830,6 @@ def build_langgraph_runtime() -> LangGraphRuntime:
 
 __all__ = [
     "LangGraphRuntime",
+    "build_checkpointer",
     "build_langgraph_runtime",
 ]
