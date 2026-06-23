@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-RunStatus = Literal["running", "completed", "waiting_approval", "failed"]
+RunStatus = Literal["running", "completed", "waiting_approval", "supplement_pending", "failed"]
 # Unified approval status machine (R20 governance).  Tracks both the
 # legacy decision lifecycle and the R20 governance sub-states:
 #   pending -> approved | rejected

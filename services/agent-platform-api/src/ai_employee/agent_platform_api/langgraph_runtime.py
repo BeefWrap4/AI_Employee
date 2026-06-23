@@ -87,6 +87,14 @@ class _RunState(TypedDict, total=False):
     tool_calls: list[dict[str, str]]
     requires_approval: bool
     final_node: str
+    # R33-A2 (spec §4 multi-gate HITL): a second interrupt gate.  When the
+    # supplement route is enabled (``LANGGRAPH_SUPPLEMENT_GATE=true``) the
+    # run pauses at ``SupplementRequired`` to request supplemental info
+    # from the operator; ``resume_from_supplement`` injects the response
+    # here and drives the graph forward.  Default-off keeps existing
+    # templates on their pre-R33 path.
+    requires_supplement: bool
+    supplement_response: str | None
     # R30-B (spec §6.4): the model_name + prompt_version resolved by the
     # RunStarted node, propagated onto NodeTrace / ToolCallSummary /
     # tool_call_log rows / the AgentRunResponse so every artefact is
@@ -216,6 +224,39 @@ def _subgraph_enabled() -> bool:
     read-only templates).
     """
     return os.getenv("LANGGRAPH_SUBGRAPH", "true").lower() not in ("false", "0", "no")
+
+
+def _supplement_gate_enabled() -> bool:
+    """True when the R33-A2 supplement interrupt gate is active.
+
+    Spec §4 calls for a richer HITL surface where a run can pause to
+    request supplemental information from the operator, then resume with
+    the response.  The route into ``SupplementRequired`` is gated behind
+    ``LANGGRAPH_SUPPLEMENT_GATE`` (default ``false``) so existing
+    templates keep their pre-R33 single-gate path.  Turning it on makes
+    ``RunStarted`` route a knowledge_qa run to ``SupplementRequired``
+    before ToolPlan; the run parks there (when ``SupplementRequired`` is
+    in ``LANGGRAPH_INTERRUPT_NODES``) and :meth:`resume_from_supplement`
+    drives it forward.
+    """
+    return os.getenv("LANGGRAPH_SUPPLEMENT_GATE", "false").lower() in ("true", "1", "yes")
+
+
+def _interrupt_nodes() -> list[str]:
+    """The list of node names the graph interrupts *before*.
+
+    R33-A2 (spec §4 multi-gate): ``LANGGRAPH_INTERRUPT_NODES`` (default
+    ``"ApprovalRequired"``) is a comma-separated list.  Production
+    deployments add ``SupplementRequired`` to enable the second HITL
+    gate; the default keeps the pre-R33 single-gate behaviour so every
+    existing test that asserts ``interrupt_before`` only contains
+    ApprovalRequired continues to pass.
+    """
+    raw = os.getenv("LANGGRAPH_INTERRUPT_NODES", "ApprovalRequired")
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    # Preserve registration order; unknown names are dropped at compile
+    # time (the graph only knows the nodes it registered).
+    return names or ["ApprovalRequired"]
 
 
 def build_checkpointer() -> Any:
@@ -424,6 +465,11 @@ class LangGraphRuntime:
         builder.add_node("ApprovalRequired", self._node_approval_required)
         builder.add_node("ApprovalApproved", self._node_approval_approved)
         builder.add_node("ApprovalRejected", self._node_approval_rejected)
+        # R33-A2 (spec §4 multi-gate HITL): a second interrupt gate.  The
+        # node is always registered so the graph topology is stable; the
+        # route into it is gated behind ``LANGGRAPH_SUPPLEMENT_GATE``
+        # (default off) so existing templates never see it.
+        builder.add_node("SupplementRequired", self._node_supplement_required)
         builder.add_node("Completed", self._node_completed)
         for name in (
             "TemplateLoaded",
@@ -434,13 +480,26 @@ class LangGraphRuntime:
             "ApprovalRequired",
             "ApprovalApproved",
             "ApprovalRejected",
+            "SupplementRequired",
             "Completed",
         ):
             self.node_names.add(name)
 
         builder.set_entry_point("TemplateLoaded")
         builder.add_edge("TemplateLoaded", "RunStarted")
-        builder.add_edge("RunStarted", "ToolPlan")
+        # R33-A2: RunStarted routes to the supplement gate (when enabled
+        # and the run flagged ``requires_supplement``) or straight to
+        # ToolPlan (the pre-R33 path).  Default-off means the conditional
+        # always returns ``toolplan`` unless the supplement env is on.
+        builder.add_conditional_edges(
+            "RunStarted",
+            self._route_after_run_started,
+            {"supplement": "SupplementRequired", "toolplan": "ToolPlan"},
+        )
+        # After the operator supplies the supplement response the run
+        # continues into ToolPlan (then the normal read-only / approval
+        # path).
+        builder.add_edge("SupplementRequired", "ToolPlan")
         # ToolPlan either fans out to the parallel ToolExec workers
         # (read-only templates, subgraph path) or routes straight to the
         # approval gate / completion (approval-required templates hold
@@ -491,9 +550,16 @@ class LangGraphRuntime:
         # the thread under ``thread_id = run_id``; production deployments
         # swap in RedisSaver / PostgresSaver for cross-replica durability.
         checkpointer = self._get_checkpointer()
+        # R33-A2: the interrupt-before list is configurable via
+        # ``LANGGRAPH_INTERRUPT_NODES`` (default ``ApprovalRequired``).
+        # Filter to only the nodes this graph registered so an unknown
+        # name in the env never crashes compilation.
+        interrupt_before = [n for n in _interrupt_nodes() if n in self.node_names] or [
+            "ApprovalRequired"
+        ]
         return builder.compile(
             checkpointer=checkpointer,
-            interrupt_before=["ApprovalRequired"],
+            interrupt_before=interrupt_before,
         )
 
     def _get_checkpointer(self) -> Any:
@@ -511,6 +577,20 @@ class LangGraphRuntime:
             return self._checkpointer
         self._checkpointer = build_checkpointer()
         return self._checkpointer
+
+    def _route_after_run_started(self, state: _RunState) -> Literal["supplement", "toolplan"]:
+        """Route out of RunStarted.
+
+        R33-A2 (spec §4 multi-gate HITL): when the supplement gate is
+        enabled (``LANGGRAPH_SUPPLEMENT_GATE=true``) and the run is
+        flagged ``requires_supplement``, route to ``SupplementRequired``
+        so the run parks to request supplemental info from the operator.
+        Otherwise (the default) route straight to ``ToolPlan`` — the
+        pre-R33 single-gate path every existing test assumes.
+        """
+        if _supplement_gate_enabled() and state.get("requires_supplement"):
+            return "supplement"
+        return "toolplan"
 
     def _route_after_tool_plan(
         self, state: _RunState
@@ -1030,6 +1110,28 @@ class LangGraphRuntime:
         )
         return state
 
+    def _node_supplement_required(self, state: _RunState) -> _RunState:
+        """Park the run to request supplemental information from the operator.
+
+        R33-A2 (spec §4 multi-gate HITL): this is the second interrupt
+        gate.  The node runs during the *initial* invoke (the run is
+        parked at ``interrupt_before=["SupplementRequired"]``); it sets a
+        ``supplement_pending`` status and records the HITL trace entry so
+        the public contract surfaces that the run is waiting on the
+        operator.  :meth:`resume_from_supplement` injects the operator's
+        response and drives the graph forward into ToolPlan.
+        """
+        state["status"] = "supplement_pending"
+        state["final_node"] = "SupplementRequired"
+        state["node_trace"].append(
+            {
+                "node_name": "SupplementRequired",
+                "status": "pending",
+                "detail": "Supplemental information requested from operator.",
+            }
+        )
+        return state
+
     def _node_approval_approved(self, state: _RunState) -> _RunState:
         """Finalise an approved run (driven by the graph engine on resume).
 
@@ -1112,6 +1214,13 @@ class LangGraphRuntime:
         template = TEMPLATES[payload.template_id]
         self._count += 1
         run_id = f"lg_run_{self._count:03d}"
+        # R33-A2: a run is flagged ``requires_supplement`` only when the
+        # supplement gate is enabled.  The gate is default-off so every
+        # existing template keeps its pre-R33 path.  ``knowledge_qa`` is
+        # the canonical supplement template (read-only, the operator may
+        # supply extra context); when the gate is on it parks at
+        # ``SupplementRequired`` before ToolPlan.
+        requires_supplement = _supplement_gate_enabled() and payload.template_id == "knowledge_qa"
         initial: _RunState = {
             "run_id": run_id,
             "trace_id": f"trace_{run_id}",
@@ -1125,6 +1234,8 @@ class LangGraphRuntime:
             "node_trace": [],
             "tool_calls": [],
             "requires_approval": template.requires_approval,
+            "requires_supplement": requires_supplement,
+            "supplement_response": None,
             "final_node": "",
             "model_name": None,
             "prompt_version": None,
@@ -1141,6 +1252,12 @@ class LangGraphRuntime:
         # ("ApprovalRequired",)``) for :meth:`resume` to drive forward.
         if self._is_parked_at_approval(config):
             final_state = self._paused_state(final_state)
+        # R33-A2: the supplement gate parks a run *before* the
+        # SupplementRequired node runs, so the post-invoke state still
+        # says ``running`` — synthesise the ``supplement_pending`` view
+        # the public contract expects.
+        elif self._is_parked_at_supplement(config):
+            final_state = self._supplement_paused_state(final_state)
         run = self._to_response(run_id, final_state)
         self._runs[run_id] = run
         if template.requires_approval:
@@ -1196,6 +1313,47 @@ class LangGraphRuntime:
                     "node_name": "ApprovalRequired",
                     "status": "pending",
                     "detail": "Human approval required before final write-back.",
+                }
+            )
+        state["node_trace"] = trace
+        return state
+
+    def _is_parked_at_supplement(self, config: dict[str, Any]) -> bool:
+        """True when the checkpoint is paused before SupplementRequired.
+
+        R33-A2: the second HITL gate.  Mirrors :meth:`_is_parked_at_approval`
+        so the supplement pause view can be synthesised without mutating the
+        checkpoint.
+        """
+        try:
+            snapshot = self.graph.get_state(config)
+        except Exception:  # pragma: no cover - defensive
+            return False
+        nxt = getattr(snapshot, "next", None)
+        return bool(nxt) and "SupplementRequired" in tuple(nxt)
+
+    @staticmethod
+    def _supplement_paused_state(final_state: _RunState) -> _RunState:
+        """Synthesise the paused-view state for a parked supplement run.
+
+        The SupplementRequired node has NOT executed (the run is parked at
+        ``interrupt_before``), so we project the ``supplement_pending``
+        status and the HITL trace entry the public contract expects —
+        without mutating the checkpoint.  The real SupplementRequired node
+        runs during :meth:`resume_from_supplement`.
+        """
+        state: _RunState = dict(final_state)  # shallow copy
+        state["status"] = "supplement_pending"
+        state["final_node"] = "SupplementRequired"
+        trace = list(state.get("node_trace", []))
+        if not any(
+            isinstance(t, dict) and t.get("node_name") == "SupplementRequired" for t in trace
+        ):
+            trace.append(
+                {
+                    "node_name": "SupplementRequired",
+                    "status": "pending",
+                    "detail": "Supplemental information requested from operator.",
                 }
             )
         state["node_trace"] = trace
@@ -1281,6 +1439,53 @@ class LangGraphRuntime:
                     "comment": comment,
                 }
             )
+        return run
+
+    def resume_from_supplement(
+        self,
+        run_id: str,
+        *,
+        supplement_response: str,
+    ) -> AgentRunResponse:
+        """Resume a run parked at the SupplementRequired interrupt.
+
+        R33-A2 (spec §4 multi-gate HITL): the operator's supplemental
+        response is injected onto the checkpoint state via
+        ``graph.update_state`` and the graph engine is then driven
+        forward with ``graph.invoke(None, config)``.  The
+        SupplementRequired node runs, the edge routes to ToolPlan, and
+        the run continues down its normal read-only / approval path —
+        all through the graph engine, mirroring :meth:`resume`.
+
+        The injected response is also surfaced on ``run.output["supplement_response"]``
+        so downstream consumers (the LLM prompt, the response contract)
+        can join the operator's context to the run.
+
+        Raises :class:`KeyError` when no persisted thread exists for
+        ``run_id`` or the thread is not parked at SupplementRequired.
+        """
+        config = self._config(run_id)
+        if not self.has_checkpoint(run_id):
+            raise KeyError(run_id)
+        if not self._is_parked_at_supplement(config):
+            # The run already completed or was already resumed — nothing
+            # to drive forward.
+            raise KeyError(run_id)
+        # Inject the operator's supplement response so the
+        # SupplementRequired node + ToolPlan see it, and surface it on the
+        # run output so the public contract carries the operator context.
+        self.graph.update_state(
+            config,
+            {"supplement_response": supplement_response},
+        )
+        final_state = self.graph.invoke(None, config=config)
+        # Surface the supplement response on the run output (the graph
+        # state holds it but the output dict may not carry it yet).
+        output = dict(final_state.get("output", {}))
+        output.setdefault("supplement_response", supplement_response)
+        final_state["output"] = output
+        run = self._to_response(run_id, final_state)
+        self._runs[run_id] = run
         return run
 
     def pending_approval_task(self, run_id: str) -> ApprovalTask | None:
