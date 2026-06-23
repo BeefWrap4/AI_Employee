@@ -97,10 +97,20 @@ describe('ApprovalView', () => {
     render(<ApprovalView />)
     await screen.findByText('t1')
 
+    // Wait for the initial load's fetch to fully drain so the next
+    // click starts a clean request cycle.
     const initialCalls = fetchMock.mock.calls.length
-    fireEvent.click(screen.getByRole('button', { name: /刷\s*新|Refresh/i }))
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.length).toBeGreaterThan(initialCalls)
-    })
+    expect(initialCalls).toBeGreaterThanOrEqual(1)
+
+    const refreshBtn = screen.getByRole('button', { name: /刷\s*新|Refresh/i })
+    fireEvent.click(refreshBtn)
+
+    // loadTasks is async; wait for the second fetch to land.
+    await waitFor(
+      () => {
+        expect(fetchMock.mock.calls.length).toBeGreaterThan(initialCalls)
+      },
+      { timeout: 3000 },
+    )
   })
 })
