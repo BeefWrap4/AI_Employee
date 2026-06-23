@@ -93,7 +93,8 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-pythonpath = [  "services/knowledge-api/src",
+pythonpath = [
+  "services/knowledge-api/src",
   "services/ingestion-worker/src",
   "packages/common-schemas/src",
   "services/eval-service/src",
@@ -103,7 +104,10 @@ pythonpath = [  "services/knowledge-api/src",
   "packages/observability/src",
   "packages/auth-policy/src",
   "services/tool-registry/src",
-  "packages/object-store/src",
+  "services/approval-service/src",
+  "services/mcp-gateway/src",
   "services/event-gateway/src",
+  "packages/object-store/src",
+  "packages/rate-limit/src",
   "services/api-gateway/src",
 ]

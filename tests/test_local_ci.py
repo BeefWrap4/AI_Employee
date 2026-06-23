@@ -16,6 +16,15 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+FULL_PYTEST_CMD = [
+    "python",
+    "-m",
+    "pytest",
+    "tests",
+    "-q",
+    "--tb=short",
+    "--ignore=tests/test_local_ci.py",
+]
 
 
 def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 300) -> tuple[int, str]:
@@ -39,7 +48,7 @@ def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 300) -> tupl
 
 
 def test_pytest_passes() -> None:
-    code, out = _run(["python", "-m", "pytest", "-q", "--tb=short"])
+    code, out = _run(FULL_PYTEST_CMD)
     assert code == 0, f"pytest failed:\n{out[-2000:]}"
 
 

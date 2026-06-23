@@ -198,6 +198,121 @@ services:
   # / MCP_GATEWAY_URL when the in-memory fallback isn't desired.
   # ------------------------------------------------------------------------ #
 
+  knowledge-api:
+    build:
+      context: ../..
+      dockerfile: services/knowledge-api/Dockerfile
+    environment:
+      APP_PORT: "8010"
+      DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
+      REDIS_URL: redis://redis:6379/0
+      KNOWLEDGE_DATA_DIR: /var/data
+      KNOWLEDGE_SQLITE_PATH: /var/data/knowledge.sqlite3
+      KNOWLEDGE_API_INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+      INGESTION_WORKER_URL: http://ingestion-worker:8011
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-stub}
+    volumes:
+      - knowledge-data:/var/data
+    depends_on:
+      - postgres
+      - redis
+      - ingestion-worker
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8010/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ingestion-worker:
+    build:
+      context: ../..
+      dockerfile: services/ingestion-worker/Dockerfile
+    environment:
+      APP_PORT: "8011"
+      KNOWLEDGE_DATA_DIR: /var/data
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-stub}
+      OPENSEARCH_ENABLED: ${OPENSEARCH_ENABLED:-false}
+    volumes:
+      - knowledge-data:/var/data
+    ports:
+      - "8011:8011"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8011/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rca-agent:
+    build:
+      context: ../..
+      dockerfile: services/rca-agent/Dockerfile
+    environment:
+      APP_PORT: "8020"
+      DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
+      RCA_DATA_DIR: /var/data
+      KNOWLEDGE_API_URL: http://knowledge-api:8010
+      KAFKA_ENABLED: "false"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+    volumes:
+      - rca-data:/var/data
+    depends_on:
+      - postgres
+      - knowledge-api
+    ports:
+      - "8020:8020"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8020/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  agent-platform-api:
+    build:
+      context: ../..
+      dockerfile: services/agent-platform-api/Dockerfile
+    environment:
+      APP_PORT: "8030"
+      DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
+      REDIS_URL: redis://redis:6379/0
+      PLATFORM_DATA_DIR: /var/data
+      APPROVAL_SERVICE_URL: http://approval-service:8040
+      MCP_GATEWAY_URL: http://mcp-gateway:8050
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+    volumes:
+      - platform-data:/var/data
+    depends_on:
+      - postgres
+      - redis
+      - approval-service
+      - mcp-gateway
+    ports:
+      - "8030:8030"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8030/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tool-registry:
+    build:
+      context: ../..
+      dockerfile: services/tool-registry/Dockerfile
+    environment:
+      APP_PORT: "8040"
+      PLATFORM_DATA_DIR: /var/data
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+    volumes:
+      - tool-registry-data:/var/data
+    ports:
+      - "8041:8040"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8040/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   approval-service:
     # Owns approval task persistence + state machine (R21; spec §9
     # ``approval-service``).  Backed by the shared postgres instance in
@@ -287,6 +402,11 @@ services:
       API_GATEWAY_MCP_GATEWAY_URL: http://mcp-gateway:8050
     depends_on:
       - knowledge-api
+      - rca-agent
+      - agent-platform-api
+      - tool-registry
+      - approval-service
+      - mcp-gateway
     ports:
       - "8070:8070"
     healthcheck:
@@ -306,3 +426,7 @@ volumes:
   influxdb-data:
   tempo-data:
   approval-data:
+  knowledge-data:
+  rca-data:
+  platform-data:
+  tool-registry-data:
