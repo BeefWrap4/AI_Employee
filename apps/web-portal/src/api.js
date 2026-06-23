@@ -88,6 +88,9 @@ export const rcaApi = {
 export const platformApi = {
   listTemplates: () => request('/api/platform', '/api/v1/agent-templates'),
   listRuns: (query) => request('/api/platform', '/api/v1/agent-runs', { query }),
+  // R36-A: start a new agent run. body = {template_id, requested_by, input}.
+  // The request() helper attaches the X-Internal-Token / Bearer header.
+  createRun: (body) => request('/api/platform', '/api/v1/agent-runs', { method: 'POST', body }),
   getRunTrace: (runId) => request('/api/platform', `/api/v1/agent-runs/${runId}/trace`),
   listEvalRuns: (query) => request('/api/platform', '/api/v1/evaluations/runs', { query }),
   compareEvals: (runA, runB) =>

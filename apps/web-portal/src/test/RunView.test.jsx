@@ -124,4 +124,108 @@ describe('RunView', () => {
     await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
     expect(screen.getByText(/已连接|connected/i)).toBeInTheDocument()
   })
+
+  it('creates a run from the form and subscribes to the new run stream', async () => {
+    // R36-A: the create-run form POSTs to /api/v1/agent-runs then
+    // auto-subscribes to the SSE stream of the returned run_id.
+    const createdBody = {
+      run_id: 'run_x',
+      template_id: 'knowledge_qa',
+      agent_name: '知识问答 Agent',
+      status: 'running',
+      trace_id: 'trace-x',
+      requested_by: 'tester',
+      input: { query: '什么是 RRC?' },
+      output: {},
+      node_trace: [],
+      tool_calls: [],
+    }
+    global.fetch = vi.fn().mockImplementation((url) => {
+      const s = String(url)
+      if (s.endsWith('/api/platform/api/v1/agent-templates')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                items: [
+                  { template_id: 'knowledge_qa', agent_name: '知识问答 Agent', version: '1' },
+                  { template_id: 'rca', agent_name: 'RCA Agent', version: '1' },
+                ],
+                total: 2,
+              }),
+            ),
+        })
+      }
+      if (
+        s.endsWith('/api/platform/api/v1/agent-runs?page=1&page_size=20')
+      ) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({ items: [], total: 0 })),
+        })
+      }
+      if (s.endsWith('/api/platform/api/v1/agent-runs')) {
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          text: () => Promise.resolve(JSON.stringify(createdBody)),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{}') })
+    })
+
+    const { user } = makeUser()
+    render(<RunView />)
+
+    // Templates load into the Select.
+    await waitFor(() => {
+      const templatesCall = global.fetch.mock.calls.find(([u]) =>
+        String(u).includes('/api/v1/agent-templates'),
+      )
+      expect(templatesCall).toBeTruthy()
+    })
+
+    // Open the template Select and pick knowledge_qa. Antd renders the
+    // dropdown in a portal; the proven jsdom pattern is mouseDown on the
+    // selector then click the option by its title attribute.
+    const templateSelector = document.querySelector('.ant-select-selector')
+    fireEvent.mouseDown(templateSelector)
+    await waitFor(() => {
+      expect(screen.getByTitle('knowledge_qa')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTitle('knowledge_qa'))
+
+    // Fill requested_by and the query input.
+    await user.type(screen.getByPlaceholderText(/requested_by/), 'tester')
+    await user.type(screen.getByPlaceholderText(/输入问题|query/i), '什么是 RRC?')
+
+    // Submit the create-run form.
+    await user.click(screen.getByRole('button', { name: /创建|Create|启动|提交/ }))
+
+    // platformApi.createRun was POSTed with the right body.
+    await waitFor(() => {
+      const createCall = global.fetch.mock.calls.find(
+        ([u, init]) =>
+          String(u).endsWith('/api/platform/api/v1/agent-runs') &&
+          init &&
+          init.method === 'POST',
+      )
+      expect(createCall).toBeTruthy()
+      const body = JSON.parse(createCall[1].body)
+      expect(body.template_id).toBe('knowledge_qa')
+      expect(body.requested_by).toBe('tester')
+      expect(body.input).toEqual({ query: '什么是 RRC?' })
+    })
+
+    // Auto-subscribed to the new run's SSE stream.
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+    expect(MockEventSource.instances[0].url).toBe(
+      '/api/platform/api/v1/agent-runs/run_x/stream',
+    )
+  })
 })

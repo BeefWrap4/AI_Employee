@@ -5,9 +5,11 @@ import {
   Card,
   Descriptions,
   Empty,
+  Form,
   Input,
   List,
   Modal,
+  Select,
   Space,
   Table,
   Tag,
@@ -37,6 +39,11 @@ export default function RunView() {
   const [traceLoadingRunId, setTraceLoadingRunId] = useState('')
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState(null)
+  // R36-A: create-run form state.
+  const [templates, setTemplates] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createForm] = Form.useForm()
   const cleanupRef = useRef(null)
 
   const loadRuns = async () => {
@@ -48,6 +55,41 @@ export default function RunView() {
       message.error(`加载运行记录失败: ${e.message}`)
     } finally {
       setRunsLoading(false)
+    }
+  }
+
+  // R36-A: load the template list to populate the create-run Select.
+  const loadTemplates = async () => {
+    setTemplatesLoading(true)
+    try {
+      const data = await platformApi.listTemplates()
+      setTemplates(data.items || [])
+    } catch (e) {
+      message.error(`加载模板列表失败: ${e.message}`)
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  // R36-A: submit the create-run form. Maps the single text input to
+  // {query: value} (the knowledge_qa contract) and auto-subscribes to
+  // the new run's SSE stream so the timeline populates immediately.
+  const onCreateRun = async (values) => {
+    setCreating(true)
+    try {
+      const body = {
+        template_id: values.template_id,
+        requested_by: values.requested_by,
+        input: { query: values.query || '' },
+      }
+      const run = await platformApi.createRun(body)
+      message.success(`已创建运行 ${run.run_id}`)
+      startStream(run.run_id)
+      createForm.resetFields()
+    } catch (e) {
+      message.error(`创建运行失败: ${e.message}`)
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -97,6 +139,7 @@ export default function RunView() {
 
   useEffect(() => {
     loadRuns()
+    loadTemplates()
     return () => {
       if (cleanupRef.current) cleanupRef.current()
     }
@@ -164,6 +207,50 @@ export default function RunView() {
           size="small"
           locale={{ emptyText: '暂无运行记录' }}
         />
+      </Card>
+
+      <Card title="创建运行 (Create Run)" size="small" style={{ marginBottom: 16 }}>
+        <Form
+          form={createForm}
+          layout="inline"
+          onFinish={onCreateRun}
+          initialValues={{ requested_by: 'web-portal' }}
+        >
+          <Form.Item
+            name="template_id"
+            label="模板"
+            rules={[{ required: true, message: '请选择模板' }]}
+          >
+            <Select
+              placeholder="选择模板"
+              loading={templatesLoading}
+              style={{ width: 200 }}
+              options={templates.map((t) => ({
+                value: t.template_id,
+                label: t.template_id,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="requested_by"
+            label="请求人"
+            rules={[{ required: true, message: '请输入请求人' }]}
+          >
+            <Input placeholder="requested_by" style={{ width: 160 }} />
+          </Form.Item>
+          <Form.Item
+            name="query"
+            label="问题"
+            rules={[{ required: true, message: '请输入问题' }]}
+          >
+            <Input placeholder="输入问题 (query)" style={{ width: 280 }} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={creating}>
+              创建运行
+            </Button>
+          </Form.Item>
+        </Form>
       </Card>
 
       <Card size="small" style={{ marginBottom: 16 }}>
