@@ -73,6 +73,24 @@ The repo's 17 rounds of code (R17-R33) and tests (1763 passing)
 **did not validate against real Kubernetes manifests**. This round
 found and fixed 12 bugs that single-process TestClient tests cannot
 catch — all in the chart, none in the application code. The helm
-chart is now deployable; the next step is to expand the smoke to all
-9 services + real Postgres/Redis/MinIO + prometheus scrape + grafana
-provisioning (incremental over the now-working `values-smoke.yaml`).
+chart is now deployable.
+
+## Expansion to all 9 services (R34-D2)
+
+After the initial 3-service smoke, `values-smoke.yaml` was extended to
+enable every non-Kafka service:
+
+- `tool-registry` needed `storage: 1Gi` (stateful — owns
+  `ToolRegistryStore` under `./var`; `storage: 0` made it crash with
+  read-only root fs).
+- `rca-agent`, `ingestion-worker`, `approval-service`, `mcp-gateway`
+  needed their own env tweaks (e.g. `KNOWLEDGE_API_URL` for
+  `rca-agent`).
+- `event-gateway` left disabled (requires Kafka broker not in kind
+  smoke).
+
+Verified end-to-end: 8/8 pods `1/1 Running`, all 6 backend `/health`
+endpoints HTTP 200 through api-gateway, and a real `POST
+/api/platform/api/v1/agent-runs` round-trip with
+`X-Internal-Token: $INTERNAL_TOKEN` returns a `completed` run with
+full `node_trace` (TemplateLoaded → Completed).
