@@ -1,8 +1,9 @@
-# Smoke overlay for kind cluster (R34-D expansion).
-# All 9 services enabled (event-gateway disabled: needs Kafka broker not
-# in kind smoke). Stateful services get PVC + SQLite path; stateless
-# services stay read-only root fs. DATABASE_URL unset → all 4 PG-backed
-# services fall back to in-process SQLite (per build_*_store() design).
+# Smoke overlay for kind cluster (R34-D expansion + R35-D event-gateway).
+# All 9 services enabled — event-gateway is now backed by the in-cluster
+# redpanda broker shipped in infra/k8s/redpanda.yaml.  Stateful services
+# get PVC + SQLite path; stateless services stay read-only root fs.
+# DATABASE_URL unset → all 4 PG-backed services fall back to in-process
+# SQLite (per build_*_store() design).
 global:
   # R34-D3: real Postgres 16 deployed via infra/k8s/postgres.yaml.  The
   # 4 PG-backed services (knowledge-api, rca-agent, agent-platform-api,
@@ -70,9 +71,19 @@ services:
     storage: 0
     env: {}
   event-gateway:
-    # R29-C: requires Kafka broker (KAFKA_BOOTSTRAP_SERVERS).  Not
-    # available in kind smoke; left disabled.
-    enabled: false
+    # R35-D: now enabled — infra/k8s/redpanda.yaml ships an in-cluster
+    # KRaft-mode Redpanda broker (Service: kafka:9092).  The consumer
+    # subscribes to the alarms topic and forwards each alarm to the
+    # in-cluster rca-agent over HTTP.  Single replica in smoke because
+    # the redpanda broker is single-node (--mode=mode-unsafe-bypass-fsync).
+    enabled: true
+    replicas: 1
+    storage: 0
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_ALARM_TOPIC: "alarms"
+      KAFKA_GROUP_ID: "event-gateway"
+      EVENT_GATEWAY_RCA_URL: "http://rca-agent:8020"
   api-gateway:
     enabled: true
     replicas: 1
