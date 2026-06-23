@@ -1,0 +1,109 @@
+# Minimal in-cluster Postgres 16 for kind deployment smoke (R34-D3).
+# NOT for production — no replica, no TLS, single-writer.  The ai-employee
+# chart's values-prod.yaml should point at a managed PG (RDS / Cloud SQL)
+# via global.databaseUrl instead.
+#
+# Apply: kubectl apply -f infra/k8s/postgres.yaml
+# Connection from cluster:
+#   postgresql://ai-employee:ai-employee@postgres:5432/ai-employee
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: ai-employee
+data:
+  init.sql: |
+    CREATE DATABASE ai-employee;
+    CREATE USER ai-employee WITH ENCRYPTED PASSWORD 'ai-employee';
+    GRANT ALL PRIVILEGES ON DATABASE ai-employee TO ai-employee;
+    ALTER USER ai-employee CREATEDB;
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: ai-employee
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ai-employee
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: false  # postgres image runs as uid 999
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: ai-employee
+            - name: POSTGRES_PASSWORD
+              value: ai-employee
+            - name: POSTGRES_DB
+              value: ai-employee
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_INITDB_ARGS
+              value: "--auth-host=md5"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ai-employee", "-d", "ai-employee"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ai-employee", "-d", "ai-employee"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ai-employee
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: pg
+  type: ClusterIP

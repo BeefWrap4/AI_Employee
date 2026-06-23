@@ -4,7 +4,11 @@
 # services stay read-only root fs. DATABASE_URL unset → all 4 PG-backed
 # services fall back to in-process SQLite (per build_*_store() design).
 global:
-  databaseUrl: ""          # force SQLite fallback (no postgres in kind)
+  # R34-D3: real Postgres 16 deployed via infra/k8s/postgres.yaml.  The
+  # 4 PG-backed services (knowledge-api, rca-agent, agent-platform-api,
+  # approval-service) now switch from SQLite to PG, exercising the
+  # build_*_store() PG path in a real cluster.
+  databaseUrl: "postgresql://ai-employee:ai-employee@postgres:5432/ai-employee"
   jwtAuthStrict: false
   storageClassName: ""
 
