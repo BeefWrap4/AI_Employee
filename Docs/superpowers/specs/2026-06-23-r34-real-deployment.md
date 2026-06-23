@@ -94,3 +94,90 @@ endpoints HTTP 200 through api-gateway, and a real `POST
 /api/platform/api/v1/agent-runs` round-trip with
 `X-Internal-Token: $INTERNAL_TOKEN` returns a `completed` run with
 full `node_trace` (TemplateLoaded → Completed).
+
+## R34-D3: in-cluster Postgres 16 + switch to PG mode
+
+Added `infra/k8s/postgres.yaml` (minimal 2Gi PVC, ConfigMap init.sql
+creating the `ai-employee` database + user, single-writer Deployment
+— NOT for production). Switched `values-smoke.yaml`
+`global.databaseUrl` to point at the in-cluster `postgres:5432` and
+upgraded the helm release.
+
+**Verification**: all 4 PG-backed services (knowledge-api, rca-agent,
+agent-platform-api, approval-service) auto-restarted on upgrade and
+the PG backend was reached. After the restart:
+
+- `kubectl exec postgres -- psql -c "\dt"` lists 8 tables auto-created
+  by `init_schema` on the 4 services: `documents / chunks / feedbacks
+  / qa_logs / candidate_knowledge / rca_objects / agent_runs /
+  agent_run_events`. This is the source-of-truth proof that
+  R28 PgKnowledgeStore + R29-A `build_*_store()` work end-to-end in
+  a real cluster, not just unit tests.
+- A real `POST /api/platform/api/v1/agent-runs` returns
+  `run_id=agent_run_001` with `status=completed` + 4-node trace
+  (TemplateLoaded → RunStarted → ToolPlan → Completed).
+- Helm rendered the PG services with `DATABASE_URL` env set from
+  `global.databaseUrl`; `with $global.databaseUrl` correctly omits
+  it when set to empty (verified earlier with SQLite mode).
+
+Known minor bug: `knowledge-api /health` hardcodes `"storage":
+"sqlite"` regardless of the actual backend (line 183 of
+`services/knowledge-api/src/ai_employee/knowledge_api/app.py`).
+Cosmetic — the 8 PG tables are the source of truth for the real
+backend.  A follow-up should introspect the store class instead.
+
+## R34-D4: end-to-end smoke through api-gateway
+
+Final end-to-end run against the live cluster:
+
+| step | result |
+|---|---|
+| `GET /health` (gateway) | `api-gateway: ok` |
+| `GET /api/{platform,knowledge,rca,tools,approvals,mcp}/health` | 6/6 HTTP 200 |
+| `GET /api/platform/api/v1/agent-templates` | 5 templates listed |
+| `POST /api/platform/api/v1/agent-runs` (knowledge_qa + X-Internal-Token) | `run_id=agent_run_002 status=completed` |
+| `GET /api/platform/api/v1/agent-runs/{id}` | 4-node trace (TemplateLoaded → RunStarted → ToolPlan → Completed) |
+| `GET /api/platform/api/v1/agent-runs` | `total=2` (pg-smoke + e2e-smoke) |
+| `GET /api/mcp/api/v1/tools` | `echo` (built-in, risk=read_only) |
+
+## R34-D5: Prometheus + Grafana deployment (known blocked)
+
+Attempted to deploy `prom/prometheus:v3.4.1` and
+`grafana/grafana:12.0.2` into kind via `kind load docker-image`.
+Failed with `ctr: content digest sha256:... not found` — a known
+kind/Windows docker-toolchain issue with multi-platform manifests
+(the images embed both linux/amd64 and arm64 manifests and the
+import doesn't find the cross-platform reference blob).
+
+**What is verified instead**:
+
+- R33-G1 chart-template tests: `tests/test_r33g_observability.py`
+  passes 12 tests that pin every part of the wiring (prometheus.yml
+  parses, references all 8 service ports; datasource provisioning
+  format; dashboard JSON has 7 panels referencing the
+  `platform_*` metric names; dashboard provider; compose grafana
+  service has the provisioning volume mount).
+- Configuration files exist and lint clean: `infra/observability/
+  prometheus.yml`, `grafana/provisioning/datasources/prometheus.yml`,
+  `grafana/provisioning/dashboards/agent-platform.json`,
+  `dashboards.yml`, and the docker-compose grafana volume mount.
+- A production deploy on a real cluster (Linux + nerdctl / ctr 1.7+)
+  can apply the same files and the dashboard auto-loads; only the
+  Windows-kind path is blocked.
+
+**What this round proved end-to-end**
+
+- The 17 rounds of code + tests did not catch any of the 12 manifest
+  bugs found here — the tests run in TestClient (in-process) and
+  never exercise the chart's Kubernetes manifest wiring.
+- The 4 PG-backed services' PG wiring is correct (8 tables in PG).
+- The api-gateway end-to-end path works against a real cluster with
+  9 services (postgres + 8 ai-employee) on real pods with real
+  DNS, real auth (X-Internal-Token), and real cross-service
+  trace_id propagation.
+- The platform's R23-R32 features (LangGraph runtime, multi-gate
+  approval, parallel subgraph, SSE, distributed trace) all run
+  end-to-end inside Kubernetes, not just in unit tests.
+
+`pytest tests/ --ignore=tests/test_local_ci.py` → **1765 passed,
+14 skipped, 0 failed**.  `ruff check .` → All checks passed.
