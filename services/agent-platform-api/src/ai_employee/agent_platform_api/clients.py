@@ -30,11 +30,83 @@ existing combined ``runtime.decide_approval_task`` for zero regression.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
 from ai_employee.agent_platform_api import runtime
 from ai_employee.agent_platform_api.schemas import ApprovalTask, ToolResponse
+
+# --------------------------------------------------------------------------- #
+# R33-H: distributed trace context (contextvars).
+#
+# The api-gateway mints / propagates ``X-Trace-Id`` (+ ``X-Run-Id``) on
+# inbound requests to the platform.  The platform binds those into the
+# context vars below (via :func:`bind_trace_context`) so the Http
+# delegating clients can stamp them on outbound calls without threading
+# them through every function signature.  Outside a bound context the
+# vars are empty and the Http clients omit the headers entirely —
+# preserving the exact header sets existing tests assert.
+# --------------------------------------------------------------------------- #
+
+_current_trace_id: ContextVar[str | None] = ContextVar(
+    "ai_employee_current_trace_id",
+    default=None,
+)
+_current_run_id: ContextVar[str | None] = ContextVar(
+    "ai_employee_current_run_id",
+    default=None,
+)
+
+
+def get_current_trace_id() -> str | None:
+    """Return the trace_id bound to the current context (or ``None``)."""
+    return _current_trace_id.get()
+
+
+def get_current_run_id() -> str | None:
+    """Return the run_id bound to the current context (or ``None``)."""
+    return _current_run_id.get()
+
+
+@contextmanager
+def bind_trace_context(
+    trace_id: str | None,
+    run_id: str | None = None,
+) -> Iterator[None]:
+    """Bind ``trace_id`` / ``run_id`` to the current context for the block.
+
+    Empty / ``None`` values are treated as "unset" so no header is added
+    for them.  The previous values are restored on exit (token reset
+    pattern) so the context never leaks past the ``with`` block, even
+    across exceptions.
+
+    Used by the platform's inbound middleware (R33-H2) to capture the
+    caller's ``X-Trace-Id`` / ``X-Run-Id`` for the request scope, and
+    directly by tests that want to assert the Http clients propagate
+    them.
+    """
+    trace_token = _current_trace_id.set(trace_id or None)
+    run_token = _current_run_id.set(run_id or None)
+    try:
+        yield
+    finally:
+        _current_trace_id.reset(trace_token)
+        _current_run_id.reset(run_token)
+
+
+def _trace_headers() -> dict[str, str]:
+    """Return the trace headers active in the current context (may be empty)."""
+    h: dict[str, str] = {}
+    trace_id = _current_trace_id.get()
+    if trace_id:
+        h["X-Trace-Id"] = trace_id
+    run_id = _current_run_id.get()
+    if run_id:
+        h["X-Run-Id"] = run_id
+    return h
 
 
 @runtime_checkable
@@ -243,6 +315,8 @@ class HttpMcpGatewayClient:
         h = {"Content-Type": "application/json"}
         if self.token:
             h["X-Internal-Token"] = self.token
+        # R33-H: propagate the request-scoped trace context when set.
+        h.update(_trace_headers())
         return h
 
     def _post(self, path: str, json: dict[str, Any]) -> httpx.Response:  # pragma: no cover
@@ -664,6 +738,8 @@ class HttpApprovalServiceClient:
         h = {"Content-Type": "application/json"}
         if self.token:
             h["X-Internal-Token"] = self.token
+        # R33-H: propagate the request-scoped trace context when set.
+        h.update(_trace_headers())
         return h
 
     # The two transport methods are overridable in tests (monkeypatched
@@ -910,5 +986,8 @@ __all__ = [
     "HttpApprovalServiceClient",
     "InMemoryApprovalServiceClient",
     "apply_decision_run_effect",
+    "bind_trace_context",
     "build_approval_client",
+    "get_current_run_id",
+    "get_current_trace_id",
 ]
