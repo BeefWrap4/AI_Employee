@@ -218,6 +218,122 @@ def _subgraph_enabled() -> bool:
     return os.getenv("LANGGRAPH_SUBGRAPH", "true").lower() not in ("false", "0", "no")
 
 
+def build_checkpointer() -> Any:
+    """Build a LangGraph checkpointer from the ``CHECKPOINTER_BACKEND`` env.
+
+    R33-A1 (spec P3 §4 LangGraph v1 depth): production deployments need
+    to swap the R31-B in-process ``MemorySaver`` for a durable backend
+    (``RedisSaver`` / ``PostgresSaver``) so a run parked at the HITL gate
+    survives a replica restart and can be resumed by another replica.
+    This factory reads ``CHECKPOINTER_BACKEND`` and constructs the right
+    saver:
+
+      * ``memory`` (default) → :class:`langgraph.checkpoint.memory.MemorySaver`
+      * ``redis``  → ``langgraph.checkpoint.redis.RedisSaver``
+      * ``postgres`` → ``langgraph.checkpoint.postgres.PostgresSaver``
+
+    The redis / postgres backends live in optional extras
+    (``langgraph-checkpoint-redis`` / ``langgraph-checkpoint-postgres``).
+    When the requested extra is not installed — or an unknown backend
+    value is supplied — the factory degrades to ``MemorySaver`` with a
+    warning so the runtime always stays resumable out of the box.
+
+    The redis/postgres savers require an async connection at
+    construction; to keep the factory synchronous and dependency-light we
+    build them lazily via their ``.from_conn_string``-style constructor
+    when available, otherwise fall back to ``MemorySaver``.  The memory
+    path is always available and is the backward-compatible default.
+    """
+    import warnings
+
+    backend = os.getenv("CHECKPOINTER_BACKEND", "memory").strip().lower()
+
+    if backend == "memory":
+        from langgraph.checkpoint.memory import MemorySaver
+
+        return MemorySaver()
+
+    if backend == "redis":
+        try:
+            from langgraph.checkpoint.redis import RedisSaver
+        except Exception as exc:  # pragma: no cover - extra not installed
+            warnings.warn(
+                "CHECKPOINTER_BACKEND=redis but langgraph-checkpoint-redis is "
+                f"not importable ({exc!r}); falling back to MemorySaver.",
+                stacklevel=2,
+            )
+            from langgraph.checkpoint.memory import MemorySaver
+
+            return MemorySaver()
+        return _construct_remote_saver(RedisSaver, "redis")
+
+    if backend == "postgres":
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+        except Exception as exc:  # pragma: no cover - extra not installed
+            warnings.warn(
+                "CHECKPOINTER_BACKEND=postgres but langgraph-checkpoint-postgres "
+                f"is not importable ({exc!r}); falling back to MemorySaver.",
+                stacklevel=2,
+            )
+            from langgraph.checkpoint.memory import MemorySaver
+
+            return MemorySaver()
+        return _construct_remote_saver(PostgresSaver, "postgres")
+
+    # Unknown backend — degrade to MemorySaver rather than crash.
+    warnings.warn(
+        f"Unknown CHECKPOINTER_BACKEND={backend!r}; falling back to MemorySaver.",
+        stacklevel=2,
+    )
+    from langgraph.checkpoint.memory import MemorySaver
+
+    return MemorySaver()
+
+
+def _construct_remote_saver(saver_cls: Any, label: str) -> Any:
+    """Construct a remote (redis/postgres) saver from its env DSN.
+
+    The langgraph redis/postgres savers ship several constructor shapes
+    across versions (``RedisSaver.from_conn_string(...)``,
+    ``PostgresSaver(conn)``).  We try the lightweight
+    ``from_conn_string`` factory first (passing the conventional DSN env
+    var), then a zero-arg construction, and finally fall back to
+    ``MemorySaver`` if neither works — a misconfigured DSN must never
+    make the runtime non-resumable.
+    """
+    import warnings
+
+    dsn_env = {
+        "redis": "REDIS_CHECKPOINT_URL",
+        "postgres": "POSTGRES_CHECKPOINT_URL",
+    }.get(label, "")
+    dsn = os.getenv(dsn_env) if dsn_env else None
+    from_factory = getattr(saver_cls, "from_conn_string", None)
+    if callable(from_factory) and dsn:
+        try:
+            return from_factory(dsn)
+        except Exception as exc:  # pragma: no cover - dsn / version specific
+            warnings.warn(
+                f"{saver_cls.__name__}.from_conn_string failed ({exc!r}); "
+                "falling back to MemorySaver.",
+                stacklevel=2,
+            )
+            from langgraph.checkpoint.memory import MemorySaver
+
+            return MemorySaver()
+    # No DSN / no factory: fall back to MemorySaver.  We do not attempt a
+    # bare ``saver_cls()`` because the remote savers require a live
+    # connection object at construction time.
+    warnings.warn(
+        f"CHECKPOINTER_BACKEND={label} but no {dsn_env} configured; falling back to MemorySaver.",
+        stacklevel=2,
+    )
+    from langgraph.checkpoint.memory import MemorySaver
+
+    return MemorySaver()
+
+
 class LangGraphRuntime:
     """Drives agent runs through a LangGraph StateGraph."""
 
@@ -383,16 +499,17 @@ class LangGraphRuntime:
     def _get_checkpointer(self) -> Any:
         """Return the checkpointer for this runtime.
 
-        Defaults to a fresh :class:`MemorySaver` when none was injected
-        so every runtime is resumable out of the box.  Tests that need
+        Defaults to a factory-built saver (see :func:`build_checkpointer`)
+        when none was injected so every runtime is resumable out of the
+        box and production deployments can swap in ``RedisSaver`` /
+        ``PostgresSaver`` via ``CHECKPOINTER_BACKEND``.  Tests that need
         cross-runtime durability pass a shared ``MemorySaver`` via the
-        ``checkpointer`` constructor kwarg.
+        ``checkpointer`` constructor kwarg (the injected instance always
+        wins over the env).
         """
         if self._checkpointer is not None:
             return self._checkpointer
-        from langgraph.checkpoint.memory import MemorySaver
-
-        self._checkpointer = MemorySaver()
+        self._checkpointer = build_checkpointer()
         return self._checkpointer
 
     def _route_after_tool_plan(
@@ -1257,5 +1374,6 @@ def build_langgraph_runtime() -> LangGraphRuntime:
 
 __all__ = [
     "LangGraphRuntime",
+    "build_checkpointer",
     "build_langgraph_runtime",
 ]
