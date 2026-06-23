@@ -1,0 +1,20 @@
+# Grafana dashboard provider (R33-G1c; spec §6.4 可观测).
+#
+# Tells Grafana to load dashboards from /etc/grafana/provisioning/dashboards
+# (the bind-mount target of infra/observability/grafana/provisioning/
+# dashboards in docker-compose/k8s).  Any *.json file in that dir is
+# auto-imported on startup.
+
+apiVersion: 1
+
+providers:
+  - name: agent-platform
+    orgId: 1
+    folder: AI Employee
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

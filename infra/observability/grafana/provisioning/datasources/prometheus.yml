@@ -1,0 +1,19 @@
+# Grafana datasource provisioning (R33-G1b; spec §6.4 可观测).
+#
+# Auto-provisions a Prometheus datasource pointing at the
+# ``prometheus`` service on the compose/k8s network.  Grafana loads
+# this on startup via the provisioning API (apiVersion 1), so no
+# manual datasource configuration is required.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
