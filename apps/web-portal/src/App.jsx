@@ -6,12 +6,14 @@ import {
   FileSearchOutlined,
   ToolOutlined,
   DashboardOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import RcaView from './views/RcaView.jsx'
 import KnowledgeView from './views/KnowledgeView.jsx'
 import EvalView from './views/EvalView.jsx'
 import ToolsView from './views/ToolsView.jsx'
 import DashboardView from './views/DashboardView.jsx'
+import RunView from './views/RunView.jsx'
 
 const { Header, Sider, Content } = Layout
 
@@ -21,6 +23,7 @@ const MENU_ITEMS = [
   { key: 'knowledge', icon: <FileSearchOutlined />, label: '知识库' },
   { key: 'eval', icon: <ExperimentOutlined />, label: '评测中心' },
   { key: 'tools', icon: <ToolOutlined />, label: '工具注册' },
+  { key: 'run', icon: <ThunderboltOutlined />, label: '运行实况' },
 ]
 
 const VIEWS = {
@@ -29,6 +32,7 @@ const VIEWS = {
   knowledge: KnowledgeView,
   eval: EvalView,
   tools: ToolsView,
+  run: RunView,
 }
 
 export default function App() {
