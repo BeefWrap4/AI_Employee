@@ -91,7 +91,13 @@ def test_context_resets_after_block() -> None:
 def test_approval_decide_sends_trace_id_on_the_wire(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """decide() puts X-Trace-Id on the outbound httpx.post headers."""
+    """decide() puts X-Trace-Id on the outbound httpx.post headers.
+
+    The trace_id is supplied as an inbound ``X-Trace-Id`` header; the
+    platform middleware binds it into the request context so the Http
+    client picks it up via :func:`_trace_headers` and stamps it on the
+    outbound call to approval-service.
+    """
     store = ApprovalTaskStore(db_path=str(tmp_path / "approval.sqlite3"))
     approval_app = create_approval_app(store=store)
     approval_client = TestClient(approval_app)
@@ -126,12 +132,13 @@ def test_approval_decide_sends_trace_id_on_the_wire(
     task = platform.get("/api/v1/approval-tasks?status=pending").json()["items"][0]
     task_id = task["task_id"]
 
-    # Decide WITH a trace context bound — the outbound call must carry it.
-    with bind_trace_context("tr-wire-1", run_id="run-wire-1"):
-        resp = platform.post(
-            f"/api/v1/approval-tasks/{task_id}/decision",
-            json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
-        )
+    # Decide with an inbound X-Trace-Id + X-Run-Id — the outbound call
+    # to approval-service must carry them.
+    resp = platform.post(
+        f"/api/v1/approval-tasks/{task_id}/decision",
+        json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
+        headers={"X-Trace-Id": "tr-wire-1", "X-Run-Id": "run-wire-1"},
+    )
     assert resp.status_code == 200, resp.text
     sent_headers = captured["headers"]
     assert sent_headers["X-Trace-Id"] == "tr-wire-1"
@@ -160,18 +167,18 @@ def test_mcp_register_sends_trace_id_on_the_wire(
     explicit = HttpMcpGatewayClient("http://mcp-gateway.test")
     platform = TestClient(create_app(mcp_client=explicit))
 
-    with bind_trace_context("tr-mcp-1"):
-        resp = platform.post(
-            "/api/v1/tools",
-            json={
-                "tool_name": "knowledge-api.chat.query",
-                "service_name": "knowledge-api",
-                "description": "Query knowledge base",
-                "input_schema": {"type": "object"},
-                "output_schema": {"type": "object"},
-                "risk_level": "read_only",
-            },
-        )
+    resp = platform.post(
+        "/api/v1/tools",
+        json={
+            "tool_name": "knowledge-api.chat.query",
+            "service_name": "knowledge-api",
+            "description": "Query knowledge base",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+            "risk_level": "read_only",
+        },
+        headers={"X-Trace-Id": "tr-mcp-1"},
+    )
     assert resp.status_code == 201, resp.text
     sent_headers = captured["headers"]
     assert sent_headers["X-Trace-Id"] == "tr-mcp-1"
@@ -184,3 +191,141 @@ def test_bind_trace_context_none_trace_does_not_add_header() -> None:
         headers = client._headers()
     assert "X-Trace-Id" not in headers
     assert "X-Run-Id" not in headers
+
+
+# --------------------------------------------------------------------------- #
+# Cycle 2: the platform binds the trace context from the inbound request.
+# --------------------------------------------------------------------------- #
+
+
+def _http_approval_platform(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> tuple[TestClient, dict[str, object]]:
+    """Wire the platform to a real approval-service via a fake URL.
+
+    Returns the platform TestClient and a ``captured`` dict that the
+    patched ``_post`` fills with the outbound headers on each call.
+    """
+    store = ApprovalTaskStore(db_path=str(tmp_path / "approval.sqlite3"))
+    approval_app = create_approval_app(store=store)
+    approval_client = TestClient(approval_app)
+
+    captured: dict[str, object] = {}
+
+    def _fake_post(self, path, json):  # type: ignore[no-untyped-def]
+        captured["headers"] = self._headers()
+        return approval_client.post(path, json=json)
+
+    def _fake_get(self, path, params=None):  # type: ignore[no-untyped-def]
+        return approval_client.get(path, params=params)
+
+    monkeypatch.setattr(HttpApprovalServiceClient, "_post", _fake_post)
+    monkeypatch.setattr(HttpApprovalServiceClient, "_get", _fake_get)
+    monkeypatch.setenv("APPROVAL_SERVICE_URL", "http://approval-service.test")
+
+    explicit = HttpApprovalServiceClient("http://approval-service.test")
+    platform = TestClient(create_app(approval_client=explicit))
+    return platform, captured
+
+
+def _make_run(platform: TestClient) -> str:
+    resp = platform.post(
+        "/api/v1/agent-runs",
+        json={
+            "template_id": "rca",
+            "requested_by": "alice",
+            "input": {"incident_id": "inc_001"},
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    task = platform.get("/api/v1/approval-tasks?status=pending").json()["items"][0]
+    return task["task_id"]
+
+
+def test_inbound_trace_id_propagates_on_outbound_delegation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An inbound X-Trace-Id reaches the outbound approval-service call."""
+    platform, captured = _http_approval_platform(monkeypatch, tmp_path)
+    task_id = _make_run(platform)
+
+    resp = platform.post(
+        f"/api/v1/approval-tasks/{task_id}/decision",
+        json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
+        headers={"X-Trace-Id": "tr-xyz"},
+    )
+    assert resp.status_code == 200, resp.text
+    sent_headers = captured["headers"]
+    assert sent_headers["X-Trace-Id"] == "tr-xyz"
+
+
+def test_inbound_run_id_propagates_on_outbound_delegation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An inbound X-Run-Id reaches the outbound approval-service call."""
+    platform, captured = _http_approval_platform(monkeypatch, tmp_path)
+    task_id = _make_run(platform)
+
+    resp = platform.post(
+        f"/api/v1/approval-tasks/{task_id}/decision",
+        json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
+        headers={"X-Trace-Id": "tr-run", "X-Run-Id": "run-inbound"},
+    )
+    assert resp.status_code == 200, resp.text
+    sent_headers = captured["headers"]
+    assert sent_headers["X-Trace-Id"] == "tr-run"
+    assert sent_headers["X-Run-Id"] == "run-inbound"
+
+
+def test_no_inbound_trace_id_still_succeeds_and_mints_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A request with NO X-Trace-Id header still succeeds (backward compat).
+
+    The middleware mints an internal trace_id so the outbound delegation
+    still carries one (the platform always has a trace context for
+    outbound calls).  The minted value is a non-empty string.
+    """
+    platform, captured = _http_approval_platform(monkeypatch, tmp_path)
+    task_id = _make_run(platform)
+
+    # No X-Trace-Id header on the inbound request.
+    resp = platform.post(
+        f"/api/v1/approval-tasks/{task_id}/decision",
+        json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
+    )
+    assert resp.status_code == 200, resp.text
+    sent_headers = captured["headers"]
+    # A trace_id was minted internally and propagated.
+    assert sent_headers.get("X-Trace-Id")
+    assert isinstance(sent_headers["X-Trace-Id"], str)
+    assert len(sent_headers["X-Trace-Id"]) > 0
+    # No run_id was inbound, so none is propagated.
+    assert "X-Run-Id" not in sent_headers
+
+
+def test_trace_context_does_not_leak_across_requests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The bound trace context is scoped to a single request (no leak)."""
+    platform, captured = _http_approval_platform(monkeypatch, tmp_path)
+    task_id = _make_run(platform)
+
+    # First request carries tr-first.
+    platform.post(
+        f"/api/v1/approval-tasks/{task_id}/decision",
+        json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
+        headers={"X-Trace-Id": "tr-first"},
+    )
+    first = captured["headers"]["X-Trace-Id"]
+    assert first == "tr-first"
+
+    # A subsequent request with no inbound trace must NOT see tr-first.
+    # Re-create a run because the previous task is now terminal.
+    second_task_id = _make_run(platform)
+    platform.post(
+        f"/api/v1/approval-tasks/{second_task_id}/decision",
+        json={"decision": "approved", "decided_by": "alice", "comment": "ok"},
+    )
+    second = captured["headers"]["X-Trace-Id"]
+    assert second != "tr-first"

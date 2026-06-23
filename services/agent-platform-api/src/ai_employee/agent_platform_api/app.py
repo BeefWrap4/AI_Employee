@@ -14,6 +14,7 @@ from ai_employee.agent_platform_api.clients import (
     _ApprovalError,
     _McpError,
     apply_decision_run_effect,
+    bind_trace_context,
     build_approval_client,
     build_mcp_client,
 )
@@ -274,6 +275,25 @@ def create_app(
             reset_current_tenant(token)
         # Echo resolved tenant for client visibility.
         response.headers["X-Tenant-ID"] = ctx.tenant_id
+        return response
+
+    # R33-H2: bind the distributed trace context from the inbound request
+    # so Http delegating clients (approval-service / mcp-gateway) stamp
+    # ``X-Trace-Id`` / ``X-Run-Id`` on outbound calls.  The api-gateway
+    # already mints / propagates ``X-Trace-Id`` to backends; when the
+    # header is absent (direct-to-platform calls, tests) the platform
+    # mints a uuid4 so it always has a trace context for outbound
+    # delegations.  ``bind_trace_context`` resets the context vars in its
+    # ``finally`` so no trace leaks across requests even on exceptions.
+    @app.middleware("http")
+    async def trace_context_middleware(request, call_next):
+        inbound_trace = request.headers.get("X-Trace-Id")
+        trace_id = inbound_trace or uuid.uuid4().hex
+        run_id = request.headers.get("X-Run-Id")
+        with bind_trace_context(trace_id, run_id):
+            response = await call_next(request)
+        # Echo the active trace_id on the response for client visibility.
+        response.headers["X-Trace-Id"] = trace_id
         return response
 
     @app.get("/api/v1/tenant/whoami")
