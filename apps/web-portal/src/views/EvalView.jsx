@@ -3,6 +3,8 @@ import {
   Button,
   Card,
   Col,
+  Form,
+  Input,
   Row,
   Select,
   Space,
@@ -14,12 +16,16 @@ import {
 import { platformApi } from '../api.js'
 
 // Eval center: list eval runs and compare two runs side by side
-// (per-metric delta via /api/v1/evaluations/compare).
+// (per-metric delta via /api/v1/evaluations/compare). Also supports
+// kicking off a new eval run via POST /api/v1/evaluations/runs.
 export default function EvalView() {
   const [runs, setRuns] = useState([])
   const [runA, setRunA] = useState(null)
   const [runB, setRunB] = useState(null)
   const [comparison, setComparison] = useState(null)
+  const [templates, setTemplates] = useState([])
+  const [creating, setCreating] = useState(false)
+  const [form] = Form.useForm()
 
   const loadRuns = async () => {
     try {
@@ -30,8 +36,19 @@ export default function EvalView() {
     }
   }
 
+  const loadTemplates = async () => {
+    try {
+      const data = await platformApi.listTemplates()
+      setTemplates(data.items || [])
+    } catch (e) {
+      // Non-fatal: template select just stays empty.
+      setTemplates([])
+    }
+  }
+
   useEffect(() => {
     loadRuns()
+    loadTemplates()
   }, [])
 
   const compare = async () => {
@@ -44,6 +61,26 @@ export default function EvalView() {
       setComparison(result)
     } catch (e) {
       message.error(`对比失败: ${e.message}`)
+    }
+  }
+
+  const createRun = async (values) => {
+    setCreating(true)
+    try {
+      const body = {
+        eval_type: values.eval_type,
+        template_id: values.template_id,
+        golden_path: values.golden_path,
+      }
+      if (values.api_base) body.api_base = values.api_base
+      await platformApi.createEvalRun(body)
+      message.success('评测运行已创建')
+      form.resetFields()
+      await loadRuns()
+    } catch (e) {
+      message.error(`创建失败: ${e.message}`)
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -96,6 +133,49 @@ export default function EvalView() {
   return (
     <div>
       <h2 className="page-title">评测中心</h2>
+      <Card title="创建评测运行" size="small" style={{ marginBottom: 16 }}>
+        <Form
+          form={form}
+          layout="inline"
+          onFinish={createRun}
+          initialValues={{ eval_type: 'rag' }}
+        >
+          <Form.Item label="评测类型" name="eval_type" rules={[{ required: true }]}>
+            <Select
+              style={{ width: 140 }}
+              options={[
+                { value: 'rag', label: 'rag' },
+                { value: 'rca', label: 'rca' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item label="模板" name="template_id" rules={[{ required: true }]}>
+            <Select
+              style={{ width: 200 }}
+              placeholder="选择模板"
+              options={templates.map((t) => ({
+                value: t.template_id,
+                label: t.template_id,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item label="金标路径" name="golden_path" rules={[{ required: true }]}>
+            <Input
+              placeholder="golden_path 数据集路径"
+              style={{ width: 280 }}
+            />
+          </Form.Item>
+          <Form.Item label="api_base" name="api_base">
+            <Input placeholder="可选，例如 http://127.0.0.1:8070" style={{ width: 240 }} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={creating}>
+              创建
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+
       <Card title="版本对比" size="small" style={{ marginBottom: 16 }}>
         <Space>
           <Select
