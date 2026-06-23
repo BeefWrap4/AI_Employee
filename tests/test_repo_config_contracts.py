@@ -18,8 +18,11 @@ COMPOSE_PATH = ROOT / "infra" / "docker-compose" / "compose.yml"
 PYPROJECT_PATH = ROOT / "pyproject.toml"
 PYTEST_INI_PATH = ROOT / "pytest.ini"
 LOCAL_CI_PATH = ROOT / "tests" / "test_local_ci.py"
+WEB_NGINX_PATH = ROOT / "apps" / "web-portal" / "nginx.conf"
+WEB_DOCKERIGNORE_PATH = ROOT / "apps" / "web-portal" / ".dockerignore"
 
 CANONICAL_COMPOSE_APP_SERVICES = {
+    "web-portal",
     "knowledge-api",
     "ingestion-worker",
     "rca-agent",
@@ -61,6 +64,63 @@ def test_compose_depends_on_references_declared_services() -> None:
         if missing:
             undefined[name] = missing
     assert undefined == {}
+
+
+def test_web_portal_nginx_proxies_to_compose_service_names() -> None:
+    text = WEB_NGINX_PATH.read_text(encoding="utf-8")
+    assert ".svc.cluster.local" not in text
+    for upstream in (
+        "http://knowledge-api:8010/",
+        "http://rca-agent:8020/",
+        "http://agent-platform-api:8030/",
+        "http://tool-registry:8040/",
+    ):
+        assert upstream in text
+
+
+def test_web_portal_compose_build_context_is_frontend_only() -> None:
+    web = _compose()["services"]["web-portal"]
+    build = web["build"]
+    assert build["context"].replace("\\", "/") == "../../apps/web-portal"
+    assert build["dockerfile"] == "Dockerfile"
+
+
+def test_web_portal_has_local_dockerignore_for_generated_assets() -> None:
+    entries = set(WEB_DOCKERIGNORE_PATH.read_text(encoding="utf-8").splitlines())
+    assert "node_modules/" in entries
+    assert "dist/" in entries
+
+
+def test_compose_app_data_mounts_use_local_bind_paths() -> None:
+    services = _compose()["services"]
+    for service_name in (
+        "knowledge-api",
+        "ingestion-worker",
+        "rca-agent",
+        "agent-platform-api",
+        "tool-registry",
+        "approval-service",
+    ):
+        volumes = services[service_name].get("volumes", [])
+        assert any(str(v).startswith("../../var/docker/") for v in volumes), service_name
+
+
+def test_compose_bind_mounted_app_services_can_write_local_data_dirs() -> None:
+    services = _compose()["services"]
+    for service_name in (
+        "knowledge-api",
+        "ingestion-worker",
+        "rca-agent",
+        "agent-platform-api",
+        "tool-registry",
+        "approval-service",
+    ):
+        assert services[service_name].get("user") == "0", service_name
+
+
+def test_approval_service_uses_postgres_in_compose() -> None:
+    env = _compose()["services"]["approval-service"]["environment"]
+    assert env["DATABASE_URL"].startswith("postgresql://")
 
 
 def _pyproject_source_roots() -> list[str]:

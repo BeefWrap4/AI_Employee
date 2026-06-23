@@ -36,7 +36,7 @@ export default function KnowledgeView() {
     if (!question.trim()) return
     setLoading(true)
     try {
-      const result = await knowledgeApi.query(question, ['wireless'])
+      const result = await knowledgeApi.query(question, [])
       setAnswer(result)
     } catch (e) {
       message.error(`查询失败: ${e.message}`)

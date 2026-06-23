@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from collections.abc import Callable
@@ -590,6 +591,78 @@ class PgKnowledgeStore:
         ).fetchone()
         return _chunk_row_to_dict(row) if row else None
 
+    def search_fts(
+        self,
+        query: str,
+        doc_ids: list[str],
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Portable keyword fallback used when OpenSearch is disabled.
+
+        SQLiteStore uses an FTS5 virtual table.  The Postgres-backed MVP
+        keeps BM25 in OpenSearch, but local Docker defaults it off, so this
+        lightweight scorer preserves the RAG flow for docker-compose.
+        """
+        if not doc_ids:
+            return []
+        placeholders = ",".join("?" for _ in doc_ids)
+        rows = self._db.execute(
+            f"SELECT c.chunk_id, c.doc_id, c.chunk_no, c.content, c.section_path, "
+            f"c.embedding_json, c.embedding_model, c.acl_tags_json, d.title "
+            f"FROM chunks c JOIN documents d ON d.doc_id = c.doc_id "
+            f"WHERE c.doc_id IN ({placeholders})",
+            doc_ids,
+        ).fetchall()
+        terms = _keyword_terms(query)
+        if not terms:
+            return []
+
+        scored: list[tuple[int, int, dict[str, Any]]] = []
+        for row in rows:
+            haystack = " ".join(
+                str(row.get(field) or "")
+                for field in ("title", "section_path", "content")
+            ).lower()
+            score = sum(1 for term in terms if term in haystack)
+            if score <= 0:
+                continue
+            item = dict(row)
+            item["acl_tags"] = (
+                json.loads(row["acl_tags_json"]) if row.get("acl_tags_json") else []
+            )
+            scored.append((score, -int(row.get("chunk_no") or 0), item))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [item for _score, _chunk_no, item in scored[:limit]]
+
+    def list_chunks_for_vector_recall(self, doc_ids: list[str]) -> list[dict[str, Any]]:
+        if not doc_ids:
+            return []
+        placeholders = ",".join("?" for _ in doc_ids)
+        rows = self._db.execute(
+            f"SELECT chunk_id, doc_id, content, section_path, embedding_json, "
+            f"embedding_model, acl_tags_json "
+            f"FROM chunks WHERE doc_id IN ({placeholders}) AND embedding_json IS NOT NULL",
+            doc_ids,
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["embedding"] = (
+                json.loads(row["embedding_json"]) if row.get("embedding_json") else None
+            )
+            item["acl_tags"] = (
+                json.loads(row["acl_tags_json"]) if row.get("acl_tags_json") else []
+            )
+            out.append(item)
+        return out
+
+    def get_doc_title(self, doc_id: str) -> str:
+        row = self._db.execute(
+            "SELECT title FROM documents WHERE doc_id = ?",
+            (doc_id,),
+        ).fetchone()
+        return row["title"] if row else ""
+
     # -- BM25 search (delegated) ---------------------------------------------
     def search_chunks_bm25(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         """BM25 keyword search.
@@ -661,6 +734,11 @@ def _chunk_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "row_id": row.get("row_id"),
         "created_at": row["created_at"],
     }
+
+
+def _keyword_terms(query: str) -> list[str]:
+    terms = [t.lower() for t in re.findall(r"[A-Za-z0-9_\-\u4e00-\u9fff]+", query)]
+    return list(dict.fromkeys(t for t in terms if len(t) >= 2))
 
 
 def transition_parse_status(current: str, target: str) -> None:

@@ -202,6 +202,7 @@ services:
     build:
       context: ../..
       dockerfile: services/knowledge-api/Dockerfile
+    user: "0"
     environment:
       APP_PORT: "8010"
       DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
@@ -212,7 +213,7 @@ services:
       INGESTION_WORKER_URL: http://ingestion-worker:8011
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-stub}
     volumes:
-      - knowledge-data:/var/data
+      - ../../var/docker/knowledge:/var/data
     depends_on:
       - postgres
       - redis
@@ -229,13 +230,14 @@ services:
     build:
       context: ../..
       dockerfile: services/ingestion-worker/Dockerfile
+    user: "0"
     environment:
       APP_PORT: "8011"
       KNOWLEDGE_DATA_DIR: /var/data
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-stub}
       OPENSEARCH_ENABLED: ${OPENSEARCH_ENABLED:-false}
     volumes:
-      - knowledge-data:/var/data
+      - ../../var/docker/knowledge:/var/data
     ports:
       - "8011:8011"
     healthcheck:
@@ -248,6 +250,7 @@ services:
     build:
       context: ../..
       dockerfile: services/rca-agent/Dockerfile
+    user: "0"
     environment:
       APP_PORT: "8020"
       DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
@@ -256,7 +259,7 @@ services:
       KAFKA_ENABLED: "false"
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
     volumes:
-      - rca-data:/var/data
+      - ../../var/docker/rca:/var/data
     depends_on:
       - postgres
       - knowledge-api
@@ -272,6 +275,7 @@ services:
     build:
       context: ../..
       dockerfile: services/agent-platform-api/Dockerfile
+    user: "0"
     environment:
       APP_PORT: "8030"
       DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
@@ -281,7 +285,7 @@ services:
       MCP_GATEWAY_URL: http://mcp-gateway:8050
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
     volumes:
-      - platform-data:/var/data
+      - ../../var/docker/platform:/var/data
     depends_on:
       - postgres
       - redis
@@ -299,12 +303,13 @@ services:
     build:
       context: ../..
       dockerfile: services/tool-registry/Dockerfile
+    user: "0"
     environment:
       APP_PORT: "8040"
       PLATFORM_DATA_DIR: /var/data
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
     volumes:
-      - tool-registry-data:/var/data
+      - ../../var/docker/tool-registry:/var/data
     ports:
       - "8041:8040"
     healthcheck:
@@ -320,12 +325,16 @@ services:
     build:
       context: ../..
       dockerfile: services/approval-service/Dockerfile
+    user: "0"
     environment:
       APP_PORT: "8040"
+      DATABASE_URL: postgresql://ai_employee:ai_employee@postgres:5432/ai_employee
       PLATFORM_DATA_DIR: /var/data
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
     volumes:
-      - approval-data:/var/data
+      - ../../var/docker/approval:/var/data
+    depends_on:
+      - postgres
     ports:
       - "8040:8040"
     healthcheck:
@@ -411,6 +420,23 @@ services:
       - "8070:8070"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8070/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web-portal:
+    build:
+      context: ../../apps/web-portal
+      dockerfile: Dockerfile
+    depends_on:
+      - knowledge-api
+      - rca-agent
+      - agent-platform-api
+      - tool-registry
+    ports:
+      - "5173:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 10s
       timeout: 5s
       retries: 5

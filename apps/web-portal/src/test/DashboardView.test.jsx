@@ -5,7 +5,7 @@ import DashboardView from '../views/DashboardView.jsx'
 // DashboardView fires three network calls on mount:
 //   1. rcaApi.metrics()         -> request() -> fetch(...).text() then JSON.parse
 //   2. platformApi.metrics()    -> fetch(...).then(r => r.text())
-//   3. fetch('/api/v1/metrics/platform/timeseries') -> r.json()
+//   3. fetch('/api/platform/api/v1/metrics/platform/timeseries') -> r.json()
 //
 // We stub global.fetch with a single handler that dispatches by URL.
 

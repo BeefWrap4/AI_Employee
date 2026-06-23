@@ -11,6 +11,7 @@
 // header when present in localStorage.
 
 const TOKEN_KEY = 'ai_employee_jwt'
+const SESSION_KEY = 'ai_employee_session_id'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY)
@@ -19,6 +20,15 @@ export function getToken() {
 export function setToken(token) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+function getSessionId() {
+  let sessionId = localStorage.getItem(SESSION_KEY)
+  if (!sessionId) {
+    sessionId = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    localStorage.setItem(SESSION_KEY, sessionId)
+  }
+  return sessionId
 }
 
 function authHeaders() {
@@ -55,7 +65,7 @@ export const knowledgeApi = {
   query: (question, scopes = []) =>
     request('/api/knowledge', '/api/v1/chat/query', {
       method: 'POST',
-      body: { question, knowledge_scopes: scopes },
+      body: { session_id: getSessionId(), question, knowledge_scopes: scopes },
     }),
 }
 

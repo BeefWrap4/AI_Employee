@@ -189,6 +189,39 @@ def test_create_chunk_and_retrieve(tmp_path) -> None:
         assert chunks[0]["section_path"] == "root"
 
 
+def test_pg_store_keyword_and_vector_recall_methods(tmp_path) -> None:
+    for _label, db in _dbs(tmp_path):
+        store = _store(db, tmp_path)
+        doc_id = store.create_document(
+            title="RRC troubleshooting",
+            source_uri=_safe_uri(tmp_path, "rrc.md"),
+            mime_type="text/markdown",
+            metadata={},
+            acl_tags=[],
+            version="v1",
+        )
+        store.create_chunk(
+            doc_id=doc_id,
+            chunk_no=0,
+            content="RRC setup failure rate rises: check alarms, KPI, and parameter changes.",
+            section_path="Access failure > RRC setup failure",
+            page_no=1,
+            acl_tags=[],
+            embedding=[1.0, 0.0, 0.0],
+            embedding_model="stub",
+        )
+
+        keyword_hits = store.search_fts("RRC setup failure", [doc_id], limit=5)
+        assert len(keyword_hits) == 1
+        assert keyword_hits[0]["doc_id"] == doc_id
+        assert keyword_hits[0]["title"] == "RRC troubleshooting"
+
+        vector_rows = store.list_chunks_for_vector_recall([doc_id])
+        assert len(vector_rows) == 1
+        assert vector_rows[0]["embedding"] == [1.0, 0.0, 0.0]
+        assert store.get_doc_title(doc_id) == "RRC troubleshooting"
+
+
 def test_update_parse_status(tmp_path) -> None:
     for _label, db in _dbs(tmp_path):
         store = _store(db, tmp_path)

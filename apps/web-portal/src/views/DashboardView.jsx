@@ -6,7 +6,7 @@ import { rcaApi, platformApi } from '../api.js'
 // Top-level operations dashboard. Surfaces the RCA operational metrics
 // (tool success, acceptance, compression, gen time) plus a raw
 // Prometheus metrics dump from the platform API, plus ECharts trend
-// charts from the rolling /api/v1/metrics/platform/timeseries feed.
+// charts from the rolling platform metrics timeseries feed.
 export default function DashboardView() {
   const [metrics, setMetrics] = useState(null)
   const [promText, setPromText] = useState('')
@@ -16,7 +16,7 @@ export default function DashboardView() {
   useEffect(() => {
     let cancelled = false
     const loadTimeseries = () =>
-      fetch('/api/v1/metrics/platform/timeseries', {
+      fetch('/api/platform/api/v1/metrics/platform/timeseries', {
         headers: { Accept: 'application/json' },
       })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`timeseries ${r.status}`))))

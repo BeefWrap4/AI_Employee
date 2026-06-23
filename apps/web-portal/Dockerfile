@@ -4,15 +4,15 @@
 # ---- stage 1: build the Vite SPA ----
 FROM node:20-slim AS build
 WORKDIR /app
-COPY apps/web-portal/package.json ./
+COPY package*.json ./
 RUN npm install
-COPY apps/web-portal/ ./
+COPY . ./
 RUN npm run build
 
 # ---- stage 2: serve the static bundle with nginx ----
 FROM nginx:1.27-alpine AS runtime
 # SPA fallback + API proxy to the in-cluster backend services.
-COPY apps/web-portal/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

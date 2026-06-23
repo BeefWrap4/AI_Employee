@@ -45,7 +45,8 @@ function mockFetch(jsonBody, { status = 200 } = {}) {
 describe('knowledgeApi.query', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('POSTs the question + scopes and returns parsed body', async () => {
+  it('POSTs the session, question + scopes and returns parsed body', async () => {
+    localStorage.setItem('ai_employee_session_id', 'sess-test')
     const fetchMock = mockFetch({ answer: 'RRC failure means...', citations: [] })
     const result = await knowledgeApi.query('什么是 RRC?', ['ops'])
     expect(result.answer).toBe('RRC failure means...')
@@ -53,6 +54,7 @@ describe('knowledgeApi.query', () => {
     const [, init] = fetchMock.mock.calls[0]
     expect(init.method).toBe('POST')
     const body = JSON.parse(init.body)
+    expect(body.session_id).toBe('sess-test')
     expect(body.question).toBe('什么是 RRC?')
     expect(body.knowledge_scopes).toEqual(['ops'])
   })
