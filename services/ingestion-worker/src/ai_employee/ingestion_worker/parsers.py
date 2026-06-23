@@ -203,7 +203,12 @@ class PdfParser(_BaseParser):
 
 
 class DocxParser(_BaseParser):
-    """DOCX：使用 python-docx 按段落遍历，heading 样式构建 section_path，正文段落作为 blocks。"""
+    """DOCX：使用 python-docx 按段落遍历，heading 样式构建 section_path，正文段落作为 blocks。
+
+    R33-C3: 同时遍历 ``doc.tables``，每个表产出一个结构化 section
+    （``section_path=f"Table {i}"``、``table_id=f"docx_table_{i}"``、
+    ``columns`` 取首行、``values`` 取其余行、文本块为单元格拼接）。
+    """
 
     def parse(self, source: str | bytes) -> list[ParsedSection]:
         import docx as _docx
@@ -246,7 +251,53 @@ class DocxParser(_BaseParser):
             else:
                 append_block(text)
 
+        # Tables (R33-C3): emit one structured section per table, appended
+        # after the paragraph sections so existing prose parsing is unchanged.
+        for tbl_idx, table in enumerate(doc.tables):
+            section = self._table_to_section(table, tbl_idx)
+            if section is not None:
+                sections.append(section)
+
         return sections
+
+    @staticmethod
+    def _table_to_section(table: object, idx: int) -> ParsedSection | None:
+        """Convert a python-docx table into a structured ParsedSection.
+
+        Returns ``None`` for an empty / header-only table (no data rows).
+        """
+        rows = list(table.rows)  # type: ignore[attr-defined]
+        if not rows:
+            return None
+        cell_grid: list[list[str]] = []
+        for row in rows:
+            cells = [c.text.strip() for c in row.cells]  # type: ignore[attr-defined]
+            cell_grid.append(cells)
+        columns = cell_grid[0]
+        data_rows = cell_grid[1:]
+        if not data_rows:
+            return None
+        blocks: list[str] = []
+        values: list[list[str]] = []
+        for row_cells in data_rows:
+            # Pad / truncate each row to header width for stable pairing.
+            padded = row_cells + [""] * (len(columns) - len(row_cells))
+            padded = padded[: len(columns)]
+            # Text block: "col: val | col: val" like XlsxParser.
+            parts = [f"{columns[j]}: {val}" for j, val in enumerate(padded) if j < len(columns)]
+            block = " | ".join(parts)
+            if block.strip():
+                blocks.append(block)
+                values.append(padded)
+        if not blocks:
+            return None
+        return ParsedSection(
+            section_path=f"Table {idx}",
+            blocks=blocks,
+            table_id=f"docx_table_{idx}",
+            columns=columns,
+            values=values,
+        )
 
 
 class XlsxParser(_BaseParser):
